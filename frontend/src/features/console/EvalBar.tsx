@@ -5,7 +5,12 @@ import { useTargetsStore } from "@/features/targets/targetsStore";
 
 import { runConsoleAction, useConsoleStore } from "./consoleStore";
 
-/** Expression input with ↑/↓ history. Disabled until an app is attached. */
+/**
+ * Expression input with ↑/↓ history. Disabled until an app is attached. It
+ * stays enabled while an action runs (a disabled input drops focus in the
+ * webview, which would break ↑/↓ right after Enter); Enter is ignored until
+ * the running action settles.
+ */
 export function EvalBar() {
   const backend = useBackend();
   const attached = useTargetsStore((s) => s.session.state === "attached");
@@ -18,7 +23,7 @@ export function EvalBar() {
 
   const submit = async () => {
     const expression = value.trim();
-    if (!expression) return;
+    if (!expression || busy) return;
     pushHistory(expression);
     cursor.current = null;
     setValue("");
@@ -66,7 +71,8 @@ export function EvalBar() {
             ? "Evaluate JavaScript in the app… (Enter to run, ↑↓ history)"
             : "Attach to an app to evaluate expressions"
         }
-        disabled={!attached || busy}
+        disabled={!attached}
+        aria-busy={busy}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}

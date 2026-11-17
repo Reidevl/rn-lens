@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/app/App";
 import { useShellStore } from "@/app/shell/shellStore";
-import { createMockBackend, idleSession, sampleTarget } from "@/backend";
+import { createMockBackend, idleSession, sampleTarget, type ConsoleEntry } from "@/backend";
 import { useTargetsStore } from "@/features/targets/targetsStore";
 
 import { useConsoleStore } from "./consoleStore";
@@ -94,6 +94,66 @@ describe("ConsolePanel", () => {
 
     await user.keyboard("{ArrowUp}");
     expect(input).toHaveValue("1+1");
+  });
+
+  it("keeps the input focused and enabled while an evaluation is in flight", async () => {
+    const user = userEvent.setup();
+    const backend = attachedBackend();
+    const realEvaluate = backend.console.evaluate;
+    let release = () => {};
+    backend.console.evaluate = (expression) =>
+      new Promise<ConsoleEntry>((resolve) => {
+        release = () => void realEvaluate(expression).then(resolve);
+      });
+    render(<App backend={backend} />);
+    const input = await screen.findByRole("textbox", { name: /evaluate expression/i });
+
+    await user.type(input, "1+1{Enter}");
+
+    await waitFor(() => expect(useConsoleStore.getState().busy).toBe(true));
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("aria-busy", "true");
+
+    release();
+    await waitFor(() => expect(useConsoleStore.getState().busy).toBe(false));
+    expect(input).toHaveAttribute("aria-busy", "false");
+    const log = await screen.findByRole("log");
+    expect(await within(log).findByText("2")).toBeInTheDocument();
+  });
+
+  it("surfaces evaluate and clear failures in the alert banner", async () => {
+    const user = userEvent.setup();
+    const backend = attachedBackend();
+    backend.console.evaluate = () => Promise.reject(new Error("evaluate: session closed"));
+    render(<App backend={backend} />);
+    const input = await screen.findByRole("textbox", { name: /evaluate expression/i });
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.type(input, "1+1{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent("evaluate: session closed");
+
+    backend.console.clear = () => Promise.reject(new Error("clear: session closed"));
+    await user.click(screen.getByRole("button", { name: /clear console/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("clear: session closed");
+  });
+
+  it("reports a failing sync instead of staying silently empty", async () => {
+    const backend = createMockBackend();
+    const realStats = backend.console.stats;
+    backend.console.stats = () => Promise.reject(new Error("stats: backend unavailable"));
+    render(<App backend={backend} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("stats: backend unavailable");
+
+    backend.console.stats = realStats;
+    backend.console.range = () => Promise.reject(new Error("range: backend unavailable"));
+    backend.log({ text: "unreachable" });
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("range: backend unavailable"),
+    );
+    expect(screen.queryByText("unreachable")).not.toBeInTheDocument();
   });
 
   it("is disabled until an app is attached", async () => {

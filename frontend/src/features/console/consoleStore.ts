@@ -2,7 +2,13 @@ import { create } from "zustand";
 
 import type { Backend, ConsoleEntry, ConsoleLevel } from "@/backend";
 
-/** Entries kept in memory; older ones are dropped like Go does. */
+/**
+ * Entries kept in memory, matching Go's buffer capacity. The frontend may
+ * temporarily hold more than Go does (entries it already pulled that Go has
+ * since evicted); trimming to this cap only discards entries Go already
+ * dropped and counted in `ConsoleStats.dropped`, so the dropped-entries
+ * notice in ConsolePanel reflects Go's count alone.
+ */
 export const MAX_ENTRIES = 10_000;
 const PAGE = 2_000;
 const HISTORY_MAX = 100;
@@ -117,6 +123,7 @@ export async function pullConsole(backend: Backend): Promise<void> {
     // Keep the reset marker and everything after it.
     entries = entries.filter((e) => e.epoch >= stats.epoch);
   }
+  // Local cap: see MAX_ENTRIES for why this never changes `dropped`.
   if (entries.length > MAX_ENTRIES) entries = entries.slice(entries.length - MAX_ENTRIES);
 
   useConsoleStore.setState({
@@ -128,6 +135,11 @@ export async function pullConsole(backend: Backend): Promise<void> {
   });
 }
 
+/** Message shown for a failed backend call. */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Runs a console action and surfaces its error in the store. */
 export async function runConsoleAction(action: () => Promise<void>): Promise<void> {
   const store = useConsoleStore.getState();
@@ -136,7 +148,7 @@ export async function runConsoleAction(action: () => Promise<void>): Promise<voi
   try {
     await action();
   } catch (err) {
-    useConsoleStore.getState().setError(err instanceof Error ? err.message : String(err));
+    useConsoleStore.getState().setError(errorMessage(err));
   } finally {
     useConsoleStore.getState().setBusy(false);
   }

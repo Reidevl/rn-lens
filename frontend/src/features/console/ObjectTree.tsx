@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useBackend, type ConsoleProperty, type RemoteObject } from "@/backend";
 import { cn } from "@/shared/lib/cn";
 
+import { errorMessage } from "./consoleStore";
 import { isExpandable } from "./presentation";
 
 interface Props {
@@ -39,7 +40,7 @@ export function ObjectTree({ object, epoch, label, depth = 0 }: Props) {
         setProps(await backend.console.properties(object.objectId!, epoch));
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errorMessage(err));
       } finally {
         setLoading(false);
       }

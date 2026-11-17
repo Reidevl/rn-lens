@@ -2,9 +2,12 @@ import { useEffect } from "react";
 
 import { TOPICS, useBackend } from "@/backend";
 
-import { pullConsole } from "./consoleStore";
+import { errorMessage, pullConsole, useConsoleStore } from "./consoleStore";
 
-/** One initial pull, then one pull per console:changed notice. */
+/**
+ * One initial pull, then one pull per console:changed notice. A failed pull
+ * lands in the store's error banner so a broken sync is never silent.
+ */
 export function useConsoleSync(): void {
   const backend = useBackend();
 
@@ -21,7 +24,9 @@ export function useConsoleSync(): void {
         return;
       }
       inFlight = pullConsole(backend)
-        .catch(() => {})
+        .catch((err: unknown) => {
+          if (active) useConsoleStore.getState().setError(errorMessage(err));
+        })
         .finally(() => {
           inFlight = null;
           if (again) {
