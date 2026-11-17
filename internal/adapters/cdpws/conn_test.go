@@ -1,4 +1,4 @@
-package cdp_test
+package cdpws_test
 
 import (
 	"context"
@@ -10,15 +10,16 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Reidevl/rn-lens/internal/adapters/cdp"
-	"github.com/Reidevl/rn-lens/internal/adapters/cdp/cdptest"
+	"github.com/Reidevl/rn-lens/internal/adapters/cdpws"
+	"github.com/Reidevl/rn-lens/internal/adapters/cdpws/cdptest"
+	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 )
 
-func dial(t *testing.T, srv *cdptest.Server, opts cdp.Options) *cdp.Conn {
+func dial(t *testing.T, srv *cdptest.Server, opts cdpws.Options) *cdpws.Conn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, err := cdp.Dial(ctx, srv.URL(), opts)
+	conn, err := cdpws.Dial(ctx, srv.URL(), opts)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -36,7 +37,7 @@ func TestCallReturnsResult(t *testing.T) {
 		_ = json.Unmarshal(req.Params, &params)
 		return map[string]any{"result": map[string]any{"type": "number", "value": 2, "expr": params.Expression}}, nil
 	})
-	conn := dial(t, srv, cdp.Options{})
+	conn := dial(t, srv, cdpws.Options{})
 
 	raw, err := conn.Call(context.Background(), "Runtime.evaluate", map[string]string{"expression": "1+1"})
 	if err != nil {
@@ -59,7 +60,7 @@ func TestCallReturnsResult(t *testing.T) {
 func TestCallSurfacesProtocolErrors(t *testing.T) {
 	t.Parallel()
 	srv := cdptest.New(t)
-	conn := dial(t, srv, cdp.Options{})
+	conn := dial(t, srv, cdpws.Options{})
 
 	_, err := conn.Call(context.Background(), "Nope.method", nil)
 
@@ -82,7 +83,7 @@ func TestConcurrentCallsAreCorrelatedById(t *testing.T) {
 		_ = json.Unmarshal(req.Params, &p)
 		return map[string]int{"n": p.N}, nil
 	})
-	conn := dial(t, srv, cdp.Options{})
+	conn := dial(t, srv, cdpws.Options{})
 
 	const calls = 50
 	var wg sync.WaitGroup
@@ -114,7 +115,7 @@ func TestConcurrentCallsAreCorrelatedById(t *testing.T) {
 func TestEventsAreDeliveredInOrder(t *testing.T) {
 	t.Parallel()
 	srv := cdptest.New(t)
-	conn := dial(t, srv, cdp.Options{})
+	conn := dial(t, srv, cdpws.Options{})
 	if !srv.WaitConnected(time.Second) {
 		t.Fatal("client did not connect")
 	}
@@ -141,7 +142,7 @@ func TestEventsAreDeliveredInOrder(t *testing.T) {
 func TestServerCloseReasonIsExposed(t *testing.T) {
 	t.Parallel()
 	srv := cdptest.New(t)
-	conn := dial(t, srv, cdp.Options{})
+	conn := dial(t, srv, cdpws.Options{})
 	if !srv.WaitConnected(time.Second) {
 		t.Fatal("client did not connect")
 	}
@@ -175,7 +176,7 @@ func TestCallHonoursContextCancellation(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 		return nil, nil
 	})
-	conn := dial(t, srv, cdp.Options{})
+	conn := dial(t, srv, cdpws.Options{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -188,7 +189,7 @@ func TestCallHonoursContextCancellation(t *testing.T) {
 func TestCloseIsIdempotentAndReportsErrClosed(t *testing.T) {
 	t.Parallel()
 	srv := cdptest.New(t)
-	conn := dial(t, srv, cdp.Options{})
+	conn := dial(t, srv, cdpws.Options{})
 
 	if err := conn.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -197,7 +198,7 @@ func TestCloseIsIdempotentAndReportsErrClosed(t *testing.T) {
 		t.Fatalf("second Close: %v", err)
 	}
 	<-conn.Done()
-	if !errors.Is(conn.Err(), cdp.ErrClosed) {
+	if !errors.Is(conn.Err(), cdpws.ErrClosed) {
 		t.Fatalf("Err = %v, want ErrClosed", conn.Err())
 	}
 }
@@ -207,7 +208,7 @@ func TestOnFrameObservesBothDirections(t *testing.T) {
 	srv := cdptest.New(t)
 	var mu sync.Mutex
 	var dirs []cdp.Direction
-	conn := dial(t, srv, cdp.Options{OnFrame: func(dir cdp.Direction, _ []byte) {
+	conn := dial(t, srv, cdpws.Options{OnFrame: func(dir cdp.Direction, _ []byte) {
 		mu.Lock()
 		dirs = append(dirs, dir)
 		mu.Unlock()

@@ -1,8 +1,10 @@
-// Package cdp is a thin Chrome DevTools Protocol client for React Native.
+// Package cdp holds the Chrome DevTools Protocol vocabulary shared by every
+// feature: events, errors, close reasons and well-known method names.
 //
 // React Native (Hermes) implements a subset of CDP plus custom domains such as
-// ReactNativeApplication, so the client stays generic: methods are strings and
-// payloads are raw JSON. Feature packages decode only what they need.
+// ReactNativeApplication, so everything stays generic: methods are strings and
+// payloads are raw JSON. Feature packages decode only what they need. The
+// WebSocket transport lives in internal/adapters/cdpws.
 package cdp
 
 import (
@@ -11,9 +13,9 @@ import (
 	"strings"
 )
 
-// message is the wire representation of every CDP frame: a request
+// Message is the wire representation of every CDP frame: a request
 // (id+method), a response (id+result|error) or an event (method, no id).
-type message struct {
+type Message struct {
 	ID     *int64          `json:"id,omitempty"`
 	Method string          `json:"method,omitempty"`
 	Params json.RawMessage `json:"params,omitempty"`
@@ -26,6 +28,23 @@ type Event struct {
 	Method string
 	Params json.RawMessage
 }
+
+// Direction tells a frame observer which way a frame travelled.
+type Direction string
+
+// Frame directions as seen from Lens.
+const (
+	DirectionSend    Direction = "send"
+	DirectionReceive Direction = "recv"
+)
+
+// Well-known methods and events used across features.
+const (
+	MethodReactNativeApplicationEnable = "ReactNativeApplication.enable"
+	EventReactNativeMetadataUpdated    = "ReactNativeApplication.metadataUpdated"
+	MethodRuntimeEnable                = "Runtime.enable"
+	MethodPageReload                   = "Page.reload"
+)
 
 // Error is a protocol-level error returned for a request.
 type Error struct {

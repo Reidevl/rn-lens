@@ -1,4 +1,7 @@
-package cdp
+// Package cdpws is the WebSocket transport for the Chrome DevTools Protocol.
+// It dials Metro's /inspector/debug endpoint and exposes correlated calls and
+// an ordered event stream using the vocabulary in internal/platform/cdp.
+package cdpws
 
 import (
 	"context"
@@ -10,15 +13,8 @@ import (
 	"sync/atomic"
 
 	"github.com/coder/websocket"
-)
 
-// Direction tells a frame observer which way a frame travelled.
-type Direction string
-
-// Frame directions as seen from Lens.
-const (
-	DirectionSend    Direction = "send"
-	DirectionReceive Direction = "recv"
+	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 )
 
 // Options tunes a connection.
@@ -33,11 +29,11 @@ type Options struct {
 	// Network.getResponseBody reply.
 	MaxFrameBytes int64
 	// OnFrame, when set, observes every raw frame. It must not block.
-	OnFrame func(dir Direction, raw []byte)
+	OnFrame func(dir cdp.Direction, raw []byte)
 }
 
 // ErrClosed is returned by Call once the connection is gone.
-var ErrClosed = errors.New("cdp: connection closed")
+var ErrClosed = errors.New("cdpws: connection closed")
 
 // Conn is a live CDP connection. Call and Close are safe for concurrent use.
 type Conn struct {
@@ -46,15 +42,15 @@ type Conn struct {
 	nextID atomic.Int64
 
 	pendingMu sync.Mutex
-	pending   map[int64]chan message
+	pending   map[int64]chan cdp.Message
 
-	events chan Event
+	events chan cdp.Event
 	done   chan struct{}
 
 	closeOnce sync.Once
 	closeMu   sync.Mutex
 	closeErr  error
-	reason    CloseReason
+	reason    cdp.CloseReason
 }
 
 // Dial opens a CDP connection to url (ws:// or wss://).
@@ -74,15 +70,15 @@ func Dial(ctx context.Context, url string, opts Options) (*Conn, error) {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("cdp: dial %s: %w", url, err)
+		return nil, fmt.Errorf("cdpws: dial %s: %w", url, err)
 	}
 	ws.SetReadLimit(opts.MaxFrameBytes)
 
 	c := &Conn{
 		ws:      ws,
 		opts:    opts,
-		pending: make(map[int64]chan message),
-		events:  make(chan Event, opts.EventBuffer),
+		pending: make(map[int64]chan cdp.Message),
+		events:  make(chan cdp.Event, opts.EventBuffer),
 		done:    make(chan struct{}),
 	}
 	// The connection outlives the dial context on purpose: ctx bounds the
@@ -92,7 +88,7 @@ func Dial(ctx context.Context, url string, opts Options) (*Conn, error) {
 }
 
 // Call sends method with params and waits for the matching response.
-// A protocol error is returned as *Error. params may be nil.
+// A protocol error is returned as *cdp.Error. params may be nil.
 func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	select {
 	case <-c.done:
@@ -101,16 +97,16 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMes
 	}
 
 	id := c.nextID.Add(1)
-	req := message{ID: &id, Method: method}
+	req := cdp.Message{ID: &id, Method: method}
 	if params != nil {
 		raw, err := json.Marshal(params)
 		if err != nil {
-			return nil, fmt.Errorf("cdp: marshal params for %s: %w", method, err)
+			return nil, fmt.Errorf("cdpws: marshal params for %s: %w", method, err)
 		}
 		req.Params = raw
 	}
 
-	reply := make(chan message, 1)
+	reply := make(chan cdp.Message, 1)
 	c.pendingMu.Lock()
 	c.pending[id] = reply
 	c.pendingMu.Unlock()
@@ -137,7 +133,7 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMes
 // Events returns the stream of target notifications. It is closed after the
 // connection ends. Consumers must drain it; a full buffer applies
 // backpressure to the socket rather than dropping frames.
-func (c *Conn) Events() <-chan Event { return c.events }
+func (c *Conn) Events() <-chan cdp.Event { return c.events }
 
 // Done is closed once the connection has ended for any reason.
 func (c *Conn) Done() <-chan struct{} { return c.done }
@@ -150,7 +146,7 @@ func (c *Conn) Err() error {
 }
 
 // Reason reports the parsed close reason once the connection has ended.
-func (c *Conn) Reason() CloseReason {
+func (c *Conn) Reason() cdp.CloseReason {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
 	return c.reason
@@ -161,21 +157,21 @@ func (c *Conn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
 		err = c.ws.Close(websocket.StatusNormalClosure, "lens: closed by user")
-		c.finish(ErrClosed, CloseReason{Status: int(websocket.StatusNormalClosure), Message: "closed by user"})
+		c.finish(ErrClosed, cdp.CloseReason{Status: int(websocket.StatusNormalClosure), Message: "closed by user"})
 	})
 	return err
 }
 
-func (c *Conn) send(ctx context.Context, msg message) error {
+func (c *Conn) send(ctx context.Context, msg cdp.Message) error {
 	raw, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("cdp: marshal %s: %w", msg.Method, err)
+		return fmt.Errorf("cdpws: marshal %s: %w", msg.Method, err)
 	}
 	if c.opts.OnFrame != nil {
-		c.opts.OnFrame(DirectionSend, raw)
+		c.opts.OnFrame(cdp.DirectionSend, raw)
 	}
 	if err := c.ws.Write(ctx, websocket.MessageText, raw); err != nil {
-		return fmt.Errorf("cdp: send %s: %w", msg.Method, err)
+		return fmt.Errorf("cdpws: send %s: %w", msg.Method, err)
 	}
 	return nil
 }
@@ -196,15 +192,15 @@ func (c *Conn) readLoop() {
 			}
 			c.closeOnce.Do(func() {
 				_ = c.ws.CloseNow()
-				c.finish(fmt.Errorf("cdp: read: %w", err), ParseCloseReason(int(status), reasonText))
+				c.finish(fmt.Errorf("cdpws: read: %w", err), cdp.ParseCloseReason(int(status), reasonText))
 			})
 			return
 		}
 		if c.opts.OnFrame != nil {
-			c.opts.OnFrame(DirectionReceive, raw)
+			c.opts.OnFrame(cdp.DirectionReceive, raw)
 		}
 
-		var msg message
+		var msg cdp.Message
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			// A malformed frame is not fatal; the protocol is line-oriented.
 			continue
@@ -225,7 +221,7 @@ func (c *Conn) readLoop() {
 
 		if msg.Method != "" {
 			select {
-			case c.events <- Event{Method: msg.Method, Params: msg.Params}:
+			case c.events <- cdp.Event{Method: msg.Method, Params: msg.Params}:
 			case <-c.done:
 				return
 			}
@@ -234,7 +230,7 @@ func (c *Conn) readLoop() {
 }
 
 // finish records the terminal state and wakes every waiter. Callers hold closeOnce.
-func (c *Conn) finish(err error, reason CloseReason) {
+func (c *Conn) finish(err error, reason cdp.CloseReason) {
 	c.closeMu.Lock()
 	c.closeErr = err
 	c.reason = reason
