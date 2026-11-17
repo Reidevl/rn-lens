@@ -331,3 +331,104 @@ func countMethod(srv *cdptest.Server, method string) int {
 	}
 	return n
 }
+
+func TestFindReplacementPrefersReloadablePageOfSameApp(t *testing.T) {
+	t.Parallel()
+	previous := targets.Target{ID: "e|dev-1", Endpoint: "e", AppID: "com.app", LogicalDeviceID: "dev", Reloadable: true}
+	other := targets.Target{ID: "e|other-1", Endpoint: "e", AppID: "com.other", LogicalDeviceID: "dev", Reloadable: true}
+	legacy := targets.Target{ID: "e|dev-2", Endpoint: "e", AppID: "com.app", LogicalDeviceID: "dev"}
+	modern := targets.Target{ID: "e|dev-3", Endpoint: "e", AppID: "com.app", LogicalDeviceID: "dev", Reloadable: true}
+
+	if got, ok := targets.FindReplacement(previous, []targets.Target{other, legacy, modern}); !ok || got.ID != modern.ID {
+		t.Fatalf("FindReplacement = %+v, %v; want the modern page", got, ok)
+	}
+	if got, ok := targets.FindReplacement(previous, []targets.Target{other, legacy}); !ok || got.ID != legacy.ID {
+		t.Fatalf("FindReplacement without a modern page = %+v, %v; want the legacy page", got, ok)
+	}
+	if _, ok := targets.FindReplacement(previous, []targets.Target{previous, other}); ok {
+		t.Fatal("FindReplacement must not pick the original page or another app")
+	}
+	byName := targets.Target{ID: "e|x-1", Endpoint: "e", AppID: "com.app", DeviceName: "Pixel"}
+	if _, ok := targets.FindReplacement(targets.Target{ID: "e|y-1", Endpoint: "e", AppID: "com.app", DeviceName: "Pixel"}, []targets.Target{byName}); !ok {
+		t.Fatal("FindReplacement should fall back to device name when logical ids are missing")
+	}
+}
+
+// Two goroutines attach at once (a UI click racing a programmatic attach).
+// After Detach returns no run loop may still be alive.
+func TestConcurrentAttachLeavesNoLoopBehind(t *testing.T) {
+	t.Parallel()
+	first := cdptest.New(t)
+	second := cdptest.New(t)
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); s.Attach(targetFor(first)) }()
+	go func() { defer wg.Done(); s.Attach(targetFor(second)) }()
+	wg.Wait()
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	time.Sleep(50 * time.Millisecond)
+
+	s.Detach()
+	before := len(rec.sequence())
+	// A leaked loop would still be pumping: closing its socket makes it transition.
+	first.CloseAll(websocket.StatusGoingAway, "[CONNECTION_LOST] x")
+	second.CloseAll(websocket.StatusGoingAway, "[CONNECTION_LOST] x")
+	time.Sleep(150 * time.Millisecond)
+
+	after := rec.sequence()
+	if len(after) != before || s.Snapshot().State != targets.StateClosed {
+		t.Fatalf("transitions after Detach: %v (final %s)", after[before:], s.Snapshot().State)
+	}
+}
+
+func TestDetachAfterEvictionReportsClosed(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+	s.Attach(targetFor(srv))
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	srv.CloseAll(websocket.StatusNormalClosure, "[NEW_DEBUGGER_OPENED] New debugger opened")
+	rec.waitFor(t, "evicted", inState(targets.StateEvicted))
+
+	s.Detach()
+
+	if got := s.Snapshot().State; got != targets.StateClosed {
+		t.Fatalf("state after Detach = %s, want closed", got)
+	}
+}
+
+func TestResolveRepointsReconnectingSession(t *testing.T) {
+	t.Parallel()
+	first := cdptest.New(t)
+	second := cdptest.New(t)
+	rec := newStateRecorder()
+	moved := targetFor(second)
+	moved.ID = "moved"
+	s := targets.NewSession(wsDialer, targets.SessionOptions{
+		BackoffMin: 5 * time.Millisecond,
+		BackoffMax: 20 * time.Millisecond,
+		OnChange:   rec.onChange,
+		Resolve: func(current targets.Target) (targets.Target, bool) {
+			if current.ID == moved.ID {
+				return current, false
+			}
+			return moved, true
+		},
+	})
+	t.Cleanup(s.Detach)
+
+	s.Attach(targetFor(first))
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	first.CloseAll(websocket.StatusGoingAway, "[PAGE_REMOVED] Page removed")
+
+	snap := rec.waitFor(t, "re-attached to the moved page", func(snap targets.Snapshot) bool {
+		return snap.State == targets.StateAttached && snap.Target != nil && snap.Target.ID == moved.ID
+	})
+	if snap.Target.WebSocketURL != second.URL() {
+		t.Fatalf("re-attached to %s, want %s", snap.Target.WebSocketURL, second.URL())
+	}
+}

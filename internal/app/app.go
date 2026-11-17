@@ -90,6 +90,7 @@ func New(cfg Config) *App {
 	a.session = targets.NewSession(targets.DialerFunc(a.dial), targets.SessionOptions{
 		Logger:   cfg.Logger,
 		OnChange: func(targets.Snapshot) { a.bus.Publish(TopicSessionChanged, nil) },
+		Resolve:  a.resolveTarget,
 	})
 	return a
 }
@@ -117,14 +118,15 @@ func (a *App) Start() {
 	})
 }
 
-// Stop detaches any session and stops discovery. It is idempotent.
+// Stop ends discovery first, so nothing can re-attach, then detaches the
+// session. It is idempotent.
 func (a *App) Stop() {
 	a.stopOnce.Do(func() {
-		a.session.Detach()
 		if a.cancel != nil {
 			a.cancel()
 			<-a.stopped
 		}
+		a.session.Detach()
 	})
 }
 
@@ -180,6 +182,20 @@ func (a *App) OpenInReactNativeDevTools(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: %s", ErrUnknownTarget, id)
 	}
 	return a.metro.OpenDebugger(ctx, t.Endpoint, t.MetroID)
+}
+
+// resolveTarget is consulted by the session before each reconnect attempt.
+// After an app restart Metro can list the app under a new page id, so the
+// session follows the app instead of retrying a URL that only answers
+// [PAGE_NOT_FOUND]. While the original page is still listed it is kept.
+func (a *App) resolveTarget(current targets.Target) (targets.Target, bool) {
+	list := a.Targets()
+	for _, t := range list {
+		if t.ID == current.ID {
+			return current, false
+		}
+	}
+	return targets.FindReplacement(current, list)
 }
 
 func (a *App) dial(ctx context.Context, wsURL string) (targets.Conn, error) {
