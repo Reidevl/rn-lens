@@ -13,7 +13,14 @@ export type {
   ConsoleSource,
   ConsoleStats,
   Metadata,
+  MutationItem,
   ObjectPreview,
+  QueryActionType,
+  QueryCounts,
+  QueryItem,
+  QueryLabel,
+  QueryState,
+  SdkDevice,
   RemoteObject,
   SessionSnapshot,
   SessionState,
@@ -23,7 +30,14 @@ export type {
 } from "./Backend";
 export { TOPICS } from "./Backend";
 export { BackendProvider } from "./BackendProvider";
-export { createMockBackend, idleSession, sampleTarget, type MockBackend } from "./mock";
+export {
+  createMockBackend,
+  idleSession,
+  sampleDevice,
+  sampleQuery,
+  sampleTarget,
+  type MockBackend,
+} from "./mock";
 export { useBackend } from "./useBackend";
 
 /**

@@ -152,11 +152,93 @@ export interface ConsoleProperty {
   hasGetter: boolean;
 }
 
+export interface SdkDevice {
+  key: string;
+  sessionId: string;
+  app: { id: string; name?: string; platform: string; rnVersion?: string };
+  device: { id: string; name?: string };
+  sdkVersion: string;
+  features: string[];
+  connectedAt: string;
+  online: boolean;
+}
+
+export type QueryLabel = "fetching" | "fresh" | "stale" | "inactive" | "paused";
+
+export interface QueryState {
+  status: "pending" | "error" | "success";
+  fetchStatus: "fetching" | "paused" | "idle";
+  dataUpdatedAt: number;
+  errorUpdatedAt: number;
+  dataUpdateCount: number;
+  errorUpdateCount: number;
+  fetchFailureCount: number;
+  isInvalidated: boolean;
+  data?: unknown;
+  error?: unknown;
+  fetchMeta?: unknown;
+}
+
+export interface QueryItem {
+  queryHash: string;
+  queryKey: unknown[];
+  state: QueryState;
+  observersCount: number;
+  isActive: boolean;
+  isStale: boolean;
+  gcTime?: number | null;
+  meta?: unknown;
+  dataTruncated?: boolean;
+  label: QueryLabel;
+}
+
+export interface QueryCounts {
+  fetching: number;
+  fresh: number;
+  stale: number;
+  inactive: number;
+  paused: number;
+  total: number;
+}
+
+export interface MutationItem {
+  mutationId: number;
+  mutationKey?: unknown[] | null;
+  state: {
+    status: "idle" | "pending" | "success" | "error";
+    submittedAt: number;
+    isPaused: boolean;
+    variables?: unknown;
+    data?: unknown;
+    error?: unknown;
+    failureCount?: number;
+    failureReason?: unknown;
+    context?: unknown;
+  };
+  scope?: unknown;
+  meta?: unknown;
+  dataTruncated?: boolean;
+}
+
+export type QueryActionType =
+  | "REFETCH"
+  | "INVALIDATE"
+  | "RESET"
+  | "REMOVE"
+  | "SET_QUERY_DATA"
+  | "TRIGGER_ERROR"
+  | "RESTORE_ERROR"
+  | "TRIGGER_LOADING"
+  | "RESTORE_LOADING"
+  | "CLEAR_QUERY_CACHE"
+  | "CLEAR_MUTATION_CACHE";
+
 /** Change-notification topics emitted by Go. Payloads carry no data. */
 export const TOPICS = {
   targetsChanged: "targets:changed",
   sessionChanged: "session:changed",
   consoleChanged: "console:changed",
+  queriesChanged: "queries:changed",
 } as const;
 
 export type Unsubscribe = () => void;
@@ -185,6 +267,21 @@ export interface Backend {
     clear(): Promise<void>;
     evaluate(expression: string): Promise<ConsoleEntry>;
     properties(objectId: string, epoch: number): Promise<ConsoleProperty[]>;
+  };
+
+  queries: {
+    sdkAddr(): Promise<string>;
+    devices(): Promise<SdkDevice[]>;
+    queries(deviceKey: string): Promise<{ queries: QueryItem[]; counts: QueryCounts }>;
+    query(deviceKey: string, queryHash: string): Promise<QueryItem>;
+    mutations(deviceKey: string): Promise<MutationItem[]>;
+    action(
+      deviceKey: string,
+      type: QueryActionType,
+      queryHash: string,
+      dataJSON: string,
+    ): Promise<void>;
+    setOnline(deviceKey: string, online: boolean): Promise<void>;
   };
 
   events: {

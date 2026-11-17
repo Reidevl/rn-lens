@@ -5,7 +5,12 @@ import {
   type ConsoleEntry,
   type ConsoleProperty,
   type ConsoleStats,
+  type MutationItem,
+  type QueryCounts,
+  type QueryItem,
+  type QueryLabel,
   type RemoteObject,
+  type SdkDevice,
   type SessionSnapshot,
   type Target,
   type Unsubscribe,
@@ -29,6 +34,12 @@ export interface MockBackend extends Backend {
   resetContext(): void;
   /** Properties returned by `console.properties` for an objectId. */
   setProperties(objectId: string, props: ConsoleProperty[]): void;
+  /** Connects a fake SDK device with queries and mutations, and notifies. */
+  connectDevice(device: SdkDevice, queries?: QueryItem[], mutations?: MutationItem[]): void;
+  /** Replaces a device's queries and notifies. */
+  setQueries(deviceKey: string, queries: QueryItem[]): void;
+  /** Disconnects a device and notifies. */
+  disconnectDevice(deviceKey: string): void;
   /** Every method call, in order, for assertions. */
   readonly calls: string[];
 }
@@ -82,6 +93,24 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
   let epoch = 1;
   let cleared = 0;
   const propertyTable = new Map<string, ConsoleProperty[]>();
+  const devices = new Map<
+    string,
+    { device: SdkDevice; queries: QueryItem[]; mutations: MutationItem[] }
+  >();
+  const notifyQueries = () =>
+    emit(TOPICS.queriesChanged, { topic: TOPICS.queriesChanged, seq: Date.now() });
+  const countQueries = (list: QueryItem[]): QueryCounts => {
+    const c: QueryCounts = {
+      fetching: 0,
+      fresh: 0,
+      stale: 0,
+      inactive: 0,
+      paused: 0,
+      total: list.length,
+    };
+    for (const q of list) c[q.label]++;
+    return c;
+  };
 
   const consoleStats = (): ConsoleStats => ({
     lastSeq: nextSeq - 1,
@@ -205,6 +234,79 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
         return Promise.resolve(propertyTable.get(objectId) ?? []);
       },
     },
+    queries: {
+      sdkAddr: () => Promise.resolve("127.0.0.1:7420"),
+      devices: () => {
+        calls.push("queries.devices");
+        return Promise.resolve([...devices.values()].map((d) => d.device));
+      },
+      queries: (deviceKey) => {
+        calls.push(`queries.queries:${deviceKey}`);
+        const d = devices.get(deviceKey);
+        if (!d) return Promise.reject(new Error("queries: unknown device"));
+        return Promise.resolve({ queries: d.queries, counts: countQueries(d.queries) });
+      },
+      query: (deviceKey, queryHash) => {
+        const q = devices.get(deviceKey)?.queries.find((x) => x.queryHash === queryHash);
+        return q ? Promise.resolve(q) : Promise.reject(new Error(`queries: no query ${queryHash}`));
+      },
+      mutations: (deviceKey) => {
+        const d = devices.get(deviceKey);
+        return d
+          ? Promise.resolve(d.mutations)
+          : Promise.reject(new Error("queries: unknown device"));
+      },
+      action: (deviceKey, type, queryHash, dataJSON) => {
+        calls.push(`queries.action:${type}:${queryHash}`);
+        const d = devices.get(deviceKey);
+        if (!d) return Promise.reject(new Error("queries: unknown device"));
+        const q = d.queries.find((x) => x.queryHash === queryHash);
+        const relabel = (label: QueryLabel) => {
+          if (q) q.label = label;
+        };
+        switch (type) {
+          case "INVALIDATE":
+            relabel("stale");
+            if (q) q.state = { ...q.state, isInvalidated: true };
+            break;
+          case "REFETCH":
+            relabel("fetching");
+            break;
+          case "REMOVE":
+            d.queries = d.queries.filter((x) => x.queryHash !== queryHash);
+            break;
+          case "SET_QUERY_DATA":
+            if (q) q.state = { ...q.state, data: JSON.parse(dataJSON) };
+            break;
+          case "TRIGGER_ERROR":
+            if (q)
+              q.state = {
+                ...q.state,
+                status: "error",
+                error: { message: "Unknown error from devtools" },
+              };
+            break;
+          case "CLEAR_QUERY_CACHE":
+            d.queries = [];
+            break;
+          case "CLEAR_MUTATION_CACHE":
+            d.mutations = [];
+            break;
+          default:
+            break;
+        }
+        notifyQueries();
+        return Promise.resolve();
+      },
+      setOnline: (deviceKey, online) => {
+        calls.push(`queries.setOnline:${online}`);
+        const d = devices.get(deviceKey);
+        if (!d) return Promise.reject(new Error("queries: unknown device"));
+        d.device = { ...d.device, online };
+        notifyQueries();
+        return Promise.resolve();
+      },
+    },
     events: {
       on: (name, handler): Unsubscribe => {
         const set = listeners.get(name) ?? new Set<Handler>();
@@ -239,8 +341,61 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     setProperties: (objectId, props) => {
       propertyTable.set(objectId, props);
     },
+    connectDevice: (device, qs = [], ms = []) => {
+      devices.set(device.key, { device, queries: qs, mutations: ms });
+      notifyQueries();
+    },
+    setQueries: (deviceKey, qs) => {
+      const d = devices.get(deviceKey);
+      if (d) d.queries = qs;
+      notifyQueries();
+    },
+    disconnectDevice: (deviceKey) => {
+      devices.delete(deviceKey);
+      notifyQueries();
+    },
   };
   return backend;
+}
+
+/** A sample connected SDK device for tests and browser previews. */
+export function sampleDevice(overrides: Partial<SdkDevice> = {}): SdkDevice {
+  return {
+    key: "host.exp.Exponent|device-1",
+    sessionId: "s1",
+    app: { id: "host.exp.Exponent", name: "Lens Example", platform: "ios", rnVersion: "0.88.1" },
+    device: { id: "device-1", name: "iPhone 17" },
+    sdkVersion: "0.1.0",
+    features: ["queries"],
+    connectedAt: "2026-01-01T00:00:00Z",
+    online: true,
+    ...overrides,
+  };
+}
+
+/** A sample query in the fresh state. */
+export function sampleQuery(overrides: Partial<QueryItem> = {}): QueryItem {
+  return {
+    queryHash: '["todos",{"page":1}]',
+    queryKey: ["todos", { page: 1 }],
+    state: {
+      status: "success",
+      fetchStatus: "idle",
+      dataUpdatedAt: Date.now(),
+      errorUpdatedAt: 0,
+      dataUpdateCount: 1,
+      errorUpdateCount: 0,
+      fetchFailureCount: 0,
+      isInvalidated: false,
+      data: [{ id: 1, title: "Ship Lens" }],
+    },
+    observersCount: 1,
+    isActive: true,
+    isStale: false,
+    gcTime: 300000,
+    label: "fresh",
+    ...overrides,
+  };
 }
 
 /** Canned answers for the browser preview; the mock never executes the typed text. */
