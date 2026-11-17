@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -18,6 +20,14 @@ import (
 )
 
 // Options tunes a connection.
+//
+// Memory bound: events the consumer has not read yet are held in memory, at
+// most EventBuffer of them in the Events channel plus EventQueueBytes of
+// payload in an overflow queue (defaults: 256 entries and 64 MiB). Each entry
+// is at most MaxFrameBytes, so the theoretical worst case for the channel is
+// EventBuffer × MaxFrameBytes, reached only by a peer that sends maximum-size
+// events to a consumer that never drains. Past the queue bound the read loop
+// pauses, so the socket applies backpressure instead of dropping frames.
 type Options struct {
 	// HTTPClient is used for the WebSocket handshake. Nil means http.DefaultClient.
 	HTTPClient *http.Client
@@ -25,15 +35,34 @@ type Options struct {
 	Header http.Header
 	// EventBuffer is the capacity of the Events channel. Zero means 256.
 	EventBuffer int
+	// EventQueueBytes bounds the payload bytes of events queued in memory
+	// while the Events channel is full. Zero means MaxFrameBytes. Responses
+	// to Call keep flowing while the queue is under this bound; past it the
+	// read loop pauses until the consumer drains Events.
+	EventQueueBytes int64
 	// MaxFrameBytes caps incoming frames. Zero means 64 MiB, enough for a
 	// Network.getResponseBody reply.
 	MaxFrameBytes int64
+	// PingInterval is how often a WebSocket ping probes the peer. Zero means
+	// 20 seconds; a negative value disables the keepalive.
+	PingInterval time.Duration
+	// PingTimeout bounds the wait for the pong, the read deadline of the
+	// liveness probe. Zero means 10 seconds. A peer that does not answer in
+	// time, a half-open socket after a Wi-Fi drop or a laptop sleep, ends the
+	// connection with Err matching both ErrClosed and ErrKeepAlive.
+	PingTimeout time.Duration
 	// OnFrame, when set, observes every raw frame. It must not block.
 	OnFrame func(dir cdp.Direction, raw []byte)
 }
 
-// ErrClosed is returned by Call once the connection is gone.
+// ErrClosed is returned by Call once the connection is gone, whoever ended
+// it. Err wraps it together with the cause when the peer or the transport
+// ended the connection.
 var ErrClosed = errors.New("cdpws: connection closed")
+
+// ErrKeepAlive is wrapped by Err when the keepalive ended the connection
+// because the peer did not answer a ping within PingTimeout.
+var ErrKeepAlive = errors.New("cdpws: keepalive: peer did not answer ping")
 
 // Conn is a live CDP connection. Call and Close are safe for concurrent use.
 type Conn struct {
@@ -44,8 +73,20 @@ type Conn struct {
 	pendingMu sync.Mutex
 	pending   map[int64]chan cdp.Message
 
-	events chan cdp.Event
-	done   chan struct{}
+	// events is fed by pumpEvents from queue, never by readLoop directly, so
+	// a full channel never blocks the dispatch of Call responses.
+	events      chan cdp.Event
+	queueMu     sync.Mutex
+	queue       []cdp.Event
+	queueBytes  int64
+	queueNotify chan struct{} // readLoop -> pumpEvents: something was queued
+	queueSpace  chan struct{} // pumpEvents -> readLoop: something was dequeued
+	// paused is set while readLoop waits for queue space: pongs are consumed
+	// by readLoop, so the keepalive must not blame the peer for a stalled
+	// consumer.
+	paused atomic.Bool
+
+	done chan struct{}
 
 	closeOnce sync.Once
 	closeMu   sync.Mutex
@@ -61,6 +102,15 @@ func Dial(ctx context.Context, url string, opts Options) (*Conn, error) {
 	if opts.MaxFrameBytes <= 0 {
 		opts.MaxFrameBytes = 64 << 20
 	}
+	if opts.EventQueueBytes <= 0 {
+		opts.EventQueueBytes = opts.MaxFrameBytes
+	}
+	if opts.PingInterval == 0 {
+		opts.PingInterval = 20 * time.Second
+	}
+	if opts.PingTimeout <= 0 {
+		opts.PingTimeout = 10 * time.Second
+	}
 
 	ws, resp, err := websocket.Dial(ctx, url, &websocket.DialOptions{
 		HTTPClient: opts.HTTPClient,
@@ -75,27 +125,27 @@ func Dial(ctx context.Context, url string, opts Options) (*Conn, error) {
 	ws.SetReadLimit(opts.MaxFrameBytes)
 
 	c := &Conn{
-		ws:      ws,
-		opts:    opts,
-		pending: make(map[int64]chan cdp.Message),
-		events:  make(chan cdp.Event, opts.EventBuffer),
-		done:    make(chan struct{}),
+		ws:          ws,
+		opts:        opts,
+		pending:     make(map[int64]chan cdp.Message),
+		events:      make(chan cdp.Event, opts.EventBuffer),
+		queueNotify: make(chan struct{}, 1),
+		queueSpace:  make(chan struct{}, 1),
+		done:        make(chan struct{}),
 	}
 	// The connection outlives the dial context on purpose: ctx bounds the
 	// handshake only, Close ends the read loop.
 	go c.readLoop() //nolint:gosec // G118: intentional, see comment above
+	go c.pumpEvents()
+	if opts.PingInterval > 0 {
+		go c.keepAlive() //nolint:gosec // G118: ends with the connection
+	}
 	return c, nil
 }
 
 // Call sends method with params and waits for the matching response.
 // A protocol error is returned as *cdp.Error. params may be nil.
 func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	select {
-	case <-c.done:
-		return nil, ErrClosed
-	default:
-	}
-
 	id := c.nextID.Add(1)
 	req := cdp.Message{ID: &id, Method: method}
 	if params != nil {
@@ -108,37 +158,67 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMes
 
 	reply := make(chan cdp.Message, 1)
 	c.pendingMu.Lock()
+	select {
+	case <-c.done:
+		// finish already cleared pending; registering now would never be answered.
+		c.pendingMu.Unlock()
+		return nil, c.Err()
+	default:
+	}
 	c.pending[id] = reply
 	c.pendingMu.Unlock()
 
 	if err := c.send(ctx, req); err != nil {
 		c.dropPending(id)
-		return nil, err
+		select {
+		case <-c.done:
+			return nil, c.Err()
+		default:
+			return nil, err
+		}
 	}
 
+	// The reply channel is the only completion signal: readLoop sends the
+	// response on it and finish closes it when the connection ends, so a
+	// response delivered before the close is never reported as a failure.
 	select {
-	case res := <-reply:
-		if res.Error != nil {
-			return nil, res.Error
+	case res, ok := <-reply:
+		if !ok {
+			return nil, c.Err()
 		}
-		return res.Result, nil
+		return result(res)
 	case <-ctx.Done():
-		c.dropPending(id)
-		return nil, ctx.Err()
-	case <-c.done:
-		return nil, c.Err()
+		if c.dropPending(id) {
+			return nil, ctx.Err()
+		}
+		// readLoop or finish took the channel over: a reply or a close is
+		// imminent, and a delivered reply wins over the cancellation.
+		res, ok := <-reply
+		if !ok {
+			return nil, ctx.Err()
+		}
+		return result(res)
 	}
 }
 
-// Events returns the stream of target notifications. It is closed after the
-// connection ends. Consumers must drain it; a full buffer applies
-// backpressure to the socket rather than dropping frames.
+func result(res cdp.Message) (json.RawMessage, error) {
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	return res.Result, nil
+}
+
+// Events returns the stream of target notifications, in arrival order. It is
+// closed after the connection ends. Consumers must drain it: undrained events
+// are queued in memory up to the bound described on Options, past which the
+// socket applies backpressure rather than dropping frames.
 func (c *Conn) Events() <-chan cdp.Event { return c.events }
 
 // Done is closed once the connection has ended for any reason.
 func (c *Conn) Done() <-chan struct{} { return c.done }
 
-// Err reports why the connection ended; nil while it is alive.
+// Err reports why the connection ended; nil while it is alive. Once the
+// connection is gone it matches ErrClosed and wraps the cause, if any.
 func (c *Conn) Err() error {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
@@ -146,6 +226,7 @@ func (c *Conn) Err() error {
 }
 
 // Reason reports the parsed close reason once the connection has ended.
+// Without a close frame, Message carries the transport error.
 func (c *Conn) Reason() cdp.CloseReason {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
@@ -177,9 +258,6 @@ func (c *Conn) send(ctx context.Context, msg cdp.Message) error {
 }
 
 func (c *Conn) readLoop() {
-	// readLoop is the only sender on events, so it is the only closer too.
-	defer close(c.events)
-
 	ctx := context.Background()
 	for {
 		_, raw, err := c.ws.Read(ctx)
@@ -192,7 +270,7 @@ func (c *Conn) readLoop() {
 			}
 			c.closeOnce.Do(func() {
 				_ = c.ws.CloseNow()
-				c.finish(fmt.Errorf("cdpws: read: %w", err), cdp.ParseCloseReason(int(status), reasonText))
+				c.finish(fmt.Errorf("%w: read: %w", ErrClosed, err), cdp.ParseCloseReason(int(status), reasonText))
 			})
 			return
 		}
@@ -214,18 +292,149 @@ func (c *Conn) readLoop() {
 			}
 			c.pendingMu.Unlock()
 			if ok {
-				reply <- msg
+				reply <- msg // buffered, never blocks: Call owns the only receive
 			}
 			continue
 		}
 
 		if msg.Method != "" {
-			select {
-			case c.events <- cdp.Event{Method: msg.Method, Params: msg.Params}:
-			case <-c.done:
+			if !c.enqueueEvent(cdp.Event{Method: msg.Method, Params: msg.Params}) {
 				return
 			}
 		}
+	}
+}
+
+// enqueueEvent hands ev to pumpEvents. It blocks only while the queue is over
+// EventQueueBytes, which pauses the socket, and reports false once the
+// connection ended meanwhile.
+func (c *Conn) enqueueEvent(ev cdp.Event) bool {
+	for {
+		c.queueMu.Lock()
+		// An empty queue always accepts, so one event larger than the bound
+		// still gets through instead of wedging the loop.
+		if len(c.queue) == 0 || c.queueBytes < c.opts.EventQueueBytes {
+			c.queue = append(c.queue, ev)
+			c.queueBytes += int64(len(ev.Params))
+			c.queueMu.Unlock()
+			select {
+			case c.queueNotify <- struct{}{}:
+			default:
+			}
+			return true
+		}
+		c.queueMu.Unlock()
+		c.paused.Store(true)
+		select {
+		case <-c.queueSpace:
+			c.paused.Store(false)
+		case <-c.done:
+			c.paused.Store(false)
+			return false
+		}
+	}
+}
+
+// dequeueEvent pops the oldest queued event, if any.
+func (c *Conn) dequeueEvent() (cdp.Event, bool) {
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
+	if len(c.queue) == 0 {
+		return cdp.Event{}, false
+	}
+	ev := c.queue[0]
+	c.queue[0] = cdp.Event{}
+	c.queue = c.queue[1:]
+	c.queueBytes -= int64(len(ev.Params))
+	select {
+	case c.queueSpace <- struct{}{}:
+	default:
+	}
+	return ev, true
+}
+
+// pumpEvents moves queued events into the Events channel in order. It is
+// the only sender on events, so it is the only closer too.
+func (c *Conn) pumpEvents() {
+	defer close(c.events)
+	for {
+		ev, ok := c.dequeueEvent()
+		if !ok {
+			select {
+			case <-c.queueNotify:
+				continue
+			case <-c.done:
+				c.flushEvents()
+				return
+			}
+		}
+		select {
+		case c.events <- ev:
+		case <-c.done:
+			c.flushEvents(ev)
+			return
+		}
+	}
+}
+
+// flushEvents hands over what still fits in the channel once the connection
+// has ended, so a consumer that drains after Done sees as many trailing
+// events as the buffer can hold without blocking this goroutine forever.
+func (c *Conn) flushEvents(first ...cdp.Event) {
+	for _, ev := range first {
+		select {
+		case c.events <- ev:
+		default:
+			return
+		}
+	}
+	for {
+		ev, ok := c.dequeueEvent()
+		if !ok {
+			return
+		}
+		select {
+		case c.events <- ev:
+		default:
+			return
+		}
+	}
+}
+
+// keepAlive pings the peer every PingInterval and ends the connection when
+// no pong arrives within PingTimeout. The pong is consumed by readLoop, so a
+// half-open socket, which never errors on Read by itself, is detected here.
+func (c *Conn) keepAlive() {
+	ticker := time.NewTicker(c.opts.PingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+		}
+		if c.paused.Load() {
+			// readLoop is parked on backpressure and cannot read the pong.
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), c.opts.PingTimeout)
+		err := c.ws.Ping(ctx)
+		cancel()
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, net.ErrClosed) {
+			// Someone else is closing the socket; let them report the reason.
+			return
+		}
+		c.closeOnce.Do(func() {
+			_ = c.ws.CloseNow()
+			c.finish(
+				fmt.Errorf("%w: %w (no pong within %s): %w", ErrClosed, ErrKeepAlive, c.opts.PingTimeout, err),
+				cdp.ParseCloseReason(-1, "keepalive: no pong within "+c.opts.PingTimeout.String()),
+			)
+		})
+		return
 	}
 }
 
@@ -238,15 +447,22 @@ func (c *Conn) finish(err error, reason cdp.CloseReason) {
 
 	close(c.done)
 
+	// Closing a pending reply channel tells its Call that no response will
+	// come. A channel readLoop already removed is not here and gets its reply.
 	c.pendingMu.Lock()
-	for id := range c.pending {
+	for id, reply := range c.pending {
+		close(reply)
 		delete(c.pending, id)
 	}
 	c.pendingMu.Unlock()
 }
 
-func (c *Conn) dropPending(id int64) {
+// dropPending removes id from the pending map and reports whether it was
+// still there; false means readLoop or finish already took it over.
+func (c *Conn) dropPending(id int64) bool {
 	c.pendingMu.Lock()
+	defer c.pendingMu.Unlock()
+	_, ok := c.pending[id]
 	delete(c.pending, id)
-	c.pendingMu.Unlock()
+	return ok
 }

@@ -44,17 +44,12 @@ func runRecord(args []string) int {
 		return 2
 	}
 
-	file, err := os.Create(*out)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "rnlens record: %v\n", err)
-		return 1
-	}
-	defer file.Close()
-	writer := bufio.NewWriter(file)
-	defer writer.Flush()
-
+	// The output file is created only once a target exists (below), so a
+	// failed run leaves no empty recording behind. The observer only fires
+	// after Attach, by which time writer is set.
 	start := time.Now()
 	var mu sync.Mutex
+	var writer *bufio.Writer
 	frames := 0
 	observer := func(dir cdp.Direction, raw []byte) {
 		mu.Lock()
@@ -83,6 +78,21 @@ func runRecord(args []string) int {
 		fmt.Fprintln(os.Stderr, "rnlens record: no target found; start your app and Metro first")
 		return 2
 	}
+
+	file, err := os.Create(*out)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "rnlens record: %v\n", err)
+		return 1
+	}
+	defer file.Close()
+	mu.Lock()
+	writer = bufio.NewWriter(file)
+	mu.Unlock()
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = writer.Flush()
+	}()
 	sessionCh, cancelSession := core.Bus().Subscribe(app.TopicSessionChanged, 64)
 	defer cancelSession()
 	go func() {
