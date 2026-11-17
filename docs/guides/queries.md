@@ -57,7 +57,8 @@ device; a reconnect replaces the previous one.
 
 The wire format is documented in [`protocol/README.md`](../../protocol/README.md).
 Only cache changes travel: after an initial snapshot the SDK sends per-action
-deltas, and large payloads are cut at 1 MiB (the panel says "data truncated").
+deltas. Payloads larger than 1 MiB are replaced by a marker, by the SDK before
+sending and again by Lens on receipt (the panel says "data truncated").
 The snapshot as a whole is capped at 6 MiB: above that, the largest queries
 arrive with their data truncated so the snapshot still fits in one frame.
 
