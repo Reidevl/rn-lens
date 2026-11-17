@@ -22,6 +22,7 @@ func init() {
 	// Registering the events gives the bindings generator typed TS signatures.
 	application.RegisterEvent[ChangeNotice](app.TopicTargetsChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicSessionChanged)
+	application.RegisterEvent[ChangeNotice](app.TopicConsoleChanged)
 }
 
 const (
@@ -42,6 +43,7 @@ func Run(core *app.App, assets fs.FS) error {
 		Services: []application.Service{
 			application.NewService(NewAppService(core)),
 			application.NewService(NewTargetsService(core)),
+			application.NewService(NewConsoleService(core)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -69,7 +71,8 @@ func Run(core *app.App, assets fs.FS) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	coalescer := NewCoalescer(core.Bus(), []string{app.TopicTargetsChanged, app.TopicSessionChanged}, notifyTick,
+	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged}
+	coalescer := NewCoalescer(core.Bus(), topics, notifyTick,
 		func(topic string, notice ChangeNotice) { desktop.Event.Emit(topic, notice) })
 	go coalescer.Run(ctx)
 
