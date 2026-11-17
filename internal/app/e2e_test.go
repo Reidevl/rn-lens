@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,13 +15,20 @@ import (
 // TestE2E_AttachToRunningApp talks to a real Metro and app. It runs only when
 // LENS_E2E_METRO names a Metro base URL (for example http://localhost:8081)
 // so the regular suite stays hermetic; the nightly job sets it.
+// LENS_E2E_SDK_ADDR overrides the SDK server address (default ":7420") when a
+// Lens window already owns the default port; point the example app at it
+// with EXPO_PUBLIC_LENS_URL=ws://127.0.0.1:<port>/lens.
 func TestE2E_AttachToRunningApp(t *testing.T) {
 	endpoint := os.Getenv("LENS_E2E_METRO")
 	if endpoint == "" || testing.Short() {
 		t.Skip("set LENS_E2E_METRO=http://localhost:8081 with an app running to enable")
 	}
 
-	a := app.New(app.Config{MetroEndpoints: []string{endpoint}, PollInterval: 200 * time.Millisecond})
+	a := app.New(app.Config{
+		MetroEndpoints: []string{endpoint},
+		PollInterval:   200 * time.Millisecond,
+		SDKAddr:        os.Getenv("LENS_E2E_SDK_ADDR"),
+	})
 	sessionCh, cancel := a.Bus().Subscribe(app.TopicSessionChanged, 64)
 	defer cancel()
 	a.Start()
@@ -119,4 +127,65 @@ func TestE2E_AttachToRunningApp(t *testing.T) {
 		t.Fatalf("Evaluate(1+1) = %+v, %v", result, err)
 	}
 	t.Logf("console entries: %d; eval 1+1 = %s", a.Console().Store().Stats().Len, result.Text)
+
+	if !isExample {
+		return
+	}
+	// SDK: the example app mounts useLens({ queryClient }), so a device must
+	// connect to the SDK server and expose its queries.
+	queriesCh, cancelQ := a.Bus().Subscribe(app.TopicQueriesChanged, 64)
+	defer cancelQ()
+	sdkDeadline := time.After(20 * time.Second)
+	var deviceKey string
+	for deviceKey == "" {
+		if devs := a.Queries().Devices(); len(devs) > 0 {
+			deviceKey = devs[0].Key
+			t.Logf("sdk device: %+v", devs[0])
+			break
+		}
+		select {
+		case <-queriesCh:
+		case <-sdkDeadline:
+			t.Fatalf("no SDK device connected within 20 s (sdk server at %s)", a.SDKAddr())
+		}
+	}
+	var todosHash string
+	for todosHash == "" {
+		list, _, _ := a.Queries().Queries(deviceKey)
+		for _, q := range list {
+			if string(q.QueryKey) == `["todos"]` {
+				todosHash = q.QueryHash
+			}
+		}
+		if todosHash != "" {
+			break
+		}
+		select {
+		case <-queriesCh:
+		case <-sdkDeadline:
+			t.Fatal("the todos query never appeared")
+		}
+	}
+	if err := a.Queries().Action(ctx, deviceKey, "INVALIDATE", todosHash, nil); err != nil {
+		t.Fatalf("INVALIDATE: %v", err)
+	}
+	if err := a.Queries().Action(ctx, deviceKey, "SET_QUERY_DATA", todosHash, []byte(`[{"id":99,"title":"Edited in Lens"}]`)); err != nil {
+		t.Fatalf("SET_QUERY_DATA: %v", err)
+	}
+	editedDeadline := time.After(5 * time.Second)
+	for {
+		q, err := a.Queries().Query(deviceKey, todosHash)
+		if err == nil && strings.Contains(string(q.State.Data), "Edited in Lens") {
+			break
+		}
+		select {
+		case <-queriesCh:
+		case <-editedDeadline:
+			t.Fatalf("edited data did not come back from the device: %s", q.State.Data)
+		}
+	}
+	if err := a.Queries().SetOnline(deviceKey, false); err != nil {
+		t.Fatalf("SetOnline: %v", err)
+	}
+	t.Logf("sdk device %s: todos invalidated, data edited and read back, offline sent", deviceKey)
 }
