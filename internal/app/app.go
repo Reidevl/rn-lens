@@ -17,9 +17,12 @@ import (
 
 	"github.com/Reidevl/rn-lens/internal/adapters/cdpws"
 	"github.com/Reidevl/rn-lens/internal/adapters/metro"
+	"github.com/Reidevl/rn-lens/internal/adapters/sdkws"
 	"github.com/Reidevl/rn-lens/internal/console"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
+	"github.com/Reidevl/rn-lens/internal/protocol"
+	"github.com/Reidevl/rn-lens/internal/queries"
 	"github.com/Reidevl/rn-lens/internal/targets"
 )
 
@@ -29,6 +32,7 @@ const (
 	TopicTargetsChanged = "targets:changed"
 	TopicSessionChanged = "session:changed"
 	TopicConsoleChanged = "console:changed"
+	TopicQueriesChanged = "queries:changed"
 )
 
 // Config holds the values the composition root needs from its caller.
@@ -45,7 +49,12 @@ type Config struct {
 	FrameObserver func(dir cdp.Direction, raw []byte)
 	// ConsoleCapacity bounds the console log. Zero means console.DefaultCapacity.
 	ConsoleCapacity int
-	Logger          *slog.Logger
+	// SDKAddr is where the @rnlens/sdk server listens. Empty means ":7420";
+	// "off" disables it.
+	SDKAddr string
+	// SDKToken, when set, is the pairing token the SDK must present.
+	SDKToken string
+	Logger   *slog.Logger
 }
 
 // Info describes the running Lens instance.
@@ -65,6 +74,8 @@ type App struct {
 	discovery *metro.Discovery
 	session   *targets.Session
 	console   *console.Service
+	queries   *queries.Service
+	sdk       *sdkws.Server
 
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -109,7 +120,45 @@ func New(cfg Config) *App {
 		Logger: cfg.Logger,
 	})
 	a.session.OnEvent(a.console.HandleEvent)
+	a.queries = queries.NewService(func() { a.bus.Publish(TopicQueriesChanged, nil) })
+	if cfg.SDKAddr != "off" {
+		a.sdk = sdkws.New(sdkws.Options{
+			Addr:        cfg.SDKAddr,
+			Token:       cfg.SDKToken,
+			LensVersion: cfg.Version,
+			Logger:      cfg.Logger,
+		}, sdkHandler{a})
+	}
 	return a
+}
+
+// sdkHandler adapts SDK sessions to the queries feature without the feature
+// knowing about WebSockets.
+type sdkHandler struct{ a *App }
+
+func (h sdkHandler) OnConnect(s *sdkws.Session) {
+	h.a.queries.Connect(s.ID, s.Hello, s)
+}
+
+func (h sdkHandler) OnMessage(s *sdkws.Session, msg protocol.Message) {
+	if err := h.a.queries.Message(queries.DeviceKey(s.Key.AppID, s.Key.DeviceID), msg); err != nil {
+		h.a.cfg.Logger.Debug("sdk message rejected", "type", msg.Type, "err", err)
+	}
+}
+
+func (h sdkHandler) OnDisconnect(s *sdkws.Session, _ error) {
+	h.a.queries.Disconnect(queries.DeviceKey(s.Key.AppID, s.Key.DeviceID), s.ID)
+}
+
+// Queries exposes the queries feature to UI adapters.
+func (a *App) Queries() *queries.Service { return a.queries }
+
+// SDKAddr returns the bound SDK server address, or "" when disabled.
+func (a *App) SDKAddr() string {
+	if a.sdk == nil {
+		return ""
+	}
+	return a.sdk.Addr()
 }
 
 // onSessionChange fans session transitions out: the UI learns through the
@@ -164,6 +213,12 @@ func (a *App) Start() {
 			defer close(a.stopped)
 			a.discovery.Run(ctx)
 		}()
+		if a.sdk != nil {
+			if _, err := a.sdk.Start(); err != nil {
+				a.cfg.Logger.Warn("sdk server not started; queries and storage panels stay empty", "err", err)
+				a.sdk = nil
+			}
+		}
 	})
 }
 
@@ -174,6 +229,11 @@ func (a *App) Stop() {
 		if a.cancel != nil {
 			a.cancel()
 			<-a.stopped
+		}
+		if a.sdk != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = a.sdk.Stop(ctx)
+			cancel()
 		}
 		a.session.Detach()
 	})
