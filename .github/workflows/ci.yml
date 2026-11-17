@@ -63,10 +63,14 @@ jobs:
       - name: Generate Wails bindings
         run: task common:generate:bindings
 
+      - name: Verify go.mod and go.sum are tidy
+        run: git diff --exit-code -- go.mod go.sum
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15
+          skip-cache: true # setup-go already restores the module cache
 
       - name: Lint frontend
         run: task lint:frontend
