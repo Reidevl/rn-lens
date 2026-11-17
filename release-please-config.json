@@ -18,7 +18,45 @@
   "packages": {
     ".": {
       "component": "rnlens",
-      "extra-files": ["build/config.yml"]
+      "extra-files": [
+        "build/config.yml",
+        {
+          "type": "xml",
+          "path": "build/darwin/Info.plist",
+          "xpath": "/plist/dict/key[text()='CFBundleShortVersionString']/following-sibling::string[1]"
+        },
+        {
+          "type": "xml",
+          "path": "build/darwin/Info.plist",
+          "xpath": "/plist/dict/key[text()='CFBundleVersion']/following-sibling::string[1]"
+        },
+        {
+          "type": "xml",
+          "path": "build/darwin/Info.dev.plist",
+          "xpath": "/plist/dict/key[text()='CFBundleShortVersionString']/following-sibling::string[1]"
+        },
+        {
+          "type": "xml",
+          "path": "build/darwin/Info.dev.plist",
+          "xpath": "/plist/dict/key[text()='CFBundleVersion']/following-sibling::string[1]"
+        },
+        { "type": "json", "path": "build/windows/info.json", "jsonpath": "$.fixed.file_version" },
+        {
+          "type": "json",
+          "path": "build/windows/info.json",
+          "jsonpath": "$.fixed.product_version"
+        },
+        {
+          "type": "json",
+          "path": "build/windows/info.json",
+          "jsonpath": "$.info['0409'].FileVersion"
+        },
+        {
+          "type": "json",
+          "path": "build/windows/info.json",
+          "jsonpath": "$.info['0409'].ProductVersion"
+        }
+      ]
     }
   }
 }

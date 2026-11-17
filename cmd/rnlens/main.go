@@ -12,13 +12,23 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Reidevl/rn-lens/build"
 	"github.com/Reidevl/rn-lens/frontend"
 	"github.com/Reidevl/rn-lens/internal/adapters/wailsui"
 	"github.com/Reidevl/rn-lens/internal/app"
 )
 
-// version is overridden at build time with -ldflags "-X main.version=<semver>".
-var version = "dev"
+// version can be overridden at build time with -ldflags "-X main.version=<semver>".
+// When it is left empty, the version embedded from build/config.yml is used.
+var version = ""
+
+// buildVersion returns the version this binary reports.
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	return build.Version()
+}
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -28,7 +38,7 @@ func run(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "-v", "version":
-			fmt.Println("rnlens " + version)
+			fmt.Println("rnlens " + buildVersion())
 			return 0
 		case "targets":
 			return runTargets(args[1:])
@@ -40,7 +50,7 @@ func run(args []string) int {
 		}
 	}
 
-	core := app.New(app.Config{Version: version})
+	core := app.New(app.Config{Version: buildVersion()})
 	core.Start()
 	defer core.Stop()
 
