@@ -6,6 +6,7 @@ package cdptest
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,6 +47,16 @@ type Server struct {
 	requests  []Request
 	accepted  int
 	connected chan struct{}
+	// frozen is non-nil while Freeze is in effect; Unfreeze closes it.
+	frozen chan struct{}
+	// closeAfterReply, when set, ends the connection right after the next
+	// reply is written. See CloseAfterReply.
+	closeAfterReply *closeRequest
+}
+
+type closeRequest struct {
+	status websocket.StatusCode
+	reason string
 }
 
 // New starts a server. When the test ends every accepted socket is closed
@@ -59,7 +70,9 @@ func New(tb testing.TB) *Server {
 		connected: make(chan struct{}, 16),
 	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.http = httptest.NewServer(http.HandlerFunc(s.serve))
+	s.http = httptest.NewUnstartedServer(http.HandlerFunc(s.serve))
+	s.http.Listener = &pausingListener{Listener: s.http.Listener, srv: s}
+	s.http.Start()
 	tb.Cleanup(func() {
 		s.cancel()
 		s.http.Close()
@@ -167,6 +180,37 @@ func (s *Server) DropAll() {
 	}
 }
 
+// CloseAfterReply makes the server close the connection with status and
+// reason right after it writes the next reply, so a client sees the response
+// and the close frame back to back.
+func (s *Server) CloseAfterReply(status websocket.StatusCode, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeAfterReply = &closeRequest{status: status, reason: reason}
+}
+
+// Freeze stops bytes from reaching clients, like a half-open link: frames
+// the server writes, pong replies included, never arrive until Unfreeze.
+// The sockets stay open, so clients only notice through their own liveness
+// checks.
+func (s *Server) Freeze() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.frozen == nil {
+		s.frozen = make(chan struct{})
+	}
+}
+
+// Unfreeze resumes delivery after Freeze.
+func (s *Server) Unfreeze() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.frozen != nil {
+		close(s.frozen)
+		s.frozen = nil
+	}
+}
+
 func (s *Server) clients() []*websocket.Conn {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -226,5 +270,55 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if err := c.Write(ctx, websocket.MessageText, out); err != nil {
 			return
 		}
+
+		s.mu.Lock()
+		after := s.closeAfterReply
+		s.closeAfterReply = nil
+		s.mu.Unlock()
+		if after != nil {
+			_ = c.Close(after.status, after.reason)
+			return
+		}
 	}
+}
+
+// pausingListener wraps accepted sockets so Freeze can hold server writes.
+type pausingListener struct {
+	net.Listener
+	srv *Server
+}
+
+func (l *pausingListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &pausingConn{Conn: c, srv: l.srv, closed: make(chan struct{})}, nil
+}
+
+// pausingConn blocks Write while the server is frozen. Close unblocks it.
+type pausingConn struct {
+	net.Conn
+	srv       *Server
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (c *pausingConn) Write(p []byte) (int, error) {
+	c.srv.mu.Lock()
+	frozen := c.srv.frozen
+	c.srv.mu.Unlock()
+	if frozen != nil {
+		select {
+		case <-frozen:
+		case <-c.closed:
+			return 0, net.ErrClosed
+		}
+	}
+	return c.Conn.Write(p)
+}
+
+func (c *pausingConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return c.Conn.Close()
 }
