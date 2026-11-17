@@ -140,9 +140,34 @@ func (a *App) Targets() []targets.Target {
 	found := a.discovery.Snapshot()
 	out := make([]targets.Target, 0, len(found))
 	for _, d := range found {
-		out = append(out, targets.FromMetro(d))
+		out = append(out, targetFromMetro(d))
 	}
 	return out
+}
+
+// targetFromMetro converts a discovered Metro page into a targets.Target.
+// It lives in the composition root because targets must not depend on the
+// Metro adapter (see CONTRIBUTING.md).
+func targetFromMetro(d metro.Discovered) targets.Target {
+	caps := d.Page.ReactNative.Capabilities
+	return targets.Target{
+		ID:              d.Endpoint + "|" + d.Page.ID,
+		Endpoint:        d.Endpoint,
+		MetroID:         d.Page.ID,
+		PageID:          d.Page.PageID(),
+		Title:           d.Page.Title,
+		AppID:           d.Page.AppID,
+		DeviceName:      d.Page.DeviceName,
+		LogicalDeviceID: d.Page.ReactNative.LogicalDeviceID,
+		WebSocketURL:    d.Page.WebSocketDebuggerURL,
+		VM:              d.Page.VM,
+		Capabilities: targets.Capabilities{
+			NativePageReloads:         caps.NativePageReloads,
+			NativeSourceCodeFetching:  caps.NativeSourceCodeFetching,
+			SupportsMultipleDebuggers: caps.SupportsMultipleDebuggers,
+		},
+		Reloadable: d.Page.IsReloadable(),
+	}
 }
 
 // Target looks a discovered target up by id.

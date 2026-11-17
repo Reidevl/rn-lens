@@ -11,7 +11,6 @@ import (
 
 	"github.com/Reidevl/rn-lens/internal/adapters/cdpws"
 	"github.com/Reidevl/rn-lens/internal/adapters/cdpws/cdptest"
-	"github.com/Reidevl/rn-lens/internal/adapters/metro"
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 	"github.com/Reidevl/rn-lens/internal/targets"
 )
@@ -75,20 +74,21 @@ func inState(state targets.State) func(targets.Snapshot) bool {
 	return func(s targets.Snapshot) bool { return s.State == state }
 }
 
+// targetFor builds the Target the composition root would derive from a
+// Fusebox page served by srv.
 func targetFor(srv *cdptest.Server) targets.Target {
-	return targets.FromMetro(metro.Discovered{
-		Endpoint: "http://localhost:8081",
-		Page: metro.Page{
-			ID:                   "dev-1",
-			Title:                "React Native",
-			AppID:                "com.example.app",
-			WebSocketDebuggerURL: srv.URL(),
-			ReactNative: metro.ReactNativeInfo{
-				LogicalDeviceID: "dev",
-				Capabilities:    metro.Capabilities{NativePageReloads: true, SupportsMultipleDebuggers: true},
-			},
-		},
-	})
+	return targets.Target{
+		ID:              "http://localhost:8081|dev-1",
+		Endpoint:        "http://localhost:8081",
+		MetroID:         "dev-1",
+		PageID:          "1",
+		Title:           "React Native",
+		AppID:           "com.example.app",
+		LogicalDeviceID: "dev",
+		WebSocketURL:    srv.URL(),
+		Capabilities:    targets.Capabilities{NativePageReloads: true, SupportsMultipleDebuggers: true},
+		Reloadable:      true,
+	}
 }
 
 func newSession(t *testing.T, rec *stateRecorder) *targets.Session {
@@ -100,27 +100,6 @@ func newSession(t *testing.T, rec *stateRecorder) *targets.Session {
 	})
 	t.Cleanup(s.Detach)
 	return s
-}
-
-func TestFromMetroBuildsTargetIdentity(t *testing.T) {
-	t.Parallel()
-	target := targets.FromMetro(metro.Discovered{
-		Endpoint: "http://localhost:8081",
-		Page: metro.Page{
-			ID:          "device-42-7",
-			Title:       "React Native",
-			ReactNative: metro.ReactNativeInfo{LogicalDeviceID: "device-42", Capabilities: metro.Capabilities{NativePageReloads: true}},
-		},
-	})
-	if target.ID != "http://localhost:8081|device-42-7" {
-		t.Fatalf("ID = %q", target.ID)
-	}
-	if target.PageID != "7" || target.MetroID != "device-42-7" || target.LogicalDeviceID != "device-42" {
-		t.Fatalf("ids = %+v", target)
-	}
-	if !target.Reloadable || !target.Capabilities.NativePageReloads {
-		t.Fatal("capabilities not carried over")
-	}
 }
 
 func TestAttachEnablesApplicationDomainFirstAndReportsMetadata(t *testing.T) {

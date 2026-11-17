@@ -10,6 +10,7 @@ linters:
   enable:
     - bodyclose
     - copyloopvar
+    - depguard
     - errname
     - errorlint
     - exhaustive
@@ -29,6 +30,22 @@ linters:
     - usestdlibvars
     - wastedassign
   settings:
+    depguard:
+      rules:
+        # CONTRIBUTING.md: feature packages import internal/platform and their
+        # own ports, never an adapter. Only the composition root (internal/app)
+        # and the adapters themselves may import internal/adapters/...; tests
+        # may still use adapters and their fakes.
+        no-adapters-in-features:
+          list-mode: lax
+          files:
+            - "**/internal/**"
+            - "!**/internal/app/**"
+            - "!**/internal/adapters/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/Reidevl/rn-lens/internal/adapters/
+              desc: feature packages must not import adapters; wire them in internal/app or behind a port
     revive:
       rules:
         - name: exported

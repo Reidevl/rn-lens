@@ -3,10 +3,6 @@
 // reconnect rules, and the app metadata a Fusebox-aware target reports.
 package targets
 
-import (
-	"github.com/Reidevl/rn-lens/internal/adapters/metro"
-)
-
 // Capabilities are the target capability flags relevant to Lens.
 type Capabilities struct {
 	// NativePageReloads: the page survives JS reloads (Fusebox target).
@@ -38,29 +34,6 @@ type Target struct {
 	// Reloadable marks the modern target that survives reloads; Lens attaches
 	// to these by default, the same way Metro's /open-debugger picks them.
 	Reloadable bool `json:"reloadable"`
-}
-
-// FromMetro converts a discovered Metro page into a Target.
-func FromMetro(d metro.Discovered) Target {
-	caps := d.Page.ReactNative.Capabilities
-	return Target{
-		ID:              d.Endpoint + "|" + d.Page.ID,
-		Endpoint:        d.Endpoint,
-		MetroID:         d.Page.ID,
-		PageID:          d.Page.PageID(),
-		Title:           d.Page.Title,
-		AppID:           d.Page.AppID,
-		DeviceName:      d.Page.DeviceName,
-		LogicalDeviceID: d.Page.ReactNative.LogicalDeviceID,
-		WebSocketURL:    d.Page.WebSocketDebuggerURL,
-		VM:              d.Page.VM,
-		Capabilities: Capabilities{
-			NativePageReloads:         caps.NativePageReloads,
-			NativeSourceCodeFetching:  caps.NativeSourceCodeFetching,
-			SupportsMultipleDebuggers: caps.SupportsMultipleDebuggers,
-		},
-		Reloadable: d.Page.IsReloadable(),
-	}
 }
 
 // Metadata is what a Fusebox target reports in
