@@ -21,6 +21,10 @@ export type LensMessage =
   | OnlineSetMessage
   | PingMessage;
 /**
+ * Any JSON value (object, array, string, number, boolean or null).
+ */
+export type JsonValue = {} | unknown[] | string | number | boolean | null;
+/**
  * TanStack Query key: an array of JSON values.
  */
 export type QueryKey = JsonValue[];
@@ -127,12 +131,6 @@ export interface Query {
    * data was cut at the SDK's size cap.
    */
   dataTruncated?: boolean;
-}
-/**
- * Any JSON value (object, array, string, number, boolean or null).
- */
-export interface JsonValue {
-  [k: string]: unknown | undefined;
 }
 export interface QueryState {
   status: QueryStatus;

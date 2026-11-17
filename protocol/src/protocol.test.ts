@@ -50,4 +50,38 @@ describe("lens protocol v1", () => {
     const msg: LensMessage = { v: 1, type: "online.set", payload: { online: true } };
     if (msg.type === "online.set") expect(msg.payload.online).toBe(true);
   });
+
+  it("types JSON values as any JSON value, not only objects", () => {
+    // Typed literal: fails `tsc --noEmit` if JsonValue regresses to an object type.
+    const msg: LensMessage = {
+      v: 1,
+      type: "query.event",
+      payload: {
+        kind: "added",
+        queryHash: '["todos",1,null]',
+        query: {
+          queryHash: '["todos",1,null]',
+          queryKey: ["todos", 1, null, { page: 2 }, [true]],
+          state: {
+            status: "success",
+            fetchStatus: "idle",
+            dataUpdatedAt: 1,
+            errorUpdatedAt: 0,
+            dataUpdateCount: 1,
+            errorUpdateCount: 0,
+            fetchFailureCount: 0,
+            isInvalidated: false,
+            data: "a plain string",
+            error: null,
+          },
+          observersCount: 1,
+          isActive: true,
+          isStale: false,
+          gcTime: 300000,
+          meta: 42,
+        },
+      },
+    };
+    expect(validate(msg), JSON.stringify(validate.errors)).toBe(true);
+  });
 });

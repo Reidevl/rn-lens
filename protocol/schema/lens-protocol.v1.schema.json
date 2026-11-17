@@ -44,7 +44,15 @@
   "$defs": {
     "JsonValue": {
       "title": "JsonValue",
-      "description": "Any JSON value (object, array, string, number, boolean or null)."
+      "description": "Any JSON value (object, array, string, number, boolean or null).",
+      "anyOf": [
+        { "type": "object" },
+        { "type": "array" },
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
     },
     "QueryKey": {
       "title": "QueryKey",
