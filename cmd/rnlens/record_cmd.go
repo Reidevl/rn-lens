@@ -83,6 +83,15 @@ func runRecord(args []string) int {
 		fmt.Fprintln(os.Stderr, "rnlens record: no target found; start your app and Metro first")
 		return 2
 	}
+	sessionCh, cancelSession := core.Bus().Subscribe(app.TopicSessionChanged, 64)
+	defer cancelSession()
+	go func() {
+		for range sessionCh {
+			snap := core.SessionSnapshot()
+			fmt.Fprintf(os.Stderr, "session: %s %s\n", snap.State, snap.Reason)
+		}
+	}()
+
 	if err := core.Attach(id); err != nil {
 		fmt.Fprintf(os.Stderr, "rnlens record: %v\n", err)
 		return 1

@@ -186,7 +186,7 @@ func (c *Conn) readLoop() {
 		if err != nil {
 			status := websocket.CloseStatus(err)
 			var ce websocket.CloseError
-			reasonText := ""
+			reasonText := err.Error() // no close frame: keep the transport error
 			if errors.As(err, &ce) {
 				reasonText = ce.Reason
 			}

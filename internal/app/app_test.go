@@ -157,3 +157,20 @@ func TestStopIsIdempotentAndStopsDiscovery(t *testing.T) {
 		t.Fatalf("state = %s, want idle", got)
 	}
 }
+
+func TestOriginFor(t *testing.T) {
+	t.Parallel()
+	tests := []struct{ in, want string }{
+		{"ws://localhost:8081/inspector/debug?device=1&page=1", "http://127.0.0.1:8081"},
+		{"ws://127.0.0.1:8082/inspector/debug", "http://127.0.0.1:8082"},
+		{"ws://[::1]:8081/inspector/debug", "http://127.0.0.1:8081"},
+		{"wss://tunnel.example.dev/inspector/debug", "https://tunnel.example.dev"},
+		{"ws://192.168.1.10:19000/x", "http://192.168.1.10:19000"},
+		{"not a url", ""},
+	}
+	for _, tt := range tests {
+		if got := app.OriginFor(tt.in); got != tt.want {
+			t.Errorf("OriginFor(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

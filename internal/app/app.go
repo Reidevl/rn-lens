@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -180,11 +182,40 @@ func (a *App) OpenInReactNativeDevTools(ctx context.Context, id string) error {
 	return a.metro.OpenDebugger(ctx, t.Endpoint, t.MetroID)
 }
 
-func (a *App) dial(ctx context.Context, url string) (targets.Conn, error) {
-	header := http.Header{"User-Agent": []string{"rnlens/" + a.cfg.Version}}
-	return cdpws.Dial(ctx, url, cdpws.Options{
+func (a *App) dial(ctx context.Context, wsURL string) (targets.Conn, error) {
+	header := http.Header{
+		"User-Agent": []string{"rnlens/" + a.cfg.Version},
+		// Metro rejects inspector upgrades (401) unless Origin matches its own host.
+		"Origin": []string{OriginFor(wsURL)},
+	}
+	return cdpws.Dial(ctx, wsURL, cdpws.Options{
 		HTTPClient: a.cfg.HTTPClient,
 		Header:     header,
 		OnFrame:    a.cfg.FrameObserver,
 	})
+}
+
+// OriginFor derives the Origin header Metro expects from a debugger WebSocket
+// URL. The inspector proxy only keeps connections whose Origin equals its own
+// base URL, which dev servers register as http://127.0.0.1:<port>, so loopback
+// hosts (localhost, ::1) are normalised to 127.0.0.1. Other hosts map to
+// http(s)://host:port.
+func OriginFor(wsURL string) string {
+	u, err := url.Parse(wsURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	scheme := "http"
+	if strings.EqualFold(u.Scheme, "wss") || strings.EqualFold(u.Scheme, "https") {
+		scheme = "https"
+	}
+	host := u.Host
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "::1", "[::1]", "127.0.0.1", "0.0.0.0":
+		host = "127.0.0.1"
+		if port := u.Port(); port != "" {
+			host += ":" + port
+		}
+	}
+	return scheme + "://" + host
 }
