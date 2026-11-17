@@ -77,3 +77,34 @@ type Metadata struct {
 	FrameRecordingEnabled    bool   `json:"unstable_frameRecordingEnabled"`
 	NetworkThrottlingEnabled bool   `json:"unstable_networkThrottlingEnabled"`
 }
+
+// SameApp reports whether other represents the same application instance on
+// the same device as t, ignoring the page id, which changes across restarts.
+func (t Target) SameApp(other Target) bool {
+	if t.Endpoint != other.Endpoint || t.AppID != other.AppID {
+		return false
+	}
+	if t.LogicalDeviceID != "" && other.LogicalDeviceID != "" {
+		return t.LogicalDeviceID == other.LogicalDeviceID
+	}
+	return t.DeviceName == other.DeviceName
+}
+
+// FindReplacement picks, from candidates, the reloadable page that now stands
+// for the same app and device as previous. It returns false when none exists.
+func FindReplacement(previous Target, candidates []Target) (Target, bool) {
+	var fallback Target
+	found := false
+	for _, c := range candidates {
+		if c.ID == previous.ID || !previous.SameApp(c) {
+			continue
+		}
+		if c.Reloadable {
+			return c, true
+		}
+		if !found {
+			fallback, found = c, true
+		}
+	}
+	return fallback, found
+}

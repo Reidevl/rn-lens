@@ -85,7 +85,10 @@ func New(cfg Config) *App {
 		Endpoints: cfg.MetroEndpoints,
 		Interval:  cfg.PollInterval,
 		Logger:    cfg.Logger,
-		OnChange:  func([]metro.Change) { a.bus.Publish(TopicTargetsChanged, nil) },
+		OnChange: func([]metro.Change) {
+			a.reconcileSession()
+			a.bus.Publish(TopicTargetsChanged, nil)
+		},
 	})
 	a.session = targets.NewSession(targets.DialerFunc(a.dial), targets.SessionOptions{
 		Logger:   cfg.Logger,
@@ -180,6 +183,27 @@ func (a *App) OpenInReactNativeDevTools(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: %s", ErrUnknownTarget, id)
 	}
 	return a.metro.OpenDebugger(ctx, t.Endpoint, t.MetroID)
+}
+
+// reconcileSession re-points a reconnecting session at the page that now
+// represents the same app on the same device. After an app restart Metro can
+// list the app under a new page id, so retrying the old WebSocket URL would
+// fail forever with [PAGE_NOT_FOUND].
+func (a *App) reconcileSession() {
+	snap := a.session.Snapshot()
+	if snap.State != targets.StateReconnecting || snap.Target == nil {
+		return
+	}
+	current := a.Targets()
+	for _, t := range current {
+		if t.ID == snap.Target.ID {
+			return // the original page is back; the session's own retry will succeed
+		}
+	}
+	if replacement, ok := targets.FindReplacement(*snap.Target, current); ok {
+		a.cfg.Logger.Info("target moved, re-attaching", "from", snap.Target.ID, "to", replacement.ID)
+		a.session.Attach(replacement)
+	}
 }
 
 func (a *App) dial(ctx context.Context, wsURL string) (targets.Conn, error) {

@@ -147,6 +147,58 @@ func TestDiscoverAttachReloadAndHandOff(t *testing.T) {
 	}
 }
 
+func TestSessionFollowsTheAppToANewPageId(t *testing.T) {
+	t.Parallel()
+	first := cdptest.New(t)
+	second := cdptest.New(t)
+	m := newFakeMetro(t, first)
+
+	a := app.New(app.Config{MetroEndpoints: []string{m.srv.URL}, PollInterval: 10 * time.Millisecond})
+	sessionCh, cancelSession := a.Bus().Subscribe(app.TopicSessionChanged, 64)
+	defer cancelSession()
+	targetsCh, cancelTargets := a.Bus().Subscribe(app.TopicTargetsChanged, 8)
+	defer cancelTargets()
+	a.Start()
+	t.Cleanup(a.Stop)
+
+	waitTopic(t, targetsCh, "targets:changed")
+	if err := a.Attach(a.Targets()[0].ID); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	for a.SessionSnapshot().State != targets.StateAttached {
+		waitTopic(t, sessionCh, "attached")
+	}
+
+	// The app restarts: Metro now lists it under page 2 with a new socket.
+	m.mu.Lock()
+	m.pages = []metro.Page{{
+		ID:                   "dev-2",
+		Title:                "React Native",
+		AppID:                "com.example.app",
+		WebSocketDebuggerURL: second.URL(),
+		ReactNative:          metro.ReactNativeInfo{LogicalDeviceID: "dev", Capabilities: metro.Capabilities{NativePageReloads: true}},
+	}}
+	m.mu.Unlock()
+	first.CloseAll(1000, "[PAGE_REMOVED] Page removed")
+
+	deadline := time.After(5 * time.Second)
+	for {
+		snap := a.SessionSnapshot()
+		if snap.State == targets.StateAttached && snap.Target != nil && snap.Target.MetroID == "dev-2" {
+			break
+		}
+		select {
+		case <-sessionCh:
+		case <-targetsCh:
+		case <-deadline:
+			t.Fatalf("session did not follow the app to dev-2; last %+v", snap)
+		}
+	}
+	if second.ConnectionCount() != 1 {
+		t.Fatalf("second debugger saw %d connections, want 1", second.ConnectionCount())
+	}
+}
+
 func TestStopIsIdempotentAndStopsDiscovery(t *testing.T) {
 	t.Parallel()
 	a := app.New(app.Config{MetroEndpoints: []string{"http://127.0.0.1:1"}, PollInterval: 5 * time.Millisecond})

@@ -331,3 +331,25 @@ func countMethod(srv *cdptest.Server, method string) int {
 	}
 	return n
 }
+
+func TestFindReplacementPrefersReloadablePageOfSameApp(t *testing.T) {
+	t.Parallel()
+	previous := targets.Target{ID: "e|dev-1", Endpoint: "e", AppID: "com.app", LogicalDeviceID: "dev", Reloadable: true}
+	other := targets.Target{ID: "e|other-1", Endpoint: "e", AppID: "com.other", LogicalDeviceID: "dev", Reloadable: true}
+	legacy := targets.Target{ID: "e|dev-2", Endpoint: "e", AppID: "com.app", LogicalDeviceID: "dev"}
+	modern := targets.Target{ID: "e|dev-3", Endpoint: "e", AppID: "com.app", LogicalDeviceID: "dev", Reloadable: true}
+
+	if got, ok := targets.FindReplacement(previous, []targets.Target{other, legacy, modern}); !ok || got.ID != modern.ID {
+		t.Fatalf("FindReplacement = %+v, %v; want the modern page", got, ok)
+	}
+	if got, ok := targets.FindReplacement(previous, []targets.Target{other, legacy}); !ok || got.ID != legacy.ID {
+		t.Fatalf("FindReplacement without a modern page = %+v, %v; want the legacy page", got, ok)
+	}
+	if _, ok := targets.FindReplacement(previous, []targets.Target{previous, other}); ok {
+		t.Fatal("FindReplacement must not pick the original page or another app")
+	}
+	byName := targets.Target{ID: "e|x-1", Endpoint: "e", AppID: "com.app", DeviceName: "Pixel"}
+	if _, ok := targets.FindReplacement(targets.Target{ID: "e|y-1", Endpoint: "e", AppID: "com.app", DeviceName: "Pixel"}, []targets.Target{byName}); !ok {
+		t.Fatal("FindReplacement should fall back to device name when logical ids are missing")
+	}
+}
