@@ -16,6 +16,11 @@ var DefaultEndpoints = []string{
 	"http://localhost:19000",
 }
 
+// DefaultFailuresBeforeRemoval is how many consecutive failed polls an endpoint
+// tolerates before its pages are removed. Metro's event loop stalls while it
+// bundles, so a single missed /json must not drop an attached target.
+const DefaultFailuresBeforeRemoval = 3
+
 // Discovered is a page together with the Metro endpoint that listed it.
 type Discovered struct {
 	Endpoint string
@@ -49,6 +54,9 @@ type DiscoveryOptions struct {
 	Interval time.Duration
 	// MaxBackoff caps the poll interval of an unreachable endpoint. Zero means five seconds.
 	MaxBackoff time.Duration
+	// FailuresBeforeRemoval is how many consecutive failed polls an endpoint
+	// tolerates before its pages are removed. Zero means DefaultFailuresBeforeRemoval.
+	FailuresBeforeRemoval int
 	// OnChange receives every non-empty diff. It is called from the polling
 	// goroutine and must not block.
 	OnChange func(changes []Change)
@@ -64,6 +72,7 @@ type Discovery struct {
 	mu         sync.RWMutex
 	pages      map[string]Discovered
 	reachable  map[string]bool
+	failures   map[string]int
 	generation uint64
 }
 
@@ -78,6 +87,9 @@ func NewDiscovery(client *Client, opts DiscoveryOptions) *Discovery {
 	if opts.MaxBackoff <= 0 {
 		opts.MaxBackoff = 5 * time.Second
 	}
+	if opts.FailuresBeforeRemoval <= 0 {
+		opts.FailuresBeforeRemoval = DefaultFailuresBeforeRemoval
+	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
@@ -86,6 +98,7 @@ func NewDiscovery(client *Client, opts DiscoveryOptions) *Discovery {
 		opts:      opts,
 		pages:     make(map[string]Discovered),
 		reachable: make(map[string]bool),
+		failures:  make(map[string]int),
 	}
 }
 
@@ -160,6 +173,9 @@ func (d *Discovery) pollLoop(ctx context.Context, endpoint string) {
 }
 
 // pollOnce fetches one endpoint and applies the diff. It reports reachability.
+// A failed poll marks the endpoint unreachable at once but keeps its pages
+// until FailuresBeforeRemoval consecutive polls have failed, so a Metro that
+// is busy bundling does not make the targets list flap.
 func (d *Discovery) pollOnce(ctx context.Context, endpoint string) bool {
 	pages, err := d.client.ListPages(ctx, endpoint)
 	if err != nil {
@@ -167,12 +183,30 @@ func (d *Discovery) pollOnce(ctx context.Context, endpoint string) bool {
 			return false
 		}
 		d.setReachable(endpoint, false)
-		d.apply(endpoint, nil)
+		if d.recordFailure(endpoint) >= d.opts.FailuresBeforeRemoval {
+			d.apply(endpoint, nil)
+		}
 		return false
 	}
 	d.setReachable(endpoint, true)
+	d.resetFailures(endpoint)
 	d.apply(endpoint, pages)
 	return true
+}
+
+// recordFailure counts one more consecutive failed poll of endpoint and
+// returns the new count.
+func (d *Discovery) recordFailure(endpoint string) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.failures[endpoint]++
+	return d.failures[endpoint]
+}
+
+func (d *Discovery) resetFailures(endpoint string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.failures, endpoint)
 }
 
 func (d *Discovery) setReachable(endpoint string, ok bool) {
