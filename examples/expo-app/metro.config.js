@@ -5,12 +5,15 @@
 // find the SDK's own devDependencies (packages/sdk/node_modules/react, ...)
 // and bundle a second copy of React. The resolver below sends the SDK's peer
 // dependencies back to this app's node_modules so every package resolves once.
+const fs = require("node:fs");
 const path = require("node:path");
 
 const { getDefaultConfig } = require("expo/metro-config");
 
 const projectRoot = __dirname;
-const sdkRoot = path.resolve(projectRoot, "../../packages/sdk");
+// Real path: Metro reports real paths in originModulePath, so a symlinked
+// checkout must compare against the resolved location.
+const sdkRoot = fs.realpathSync(path.resolve(projectRoot, "../../packages/sdk"));
 
 /** Peers the SDK must share with the app (never a second copy). */
 const SHARED_PEERS = new Set(["react", "react-native", "@tanstack/react-query"]);
