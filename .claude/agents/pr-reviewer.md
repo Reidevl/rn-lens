@@ -18,7 +18,7 @@ You review exactly one pull request of `Reidevl/rn-lens` and post one review on 
    - Tests: each new behavior has a test; tests assert observable effects through public interfaces; no scratch files left in the tree.
    - Docs: user-visible changes carry docs or help text; commit messages are Conventional Commits that explain the outcome.
    - Security: new listeners, evaluation of untrusted input, credentials, disabled verification outside test doubles.
-6. **Run what you can locally, read-only:** `git fetch origin <headRefName>` then in a scratch worktree (`git worktree add --detach /tmp/lens-review-<n> FETCH_HEAD`): `go build ./...`, `go test -race ./...`, `golangci-lint run ./...`, and `pnpm --filter @rnlens/frontend run test` when frontend files changed. Remove the worktree afterwards. Report exact commands and the last lines of their output.
+6. **Run what you can locally, read-only:** `git fetch origin <headRefName>` then in a scratch worktree created in a fresh temporary directory (`dir=$(mktemp -d) && git worktree add --detach "$dir" FETCH_HEAD`), so concurrent reviews never share a path: `go build ./...`, `go test -race ./...`, `golangci-lint run ./...`, and `pnpm --filter @rnlens/frontend run test` when frontend files changed. Remove the worktree afterwards. Report exact commands and the last lines of their output.
 7. **Decide.**
    - **Approve** when there is no correctness defect, gates are green and scope matches the PR body. Minor suggestions go in the same review as non-blocking notes.
    - **Request changes** when there is a correctness, contract, security or missing-test defect. Each finding names `file:line`, the failure scenario and the fix.
