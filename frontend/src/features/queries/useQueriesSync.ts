@@ -2,9 +2,12 @@ import { useEffect } from "react";
 
 import { TOPICS, useBackend } from "@/backend";
 
-import { pullQueries } from "./queriesStore";
+import { pullQueries, useQueriesStore } from "./queriesStore";
 
-/** One initial pull, then one serialized pull per queries:changed notice. */
+/**
+ * One initial pull, then one serialized pull per queries:changed notice and
+ * per device selection, so switching device never waits for the next notice.
+ */
 export function useQueriesSync(): void {
   const backend = useBackend();
 
@@ -32,9 +35,13 @@ export function useQueriesSync(): void {
 
     pull();
     const off = backend.events.on(TOPICS.queriesChanged, pull);
+    const unsubscribe = useQueriesStore.subscribe((state, previous) => {
+      if (state.deviceKey !== previous.deviceKey && state.deviceKey) pull();
+    });
     return () => {
       active = false;
       off();
+      unsubscribe();
     };
   }, [backend]);
 }

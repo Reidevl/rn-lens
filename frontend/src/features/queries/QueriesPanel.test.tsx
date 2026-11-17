@@ -46,6 +46,29 @@ describe("QueriesPanel", () => {
     expect(within(list).getByText('["user"]')).toBeInTheDocument();
   });
 
+  it("pulls the chosen device's queries when the picker changes", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    render(<App backend={backend} />);
+    await screen.findByText(/No app has connected/);
+
+    backend.connectDevice(sampleDevice(), [sampleQuery()]);
+    backend.connectDevice(
+      sampleDevice({ key: "com.other|device-2", device: { id: "device-2", name: "Pixel 9" } }),
+      [sampleQuery({ queryHash: '["user"]', queryKey: ["user"] })],
+    );
+    const list = await screen.findByRole("listbox", { name: "Queries" });
+    expect(within(list).getByText('["todos",{"page":1}]')).toBeInTheDocument();
+
+    // Switching device must pull that device's cache without waiting for a notice.
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Connected app" }),
+      "com.other|device-2",
+    );
+    expect(await within(list).findByText('["user"]')).toBeInTheDocument();
+    expect(within(list).queryByText('["todos",{"page":1}]')).not.toBeInTheDocument();
+  });
+
   it("runs actions on the selected query and edits its data", async () => {
     const user = userEvent.setup();
     const backend = createMockBackend();

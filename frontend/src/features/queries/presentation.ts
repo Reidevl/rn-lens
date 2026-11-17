@@ -14,7 +14,7 @@ export const labelDot: Record<QueryLabel, string> = {
   fresh: "bg-accent",
   stale: "bg-warning",
   inactive: "bg-muted-foreground",
-  paused: "bg-purple-400",
+  paused: "bg-paused",
 };
 
 export function keyText(key: unknown): string {

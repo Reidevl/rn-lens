@@ -97,9 +97,20 @@ export async function pullQueries(backend: Backend): Promise<void> {
     backend.queries.queries(deviceKey),
     backend.queries.mutations(deviceKey),
   ]);
+  // Re-read after the awaits: a device picked mid-flight must not be
+  // overwritten by this older pull; the pull its selection triggered follows.
+  const latest = useQueriesStore.getState();
+  if (
+    latest.deviceKey &&
+    latest.deviceKey !== deviceKey &&
+    devices.some((d) => d.key === latest.deviceKey)
+  ) {
+    useQueriesStore.setState({ devices });
+    return;
+  }
   const selectedHash =
-    state.selectedHash && page.queries.some((q) => q.queryHash === state.selectedHash)
-      ? state.selectedHash
+    latest.selectedHash && page.queries.some((q) => q.queryHash === latest.selectedHash)
+      ? latest.selectedHash
       : null;
   useQueriesStore.setState({
     devices,

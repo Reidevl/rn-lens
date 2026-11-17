@@ -25,6 +25,7 @@
   --destructive-fg: #000000;
   --warning: #f59e0b;
   --info: #38bdf8;
+  --paused: #a78bfa;
   --ring: #f8fafc;
 
   --rail-width: 15rem;
@@ -49,6 +50,7 @@
   --destructive-fg: #ffffff;
   --warning: #d97706;
   --info: #0284c7;
+  --paused: #7c3aed;
   --ring: #0f172a;
 }
 
@@ -68,6 +70,7 @@
   --color-destructive-foreground: var(--destructive-fg);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-paused: var(--paused);
   --color-ring: var(--ring);
 
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
