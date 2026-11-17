@@ -1,0 +1,333 @@
+package targets_test
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/Reidevl/rn-lens/internal/adapters/cdpws"
+	"github.com/Reidevl/rn-lens/internal/adapters/cdpws/cdptest"
+	"github.com/Reidevl/rn-lens/internal/adapters/metro"
+	"github.com/Reidevl/rn-lens/internal/platform/cdp"
+	"github.com/Reidevl/rn-lens/internal/targets"
+)
+
+// wsDialer adapts cdpws to the targets.Dialer port, as the composition root does.
+var wsDialer = targets.DialerFunc(func(ctx context.Context, url string) (targets.Conn, error) {
+	return cdpws.Dial(ctx, url, cdpws.Options{})
+})
+
+type stateRecorder struct {
+	mu     sync.Mutex
+	states []targets.Snapshot
+	notify chan struct{}
+}
+
+func newStateRecorder() *stateRecorder {
+	return &stateRecorder{notify: make(chan struct{}, 128)}
+}
+
+func (r *stateRecorder) onChange(s targets.Snapshot) {
+	r.mu.Lock()
+	r.states = append(r.states, s)
+	r.mu.Unlock()
+	select {
+	case r.notify <- struct{}{}:
+	default:
+	}
+}
+
+// waitFor blocks until pred holds for the latest snapshot.
+func (r *stateRecorder) waitFor(t *testing.T, what string, pred func(targets.Snapshot) bool) targets.Snapshot {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		r.mu.Lock()
+		if n := len(r.states); n > 0 && pred(r.states[n-1]) {
+			s := r.states[n-1]
+			r.mu.Unlock()
+			return s
+		}
+		r.mu.Unlock()
+		select {
+		case <-r.notify:
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s; states: %v", what, r.sequence())
+		}
+	}
+}
+
+func (r *stateRecorder) sequence() []targets.State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]targets.State, len(r.states))
+	for i, s := range r.states {
+		out[i] = s.State
+	}
+	return out
+}
+
+func inState(state targets.State) func(targets.Snapshot) bool {
+	return func(s targets.Snapshot) bool { return s.State == state }
+}
+
+func targetFor(srv *cdptest.Server) targets.Target {
+	return targets.FromMetro(metro.Discovered{
+		Endpoint: "http://localhost:8081",
+		Page: metro.Page{
+			ID:                   "dev-1",
+			Title:                "React Native",
+			AppID:                "com.example.app",
+			WebSocketDebuggerURL: srv.URL(),
+			ReactNative: metro.ReactNativeInfo{
+				LogicalDeviceID: "dev",
+				Capabilities:    metro.Capabilities{NativePageReloads: true, SupportsMultipleDebuggers: true},
+			},
+		},
+	})
+}
+
+func newSession(t *testing.T, rec *stateRecorder) *targets.Session {
+	t.Helper()
+	s := targets.NewSession(wsDialer, targets.SessionOptions{
+		BackoffMin: 5 * time.Millisecond,
+		BackoffMax: 20 * time.Millisecond,
+		OnChange:   rec.onChange,
+	})
+	t.Cleanup(s.Detach)
+	return s
+}
+
+func TestFromMetroBuildsTargetIdentity(t *testing.T) {
+	t.Parallel()
+	target := targets.FromMetro(metro.Discovered{
+		Endpoint: "http://localhost:8081",
+		Page: metro.Page{
+			ID:          "device-42-7",
+			Title:       "React Native",
+			ReactNative: metro.ReactNativeInfo{LogicalDeviceID: "device-42", Capabilities: metro.Capabilities{NativePageReloads: true}},
+		},
+	})
+	if target.ID != "http://localhost:8081|device-42-7" {
+		t.Fatalf("ID = %q", target.ID)
+	}
+	if target.PageID != "7" || target.MetroID != "device-42-7" || target.LogicalDeviceID != "device-42" {
+		t.Fatalf("ids = %+v", target)
+	}
+	if !target.Reloadable || !target.Capabilities.NativePageReloads {
+		t.Fatal("capabilities not carried over")
+	}
+}
+
+func TestAttachEnablesApplicationDomainFirstAndReportsMetadata(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	srv.Handle(cdp.MethodReactNativeApplicationEnable, func(cdptest.Request) (any, *cdptest.Error) {
+		go srv.Emit(cdp.EventReactNativeMetadataUpdated, map[string]any{
+			"appDisplayName":                    "Example",
+			"appIdentifier":                     "com.example.app",
+			"deviceName":                        "iPhone 17",
+			"integrationName":                   "React Native Bridgeless (Hermes)",
+			"platform":                          "ios",
+			"reactNativeVersion":                "0.88.1",
+			"unstable_networkInspectionEnabled": true,
+		})
+		return nil, nil
+	})
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+
+	s.Attach(targetFor(srv))
+
+	snap := rec.waitFor(t, "metadata", func(s targets.Snapshot) bool { return s.State == targets.StateAttached && s.Metadata != nil })
+	if snap.Metadata.AppDisplayName != "Example" || snap.Metadata.ReactNativeVersion != "0.88.1" || !snap.Metadata.NetworkInspectionEnabled {
+		t.Fatalf("metadata = %+v", snap.Metadata)
+	}
+	if methods := srv.Methods(); len(methods) == 0 || methods[0] != cdp.MethodReactNativeApplicationEnable {
+		t.Fatalf("first method = %v, want ReactNativeApplication.enable", methods)
+	}
+	if got := s.Snapshot().Target.AppID; got != "com.example.app" {
+		t.Fatalf("Target.AppID = %q", got)
+	}
+}
+
+func TestEvictionStopsWithoutReconnecting(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+	s.Attach(targetFor(srv))
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+
+	srv.CloseAll(websocket.StatusNormalClosure, "[NEW_DEBUGGER_OPENED] New debugger opened for the same app instance")
+
+	snap := rec.waitFor(t, "evicted", inState(targets.StateEvicted))
+	if snap.Reason == "" || snap.Metadata != nil {
+		t.Fatalf("evicted snapshot = %+v", snap)
+	}
+	time.Sleep(50 * time.Millisecond) // longer than BackoffMax: a reconnect would have happened
+	if n := srv.ConnectionCount(); n != 1 {
+		t.Fatalf("server accepted %d connections, want 1 (no reconnect after eviction)", n)
+	}
+	if _, err := s.Call(context.Background(), "Runtime.enable", nil); !errors.Is(err, targets.ErrNotAttached) {
+		t.Fatalf("Call after eviction = %v, want ErrNotAttached", err)
+	}
+}
+
+func TestConnectionLossReconnectsWithBackoff(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+	s.Attach(targetFor(srv))
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	srv.WaitConnected(time.Second)
+
+	srv.CloseAll(websocket.StatusNormalClosure, "[CONNECTION_LOST] Connection lost")
+
+	rec.waitFor(t, "reconnecting", inState(targets.StateReconnecting))
+	rec.waitFor(t, "re-attached", inState(targets.StateAttached))
+
+	seq := rec.sequence()
+	sawReconnect := false
+	for _, st := range seq {
+		if st == targets.StateReconnecting {
+			sawReconnect = true
+		}
+	}
+	if !sawReconnect || seq[len(seq)-1] != targets.StateAttached {
+		t.Fatalf("state sequence = %v", seq)
+	}
+	if enables := countMethod(srv, cdp.MethodReactNativeApplicationEnable); enables != 2 {
+		t.Fatalf("enable sent %d times, want 2 (once per connection)", enables)
+	}
+}
+
+func TestDialFailureKeepsRetryingUntilDetach(t *testing.T) {
+	t.Parallel()
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+	target := targets.Target{ID: "x", WebSocketURL: "ws://127.0.0.1:1/inspector/debug?device=1&page=1"}
+
+	s.Attach(target)
+
+	snap := rec.waitFor(t, "second retry", func(s targets.Snapshot) bool {
+		return s.State == targets.StateReconnecting && s.Attempts >= 2
+	})
+	if snap.Reason == "" {
+		t.Fatal("reconnecting snapshot has no reason")
+	}
+
+	s.Detach()
+
+	if got := s.Snapshot().State; got != targets.StateClosed {
+		t.Fatalf("state after Detach = %s, want closed", got)
+	}
+}
+
+func TestDetachClosesAndReloadNeedsAttachment(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	reloads := 0
+	var mu sync.Mutex
+	srv.Handle(cdp.MethodPageReload, func(cdptest.Request) (any, *cdptest.Error) {
+		mu.Lock()
+		reloads++
+		mu.Unlock()
+		return nil, nil
+	})
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+
+	if err := s.Reload(context.Background()); !errors.Is(err, targets.ErrNotAttached) {
+		t.Fatalf("Reload while idle = %v, want ErrNotAttached", err)
+	}
+
+	s.Attach(targetFor(srv))
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	if err := s.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	mu.Lock()
+	if reloads != 1 {
+		t.Fatalf("Page.reload sent %d times, want 1", reloads)
+	}
+	mu.Unlock()
+
+	s.Detach()
+	snap := s.Snapshot()
+	if snap.State != targets.StateClosed || snap.Metadata != nil {
+		t.Fatalf("snapshot after Detach = %+v", snap)
+	}
+}
+
+func TestEventHandlersReceiveEventsInOrder(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+	var mu sync.Mutex
+	var seen []string
+	s.OnEvent(func(ev cdp.Event) {
+		mu.Lock()
+		seen = append(seen, ev.Method)
+		mu.Unlock()
+	})
+	s.Attach(targetFor(srv))
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	srv.WaitConnected(time.Second)
+
+	srv.Emit("Runtime.consoleAPICalled", map[string]any{"n": 1})
+	srv.Emit("Log.entryAdded", map[string]any{"n": 2})
+
+	deadline := time.After(2 * time.Second)
+	for {
+		mu.Lock()
+		if len(seen) == 2 {
+			if seen[0] != "Runtime.consoleAPICalled" || seen[1] != "Log.entryAdded" {
+				t.Fatalf("events = %v", seen)
+			}
+			mu.Unlock()
+			return
+		}
+		mu.Unlock()
+		select {
+		case <-deadline:
+			t.Fatal("handlers did not receive both events")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+func TestAttachReplacesPreviousSession(t *testing.T) {
+	t.Parallel()
+	first := cdptest.New(t)
+	second := cdptest.New(t)
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+
+	s.Attach(targetFor(first))
+	rec.waitFor(t, "first attached", inState(targets.StateAttached))
+	s.Attach(targetFor(second))
+	rec.waitFor(t, "second attached", func(snap targets.Snapshot) bool {
+		return snap.State == targets.StateAttached && snap.Target != nil && snap.Target.WebSocketURL == second.URL()
+	})
+
+	if n := countMethod(second, cdp.MethodReactNativeApplicationEnable); n != 1 {
+		t.Fatalf("second server saw %d enables, want 1", n)
+	}
+}
+
+func countMethod(srv *cdptest.Server, method string) int {
+	n := 0
+	for _, m := range srv.Methods() {
+		if m == method {
+			n++
+		}
+	}
+	return n
+}
