@@ -80,6 +80,12 @@ MIT-licensed `@rozenite/tanstack-query-plugin` by Callstack:
 | `pause`, `continue` | `fetchStatus`                                                               |
 | anything else       | the full `query` instead of a `delta`                                       |
 
+In a `delta`, an absent field means unchanged and an explicit `null` means the
+device cleared it: when `setState` sets `data` or `error` to `undefined` (the
+devtools recipes for `TRIGGER_LOADING`, `TRIGGER_ERROR` and `RESET` do), the
+SDK sends `null` and Lens clears the mirrored field (`dataTruncated` becomes
+false). A full `query` or `queries.snapshot` simply omits undefined fields.
+
 ## Payload limits
 
 `data`, `error`, `variables` and `context` are serialized with a safe

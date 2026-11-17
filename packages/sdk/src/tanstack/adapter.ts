@@ -95,13 +95,15 @@ export function createQueryAdapter(
       case "updated": {
         const action = event.action.type;
         if (action === "setState") {
-          const { delta } = pickQueryState(event.action.state, QUERY_DELTA_KEYS, limits);
+          const { delta } = pickQueryState(event.action.state, QUERY_DELTA_KEYS, limits, {
+            explicitNull: true,
+          });
           host.send(queryEvent({ kind: "updated", queryHash, action, delta }));
           return;
         }
         const fields = QUERY_ACTION_DELTA_FIELDS[action];
         if (fields) {
-          const { delta } = pickQueryState(query.state, fields, limits);
+          const { delta } = pickQueryState(query.state, fields, limits, { explicitNull: true });
           host.send(queryEvent({ kind: "updated", queryHash, action, delta }));
           return;
         }

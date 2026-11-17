@@ -5,6 +5,7 @@
 package queries
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -334,15 +335,26 @@ func applyDelta(st *protocol.QueryState, dl *protocol.QueryStateDelta) {
 	if dl.IsInvalidated != nil {
 		st.IsInvalidated = *dl.IsInvalidated
 	}
-	if dl.Data != nil {
-		st.Data = dl.Data
+	applyRaw(&st.Data, dl.Data)
+	applyRaw(&st.Error, dl.Error)
+	applyRaw(&st.FetchMeta, dl.FetchMeta)
+}
+
+// applyRaw applies one JSON-typed delta field: absent (nil) leaves dst
+// untouched, JSON null clears it (the device set the field to undefined, as
+// TRIGGER_LOADING, TRIGGER_ERROR and RESET do) and any other value replaces it.
+func applyRaw(dst *json.RawMessage, src json.RawMessage) {
+	switch {
+	case src == nil:
+	case isJSONNull(src):
+		*dst = nil
+	default:
+		*dst = src
 	}
-	if dl.Error != nil {
-		st.Error = dl.Error
-	}
-	if dl.FetchMeta != nil {
-		st.FetchMeta = dl.FetchMeta
-	}
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return string(bytes.TrimSpace(raw)) == "null"
 }
 
 func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
@@ -376,24 +388,14 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 		if dl.IsPaused != nil {
 			m.State.IsPaused = *dl.IsPaused
 		}
-		if dl.Variables != nil {
-			m.State.Variables = dl.Variables
-		}
-		if dl.Data != nil {
-			m.State.Data = dl.Data
-		}
-		if dl.Error != nil {
-			m.State.Error = dl.Error
-		}
+		applyRaw(&m.State.Variables, dl.Variables)
+		applyRaw(&m.State.Data, dl.Data)
+		applyRaw(&m.State.Error, dl.Error)
 		if dl.FailureCount != nil {
 			m.State.FailureCount = *dl.FailureCount
 		}
-		if dl.FailureReason != nil {
-			m.State.FailureReason = dl.FailureReason
-		}
-		if dl.Context != nil {
-			m.State.Context = dl.Context
-		}
+		applyRaw(&m.State.FailureReason, dl.FailureReason)
+		applyRaw(&m.State.Context, dl.Context)
 		d.mutations[ev.MutationID] = m
 		return true
 	default:

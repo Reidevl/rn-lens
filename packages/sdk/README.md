@@ -89,7 +89,9 @@ alias for the host machine.
 - `queries.snapshot` right after Lens answers `welcome`, and again on
   `snapshot.request`.
 - `query.event` and `mutation.event` for every cache change, following the
-  delta policy described in [`protocol/README.md`](../../protocol/README.md).
+  delta policy described in [`protocol/README.md`](../../protocol/README.md);
+  a field the device cleared (`data: undefined` after `TRIGGER_LOADING`,
+  `TRIGGER_ERROR`, `RESET`) travels as an explicit `null`.
 - `online.status` when `onlineManager` changes; `online.set` from Lens calls
   `onlineManager.setOnline`.
 

@@ -312,6 +312,75 @@ func TestMessageFromReplacedSessionIsIgnored(t *testing.T) {
 	}
 }
 
+// A delta carries JSON null for a field the device cleared (TRIGGER_LOADING,
+// TRIGGER_ERROR, RESET); absent means unchanged. Null clears the mirror.
+func TestNullDeltaClearsFields(t *testing.T) {
+	t.Parallel()
+	svc, _, key, _ := connect(t)
+	q := protocol.Query{
+		QueryHash: "h", QueryKey: json.RawMessage(`["h"]`), ObserversCount: 1,
+		State: protocol.QueryState{
+			Status: "error", FetchStatus: "idle",
+			Data:  json.RawMessage(`{"__lensTruncated":true,"bytes":5000000}`),
+			Error: json.RawMessage(`{"message":"boom"}`), FetchMeta: json.RawMessage(`{"k":1}`),
+		},
+	}
+	added, _ := json.Marshal(protocol.QueryEvent{Kind: protocol.EventAdded, QueryHash: "h", Query: &q})
+	if err := svc.Message(key, "s1", protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: added}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.Query(key, "h"); !got.DataTruncated {
+		t.Fatalf("precondition: marker must set dataTruncated, got %+v", got)
+	}
+
+	delta := protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: json.RawMessage(
+		`{"kind":"updated","queryHash":"h","action":"setState","delta":{"status":"pending","data":null,"error":null,"fetchMeta":null}}`)}
+	if err := svc.Message(key, "s1", delta); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.Query(key, "h")
+	if got.State.Status != "pending" || got.State.Data != nil || got.State.Error != nil || got.State.FetchMeta != nil || got.DataTruncated {
+		t.Fatalf("null delta did not clear the fields: %+v", got)
+	}
+	raw, _ := json.Marshal(got)
+	for _, field := range []string{`"data"`, `"error"`, `"fetchMeta"`, `"dataTruncated"`} {
+		if strings.Contains(string(raw), field) {
+			t.Fatalf("cleared field %s still serialized: %s", field, raw)
+		}
+	}
+
+	// Absent fields stay untouched.
+	keep := protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: json.RawMessage(
+		`{"kind":"updated","queryHash":"h","action":"success","delta":{"data":{"ok":true}}}`)}
+	if err := svc.Message(key, "s1", keep); err != nil {
+		t.Fatal(err)
+	}
+	unchanged := protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: json.RawMessage(
+		`{"kind":"updated","queryHash":"h","action":"invalidate","delta":{"isInvalidated":true}}`)}
+	if err := svc.Message(key, "s1", unchanged); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.Query(key, "h"); string(got.State.Data) != `{"ok":true}` || !got.State.IsInvalidated {
+		t.Fatalf("delta without data touched it: %+v", got)
+	}
+
+	// Mutations follow the same rule.
+	m := protocol.Mutation{MutationID: 1, State: protocol.MutationState{Status: "error", Error: json.RawMessage(`"e"`), Data: json.RawMessage(`1`)}}
+	mAdded, _ := json.Marshal(protocol.MutationEvent{Kind: protocol.EventAdded, MutationID: 1, Mutation: &m})
+	if err := svc.Message(key, "s1", protocol.Message{V: 1, Type: protocol.TypeMutationEvent, Payload: mAdded}); err != nil {
+		t.Fatal(err)
+	}
+	mDelta := protocol.Message{V: 1, Type: protocol.TypeMutationEvent, Payload: json.RawMessage(
+		`{"kind":"updated","mutationId":1,"delta":{"status":"pending","error":null,"data":null}}`)}
+	if err := svc.Message(key, "s1", mDelta); err != nil {
+		t.Fatal(err)
+	}
+	muts, _ := svc.Mutations(key)
+	if len(muts) != 1 || muts[0].State.Status != "pending" || muts[0].State.Error != nil || muts[0].State.Data != nil {
+		t.Fatalf("null mutation delta did not clear the fields: %+v", muts)
+	}
+}
+
 func TestOversizedDataIsCapped(t *testing.T) {
 	t.Parallel()
 	svc, _, key, _ := connect(t)

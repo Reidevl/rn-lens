@@ -64,6 +64,16 @@ function serializeQueryKey(key: readonly unknown[], limits: SerializeLimits): Pr
   return (Array.isArray(safe) ? safe : [safe]) as ProtoQueryKey;
 }
 
+export interface PickOptions {
+  /**
+   * In a delta, a listed key whose value is `undefined` on the device (data or
+   * error cleared by TRIGGER_LOADING, TRIGGER_ERROR, RESET) is sent as JSON
+   * `null` so Lens clears it too; absent means unchanged. A full query keeps
+   * omitting it.
+   */
+  explicitNull?: boolean;
+}
+
 /**
  * Copies the listed fields from a (partial) TanStack query state into a delta,
  * serializing `data`, `error` and `fetchMeta` safely. Returns whether `data`
@@ -73,13 +83,17 @@ export function pickQueryState(
   state: Partial<QueryState>,
   keys: readonly QueryDeltaKey[],
   limits: SerializeLimits,
+  options: PickOptions = {},
 ): { delta: QueryStateDelta; truncated: boolean } {
   const delta: Record<string, unknown> = {};
   let truncated = false;
   for (const key of keys) {
     if (!(key in state)) continue;
     const raw = state[key as keyof QueryState];
-    if (raw === undefined) continue;
+    if (raw === undefined) {
+      if (options.explicitNull) delta[key] = null;
+      continue;
+    }
     if (SERIALIZED_QUERY_KEYS.has(key)) {
       const result = safeSerialize(raw, limits);
       if (result.value === undefined) continue;

@@ -86,13 +86,20 @@ describe("runQueryAction", () => {
     expect(query().state.fetchMeta).toBeNull();
   });
 
+  // Official recipe (@tanstack/query-devtools Devtools.tsx, triggerError):
+  // setState({ data: undefined, status: 'error', error, fetchMeta: { ...fetchMeta, __previousQueryOptions } }).
   it("TRIGGER_ERROR then RESTORE_ERROR", async () => {
     const observer = new QueryObserver(queryClient, { queryKey: key, queryFn: () => ({ n: 5 }) });
     const unsubscribe = observer.subscribe(() => {});
+    query().setState({ fetchMeta: { tag: "kept" } as DevtoolsFetchMeta });
+    const before = query().options;
     expect(await run("TRIGGER_ERROR")).toEqual({ id: "a", ok: true });
-    expect(query().state).toMatchObject({ status: "error", data: undefined });
+    expect(query().state).toMatchObject({ status: "error", fetchStatus: "idle" });
+    expect("data" in query().state && query().state.data === undefined).toBe(true);
     expect((query().state.error as Error).message).toBe("Unknown error from devtools");
-    expect((query().state.fetchMeta as DevtoolsFetchMeta).__previousQueryOptions).toBeDefined();
+    const meta = query().state.fetchMeta as DevtoolsFetchMeta & { tag?: string };
+    expect(meta.__previousQueryOptions).toBe(before);
+    expect(meta.tag).toBe("kept");
 
     expect(await run("RESTORE_ERROR")).toEqual({ id: "a", ok: true });
     await waitFor(() => query().state.status === "success");
