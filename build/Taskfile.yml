@@ -47,7 +47,7 @@ tasks:
     dir: frontend
     sources:
       - package.json
-      - pnpm-lock.yaml
+      - ../pnpm-lock.yaml
     generates:
       - node_modules
     preconditions:
