@@ -2,6 +2,7 @@ import { onlineManager, QueryClient, QueryObserver } from "@tanstack/react-query
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createLensClient, type LensClient } from "../client";
+import { SNAPSHOT_MAX_BYTES } from "./adapter";
 import { FakeLens, waitFor } from "../testing/fake-lens";
 
 let lens: FakeLens;
@@ -114,6 +115,29 @@ describe("snapshot", () => {
     const [query] = snapshot.payload.queries;
     expect(query.dataTruncated).toBe(true);
     expect(query.state.data).toEqual({ __lensTruncated: true, bytes: 1024 * 1024 + 20 });
+  });
+  it("caps the whole snapshot at SNAPSHOT_MAX_BYTES, truncating the largest queries first", async () => {
+    await connect();
+    const sizes = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => 1_000_000 + i * 1000);
+    for (const [i, size] of sizes.entries()) {
+      await queryClient.fetchQuery({ queryKey: ["big", i], queryFn: () => "x".repeat(size) });
+    }
+    await lens.sync();
+    lens.send({ v: 1, type: "snapshot.request", payload: {} });
+    const snapshot = await lens.next("queries.snapshot", 10_000);
+
+    expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES);
+    expect(snapshot.payload.queries.map((q) => q.queryHash).sort()).toEqual(
+      sizes.map((_, i) => `["big",${i}]`).sort(),
+    );
+    const truncated = snapshot.payload.queries.filter((q) => q.dataTruncated === true);
+    expect(truncated.map((q) => q.queryHash).sort()).toEqual(['["big",6]', '["big",7]']);
+    for (const q of truncated) {
+      expect(q.state.data).toEqual({ __lensTruncated: true, bytes: expect.any(Number) });
+    }
+    for (const q of snapshot.payload.queries.filter((q) => !q.dataTruncated)) {
+      expect(typeof q.state.data).toBe("string");
+    }
   });
 });
 

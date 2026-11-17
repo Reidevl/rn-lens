@@ -3,6 +3,7 @@ import type {
   Mutation as ProtoMutation,
   MutationState as ProtoMutationState,
   MutationStateDelta,
+  QueriesSnapshotMessage,
   Query as ProtoQuery,
   QueryKey as ProtoQueryKey,
   QueryState as ProtoQueryState,
@@ -10,12 +11,19 @@ import type {
 } from "@rnlens/protocol";
 import type { Mutation, Query, QueryState } from "@tanstack/react-query";
 
-import { safeSerialize, toSafeJson } from "../serialize";
+import { jsonByteLength, safeSerialize, toSafeJson, type TruncationMarker } from "../serialize";
 
 export interface SerializeLimits {
   maxBytes: number;
   maxDepth: number;
 }
+
+/**
+ * Budget for a whole `queries.snapshot` frame. Lens reads frames of at most
+ * 8 MiB; a snapshot above this budget has the `data` of its largest queries
+ * replaced by the truncation marker until it fits, every query stays listed.
+ */
+export const SNAPSHOT_MAX_BYTES = 6 * 1024 * 1024;
 
 /**
  * The generated `JsonValue` type is an object index signature, while the schema
@@ -161,4 +169,43 @@ export function serializeMutation(mutation: Mutation, limits: SerializeLimits): 
 
 export function mutationDelta(mutation: Mutation, limits: SerializeLimits): MutationStateDelta {
   return serializeMutationState(mutation, limits).state;
+}
+
+export interface CapSnapshotResult {
+  /** Serialized frame, at most `maxBytes` when enough query data could be dropped. */
+  json: string;
+  bytes: number;
+  /** Hashes whose `data` became the truncation marker to fit the budget. */
+  truncated: string[];
+}
+
+/**
+ * Serializes a `queries.snapshot` frame within `maxBytes`: while the frame is
+ * too large, the query holding the most data bytes has its `data` replaced by
+ * `{ "__lensTruncated": true, "bytes": n }` and gets `dataTruncated: true`.
+ * Queries are never dropped. Mutates the queries of `message` in place.
+ */
+export function capSnapshot(
+  message: QueriesSnapshotMessage,
+  maxBytes: number = SNAPSHOT_MAX_BYTES,
+): CapSnapshotResult {
+  let json = JSON.stringify(message);
+  let bytes = jsonByteLength(json);
+  const truncated: string[] = [];
+  if (bytes <= maxBytes) return { json, bytes, truncated };
+
+  const candidates = message.payload.queries
+    .filter((query) => query.state.data !== undefined && query.dataTruncated !== true)
+    .map((query) => ({ query, dataBytes: jsonByteLength(JSON.stringify(query.state.data)) }))
+    .sort((a, b) => b.dataBytes - a.dataBytes);
+  for (const { query, dataBytes } of candidates) {
+    if (bytes <= maxBytes) break;
+    const marker: TruncationMarker = { __lensTruncated: true, bytes: dataBytes };
+    query.state.data = asJson(marker);
+    query.dataTruncated = true;
+    truncated.push(query.queryHash);
+    bytes -= dataBytes - jsonByteLength(JSON.stringify(marker));
+  }
+  json = JSON.stringify(message);
+  return { json, bytes: jsonByteLength(json), truncated };
 }

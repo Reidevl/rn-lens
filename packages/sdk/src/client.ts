@@ -14,6 +14,10 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_DEPTH } from "./serialize";
 import { createQueryAdapter, type OnlineManagerLike, type QueryAdapter } from "./tanstack/adapter";
 import { SDK_VERSION } from "./version";
 
+/**
+ * `disabled` is the state of a production (no-op) client and of a client that
+ * stopped after a fatal close code (4002, 4003); `connect()` retries the latter.
+ */
 export type LensClientState = "idle" | "connecting" | "connected" | "reconnecting" | "disabled";
 
 /** Minimal WebSocket surface the client needs; the global WebSocket satisfies it. */
@@ -75,6 +79,15 @@ const WS_OPEN = 1;
 const DEFAULT_MIN_BACKOFF = 500;
 const DEFAULT_MAX_BACKOFF = 10_000;
 
+/**
+ * Close codes that no reconnect can fix: the client stops, warns and goes
+ * `disabled` until `connect()` is called again (protocol/README.md).
+ */
+const FATAL_CLOSE_CODES: Readonly<Record<number, string>> = {
+  4002: "Lens speaks another protocol version; update @rnlens/sdk or Lens",
+  4003: "pairing token missing or wrong; pass the token Lens shows",
+};
+
 const NOOP_CLIENT: LensClient = {
   state: "disabled",
   connect: () => {},
@@ -133,10 +146,10 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
     for (const listener of listeners) listener(next);
   }
 
-  function send(message: LensMessage): boolean {
+  function sendRaw(json: string): boolean {
     if (!socket || socket.readyState !== WS_OPEN) return false;
     try {
-      socket.send(JSON.stringify(message));
+      socket.send(json);
       return true;
     } catch (err) {
       log.warn("send failed", err);
@@ -144,10 +157,14 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
     }
   }
 
+  function send(message: LensMessage): boolean {
+    return sendRaw(JSON.stringify(message));
+  }
+
   const adapter: QueryAdapter | undefined = options.queryClient
     ? createQueryAdapter(
         options.queryClient,
-        { send, isReady: () => ready, log },
+        { send, sendRaw, isReady: () => ready, log },
         { limits, onlineManager: options.onlineManager },
       )
     : undefined;
@@ -263,6 +280,14 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
       if (socket !== ws) return;
       socket = undefined;
       ready = false;
+      const fatal = code === undefined ? undefined : FATAL_CLOSE_CODES[code];
+      if (fatal !== undefined) {
+        log.warn(`Lens closed the connection with code ${code}: ${fatal}; not reconnecting`);
+        closedByUser = true;
+        adapter?.detach();
+        setState("disabled");
+        return;
+      }
       log.debug(`socket closed (${code ?? "?"})`);
       scheduleReconnect();
     };

@@ -58,6 +58,8 @@ device; a reconnect replaces the previous one.
 The wire format is documented in [`protocol/README.md`](../../protocol/README.md).
 Only cache changes travel: after an initial snapshot the SDK sends per-action
 deltas, and large payloads are cut at 1 MiB (the panel says "data truncated").
+The snapshot as a whole is capped at 6 MiB: above that, the largest queries
+arrive with their data truncated so the snapshot still fits in one frame.
 
 ## Options
 
@@ -73,5 +75,5 @@ deltas, and large payloads are cut at 1 MiB (the panel says "data truncated").
 
 - **No app connected.** Check that the app runs a development build, that it loaded the bundle from Metro (the host comes from there), and that port 7420 is reachable from the device. `rnlens --sdk-port` changes the port.
 - **Physical device on another network.** Pass `url: "ws://<your computer's IP>:7420/lens"`.
-- **Token mismatch.** The socket closes with code 4003; pass the same `token` to `useLens`.
-- **Older protocol.** Code 4002 means the SDK and Lens disagree on the protocol major; update both.
+- **Token mismatch.** The socket closes with code 4003; pass the same `token` to `useLens`. The SDK logs a warning and stops reconnecting until the app reloads or calls `connect()` again.
+- **Older protocol.** Code 4002 means the SDK and Lens disagree on the protocol major; update both. Like 4003, it is fatal for the SDK: no reconnect until `connect()` runs again.

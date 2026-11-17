@@ -21,7 +21,8 @@ export interface TruncationMarker {
 export const DEFAULT_MAX_BYTES = 1024 * 1024;
 export const DEFAULT_MAX_DEPTH = 20;
 
-function byteLength(json: string): number {
+/** UTF-8 size of a JSON string, matching what the socket sends. */
+export function jsonByteLength(json: string): number {
   if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(json).length;
   let bytes = 0;
   for (let i = 0; i < json.length; i++) {
@@ -117,7 +118,7 @@ export function safeSerialize(
   const safe = toSafeJson(value, maxDepth);
   const json = JSON.stringify(safe);
   if (json === undefined) return { value: undefined, truncated: false, bytes: 0 };
-  const bytes = byteLength(json);
+  const bytes = jsonByteLength(json);
   if (bytes > maxBytes) {
     const marker: TruncationMarker = { __lensTruncated: true, bytes };
     return { value: marker, truncated: true, bytes };

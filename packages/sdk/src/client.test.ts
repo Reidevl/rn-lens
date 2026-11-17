@@ -142,6 +142,45 @@ describe("createLensClient", () => {
     expect(states).toEqual(["connecting", "connected", "reconnecting", "connected"]);
   });
 
+  it.each([
+    [4002, "protocol version"],
+    [4003, "token"],
+  ])("stops reconnecting after fatal close code %i and warns", async (code, meaning) => {
+    const warn = vi.fn();
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      backoff: fastBackoff,
+      logger: { warn },
+    });
+    client.connect();
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+
+    lens.closeClients(code);
+    await waitFor(() => client?.state === "disabled");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message] = warn.mock.calls[0] as [string];
+    expect(message).toContain(String(code));
+    expect(message).toContain(meaning);
+
+    await new Promise((r) => setTimeout(r, 150));
+    expect(lens.connectionCount).toBe(0);
+    expect(lens.frames.filter((f) => f.type === "hello")).toHaveLength(1);
+    expect(client.state).toBe("disabled");
+  });
+
+  it("keeps reconnecting after every other close code", async () => {
+    client = createLensClient({ url: lens.url, enabled: true, backoff: fastBackoff });
+    client.connect();
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+    lens.closeClients(4004);
+    await waitFor(() => client?.state === "reconnecting");
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+  });
+
   it("keeps retrying while the server is down and connects once it is back", async () => {
     const port = Number(new URL(lens.url).port);
     await lens.close();
