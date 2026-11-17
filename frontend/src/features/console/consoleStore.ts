@@ -22,6 +22,7 @@ interface ConsoleState {
   lastSeq: number;
   dropped: number;
   epoch: number;
+  cleared: number;
   levels: LevelFilter;
   query: string;
   preserveLog: boolean;
@@ -44,6 +45,7 @@ const initial = {
   lastSeq: 0,
   dropped: 0,
   epoch: 1,
+  cleared: 0,
   levels: { ...defaultLevels },
   query: "",
   preserveLog: false,
@@ -77,17 +79,25 @@ export async function pullConsole(backend: Backend): Promise<void> {
   const stats = await backend.console.stats();
   const state = useConsoleStore.getState();
 
+  // A clear on the Go side drops everything we hold, even if new entries
+  // already landed after it (detected through the clear generation, not an
+  // empty buffer, so a fast append cannot hide it).
+  const wasCleared = stats.cleared !== state.cleared;
+  const kept = wasCleared ? [] : state.entries;
+  let lastSeq = wasCleared ? Math.max(0, stats.oldestSeq - 1) : state.lastSeq;
+
   if (stats.len === 0) {
     useConsoleStore.setState({
       entries: [],
       lastSeq: stats.lastSeq,
       dropped: stats.dropped,
       epoch: stats.epoch,
+      cleared: stats.cleared,
     });
     return;
   }
 
-  let from = state.lastSeq + 1;
+  let from = lastSeq + 1;
   if (stats.oldestSeq > from) from = stats.oldestSeq;
 
   const fresh: ConsoleEntry[] = [];
@@ -97,8 +107,12 @@ export async function pullConsole(backend: Backend): Promise<void> {
     fresh.push(...batch);
     from = batch[batch.length - 1].seq + 1;
   }
+  // Range may return entries newer than stats.lastSeq (appended in between);
+  // advance from what we actually received so the next pull never repeats them.
+  if (fresh.length) lastSeq = Math.max(lastSeq, fresh[fresh.length - 1].seq);
+  lastSeq = Math.max(lastSeq, stats.lastSeq);
 
-  let entries = fresh.length ? [...state.entries, ...fresh] : state.entries;
+  let entries = fresh.length ? [...kept, ...fresh] : kept;
   if (stats.epoch > state.epoch && !state.preserveLog) {
     // Keep the reset marker and everything after it.
     entries = entries.filter((e) => e.epoch >= stats.epoch);
@@ -107,9 +121,10 @@ export async function pullConsole(backend: Backend): Promise<void> {
 
   useConsoleStore.setState({
     entries,
-    lastSeq: Math.max(state.lastSeq, stats.lastSeq),
+    lastSeq,
     dropped: stats.dropped,
     epoch: stats.epoch,
+    cleared: stats.cleared,
   });
 }
 

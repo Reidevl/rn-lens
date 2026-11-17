@@ -76,6 +76,7 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
   let nextSeq = 1;
   let dropped = 0;
   let epoch = 1;
+  let cleared = 0;
   const propertyTable = new Map<string, ConsoleProperty[]>();
 
   const consoleStats = (): ConsoleStats => ({
@@ -84,6 +85,7 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     dropped,
     len: entries.length,
     epoch,
+    cleared,
   });
   const appendEntries = (
     items: Array<Partial<ConsoleEntry> & { text: string }>,
@@ -167,6 +169,7 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
         calls.push("console.clear");
         entries = [];
         dropped = 0;
+        cleared++;
         emit(TOPICS.consoleChanged, { topic: TOPICS.consoleChanged, seq: Date.now() });
         return Promise.resolve();
       },

@@ -138,6 +138,8 @@ export interface ConsoleStats {
   dropped: number;
   len: number;
   epoch: number;
+  /** Clear generation: changes whenever the Go log was cleared. */
+  cleared: number;
 }
 
 export interface ConsoleProperty {
