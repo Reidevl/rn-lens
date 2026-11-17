@@ -23,6 +23,7 @@ func init() {
 	application.RegisterEvent[ChangeNotice](app.TopicTargetsChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicSessionChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicConsoleChanged)
+	application.RegisterEvent[ChangeNotice](app.TopicQueriesChanged)
 }
 
 const (
@@ -44,6 +45,7 @@ func Run(core *app.App, assets fs.FS) error {
 			application.NewService(NewAppService(core)),
 			application.NewService(NewTargetsService(core)),
 			application.NewService(NewConsoleService(core)),
+			application.NewService(NewQueriesService(core)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -71,7 +73,7 @@ func Run(core *app.App, assets fs.FS) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged}
+	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged}
 	coalescer := NewCoalescer(core.Bus(), topics, notifyTick,
 		func(topic string, notice ChangeNotice) { desktop.Event.Emit(topic, notice) })
 	go coalescer.Run(ctx)
