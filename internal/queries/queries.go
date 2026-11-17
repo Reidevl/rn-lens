@@ -393,13 +393,25 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 	}
 }
 
-// capData enforces MaxDataBytes on the server side too.
+// capData enforces MaxDataBytes on the server side too and derives
+// DataTruncated from the data on every apply: true when Lens capped it here or
+// when the SDK already replaced it with its truncation marker, false otherwise,
+// so a later delta that carries real data clears the flag.
 func capData(q protocol.Query) protocol.Query {
 	if len(q.State.Data) > MaxDataBytes {
 		q.State.Data = json.RawMessage(fmt.Sprintf(`{"__lensTruncated":true,"bytes":%d}`, len(q.State.Data)))
-		q.DataTruncated = true
 	}
+	q.DataTruncated = isTruncationMarker(q.State.Data)
 	return q
+}
+
+// isTruncationMarker reports whether data is the `{"__lensTruncated":true,...}`
+// placeholder the SDK and Lens substitute for oversized values.
+func isTruncationMarker(data json.RawMessage) bool {
+	var marker struct {
+		Truncated bool `json:"__lensTruncated"`
+	}
+	return len(data) > 0 && data[0] == '{' && json.Unmarshal(data, &marker) == nil && marker.Truncated
 }
 
 // Devices lists connected devices, oldest connection first.

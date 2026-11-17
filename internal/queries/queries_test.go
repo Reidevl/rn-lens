@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -296,5 +297,41 @@ func TestOversizedDataIsCapped(t *testing.T) {
 	got, _ := svc.Query(key, "big")
 	if !got.DataTruncated || len(got.State.Data) > 100 {
 		t.Fatalf("data not capped: truncated=%v len=%d", got.DataTruncated, len(got.State.Data))
+	}
+}
+
+func TestDataTruncatedFollowsEveryDelta(t *testing.T) {
+	svc, _, key, _ := connect(t)
+	q := protocol.Query{
+		QueryHash: "h", QueryKey: json.RawMessage(`["h"]`), ObserversCount: 1, IsActive: true,
+		State: protocol.QueryState{Status: "success", FetchStatus: "idle", Data: json.RawMessage(`1`)},
+	}
+	ev := func(delta *protocol.QueryStateDelta) protocol.Message {
+		raw, _ := json.Marshal(protocol.QueryEvent{Kind: "updated", QueryHash: "h", Action: "success", Delta: delta})
+		return protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: raw}
+	}
+	added, _ := json.Marshal(protocol.QueryEvent{Kind: "added", QueryHash: "h", Query: &q})
+	if err := svc.Message(key, protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: added}); err != nil {
+		t.Fatal(err)
+	}
+	marker := json.RawMessage(`{"__lensTruncated":true,"bytes":2000000}`)
+	if err := svc.Message(key, ev(&protocol.QueryStateDelta{Data: marker})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.Query(key, "h"); !got.DataTruncated {
+		t.Fatalf("SDK marker in a delta must set dataTruncated, got %+v", got)
+	}
+	big := json.RawMessage(`"` + strings.Repeat("x", queries.MaxDataBytes+1) + `"`)
+	if err := svc.Message(key, ev(&protocol.QueryStateDelta{Data: big})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.Query(key, "h"); !got.DataTruncated {
+		t.Fatal("server-side cap must set dataTruncated")
+	}
+	if err := svc.Message(key, ev(&protocol.QueryStateDelta{Data: json.RawMessage(`{"ok":true}`)})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.Query(key, "h"); got.DataTruncated || string(got.State.Data) != `{"ok":true}` {
+		t.Fatalf("small data after a capped one must clear dataTruncated, got %+v", got)
 	}
 }
