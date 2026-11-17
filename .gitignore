@@ -1,0 +1,30 @@
+# Go
+bin/
+*.test
+*.out
+coverage/
+
+# Wails / Task
+.task/
+.wails/
+
+# Frontend / Node
+node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/bindings/
+packages/*/dist/
+examples/*/dist/
+docs/dist/
+*.tsbuildinfo
+.vite/
+
+# Tooling
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# Local workflow artifacts (not part of the published repo)
+odd/

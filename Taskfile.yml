@@ -1,0 +1,112 @@
+# Lens developer workflow. Run `task --list` to see every task.
+# Platform build tasks come from the Wails v3 template under build/.
+version: '3'
+
+vars:
+  APP_NAME: "rnlens"
+  BIN_DIR: "bin"
+  MAIN_PACKAGE: "./cmd/rnlens"
+  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "pnpm"}}'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # Target OS for build/package/run. Defaults to the host OS, and is overridden
+  # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation.
+  GOOS: '{{.GOOS | default OS}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  # --- App lifecycle (Wails) -------------------------------------------------
+
+  build:
+    summary: Builds the desktop application for the current OS
+    cmds:
+      - task: "{{.GOOS}}:build"
+
+  package:
+    summary: Packages a production build of the application
+    cmds:
+      - task: "{{.GOOS}}:package"
+
+  run:
+    summary: Runs the built application
+    cmds:
+      - task: "{{.GOOS}}:run"
+
+  dev:
+    summary: Runs Lens in development mode with frontend hot reload
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  build:server:
+    summary: Builds Lens in server mode (no native window, HTTP only)
+    cmds:
+      - task: common:build:server
+
+  # --- Quality gates ----------------------------------------------------------
+
+  check:
+    summary: Runs every quality gate (lint, typecheck, tests)
+    cmds:
+      - task: lint
+      - task: typecheck
+      - task: test
+
+  lint:
+    summary: Lints Go and frontend code
+    cmds:
+      - task: lint:go
+      - task: lint:frontend
+
+  lint:go:
+    summary: Runs golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  lint:frontend:
+    summary: Runs ESLint and Prettier across the pnpm workspace
+    deps: [common:install:frontend:deps]
+    cmds:
+      - pnpm run lint
+      - pnpm run format:check
+
+  typecheck:
+    summary: Type-checks every TypeScript workspace package
+    deps: [common:install:frontend:deps]
+    cmds:
+      - pnpm run typecheck
+
+  test:
+    summary: Runs Go and frontend tests
+    cmds:
+      - task: test:go
+      - task: test:frontend
+
+  test:go:
+    summary: Runs Go tests with gotestsum (falls back to go test)
+    cmds:
+      - |
+        if command -v gotestsum >/dev/null 2>&1; then
+          gotestsum --format pkgname -- -race -count=1 ./...
+        else
+          go test -race -count=1 ./...
+        fi
+
+  test:frontend:
+    summary: Runs Vitest across the pnpm workspace
+    deps: [common:install:frontend:deps]
+    cmds:
+      - pnpm run test
+
+  fmt:
+    summary: Formats Go and frontend code
+    cmds:
+      - golangci-lint fmt ./...
+      - pnpm run format
