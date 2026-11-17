@@ -9,6 +9,7 @@ import {
   type QueryCounts,
   type QueryItem,
   type QueryLabel,
+  type RemoteObject,
   type SdkDevice,
   type SessionSnapshot,
   type Target,
@@ -24,7 +25,10 @@ export interface MockBackend extends Backend {
   setTargets(targets: Target[]): void;
   /** Replaces the session snapshot and notifies subscribers. */
   setSession(session: SessionSnapshot): void;
-  /** Appends console entries (seq assigned) and notifies subscribers. */
+  /**
+   * Appends console entries and notifies subscribers. `seq` and `epoch` are
+   * always assigned by the mock; passing them has no effect.
+   */
   log(...entries: Array<Partial<ConsoleEntry> & { text: string }>): ConsoleEntry[];
   /** Simulates a JavaScript context reset: bumps the epoch and logs a system entry. */
   resetContext(): void;
@@ -122,13 +126,14 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     const added = items.map((item) => {
       const kind = item.kind ?? "log";
       const entry: ConsoleEntry = {
-        seq: nextSeq++,
         timestamp: new Date().toISOString(),
+        ...item,
         kind,
         source: item.source ?? "console",
         level: item.level ?? levelOf(kind),
+        // Mock-owned fields come last so a caller cannot override them.
+        seq: nextSeq++,
         epoch,
-        ...item,
       };
       return entry;
     });
@@ -205,23 +210,16 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
       evaluate: (expression) => {
         calls.push(`console.evaluate:${expression}`);
         appendEntries([{ kind: "command", source: "eval", text: expression }]);
-        let result: Partial<ConsoleEntry> & { text: string };
-        if (expression === "throw") {
-          result = { kind: "exception", source: "eval", text: "Error: thrown from mock" };
-        } else {
-          let text: string;
-          try {
-            text = String(new Function(`return (${expression})`)());
-          } catch (err) {
-            text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-          }
-          result = {
-            kind: "result",
-            source: "eval",
-            text,
-            args: [{ type: "number", value: Number(text) }],
-          };
-        }
+        const outcome = evaluateStatic(expression);
+        const result: Partial<ConsoleEntry> & { text: string } =
+          "error" in outcome
+            ? { kind: "exception", source: "eval", text: outcome.error }
+            : {
+                kind: "result",
+                source: "eval",
+                text: describeValue(outcome.value),
+                args: [remoteObjectOf(outcome.value)],
+              };
         const [entry] = appendEntries([result]);
         emit(TOPICS.consoleChanged, { topic: TOPICS.consoleChanged, seq: Date.now() });
         return Promise.resolve(entry);
@@ -398,6 +396,60 @@ export function sampleQuery(overrides: Partial<QueryItem> = {}): QueryItem {
     label: "fresh",
     ...overrides,
   };
+}
+
+/** Canned answers for the browser preview; the mock never executes the typed text. */
+const SAMPLE_RESULTS: Record<string, unknown> = {
+  "1+1": 2,
+  "1 + 1": 2,
+  "2*3": 6,
+  "Math.PI": Math.PI,
+  "typeof window": "object",
+  "2 ** 10": 1024,
+  "[1,2,3].map(n => n * 2)": [2, 4, 6],
+  "({ a: 1, b: 'two' })": { a: 1, b: "two" },
+};
+
+/**
+ * Resolves an expression without running it: a sample from SAMPLE_RESULTS,
+ * a JSON literal, or an exception for anything else (and for the special
+ * "throw" expression that tests use to produce an exception entry).
+ */
+function evaluateStatic(expression: string): { value: unknown } | { error: string } {
+  if (expression === "throw") return { error: "Error: thrown from mock" };
+  if (Object.hasOwn(SAMPLE_RESULTS, expression)) return { value: SAMPLE_RESULTS[expression] };
+  try {
+    return { value: JSON.parse(expression) as unknown };
+  } catch {
+    return {
+      error: `MockError: the mock backend only evaluates JSON literals and sample expressions (got \`${expression}\`)`,
+    };
+  }
+}
+
+/** Text Go would put in `ConsoleEntry.text` for a result value. */
+function describeValue(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+/** Mirrors how Go decodes a Runtime.RemoteObject for the value's type. */
+function remoteObjectOf(value: unknown): RemoteObject {
+  if (value === null) return { type: "object", subtype: "null", value: null, description: "null" };
+  if (Array.isArray(value)) {
+    return {
+      type: "object",
+      subtype: "array",
+      className: "Array",
+      description: `Array(${value.length})`,
+      value,
+    };
+  }
+  if (typeof value === "object") {
+    return { type: "object", className: "Object", description: "Object", value };
+  }
+  return { type: typeof value, value, description: String(value) };
 }
 
 function levelOf(kind: ConsoleEntry["kind"]): ConsoleEntry["level"] {

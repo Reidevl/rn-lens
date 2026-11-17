@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/app/App";
 import { useShellStore } from "@/app/shell/shellStore";
-import { createMockBackend, idleSession, sampleTarget } from "@/backend";
+import { createMockBackend, idleSession, sampleTarget, type ConsoleEntry } from "@/backend";
 import { useTargetsStore } from "@/features/targets/targetsStore";
 
 import { useConsoleStore } from "./consoleStore";
@@ -96,6 +96,73 @@ describe("ConsolePanel", () => {
     expect(input).toHaveValue("1+1");
   });
 
+  it("keeps the input focused and enabled while an evaluation is in flight", async () => {
+    const user = userEvent.setup();
+    const backend = attachedBackend();
+    const realEvaluate = backend.console.evaluate;
+    let release = () => {};
+    backend.console.evaluate = (expression) =>
+      new Promise<ConsoleEntry>((resolve) => {
+        release = () => void realEvaluate(expression).then(resolve);
+      });
+    render(<App backend={backend} />);
+    const input = await screen.findByRole("textbox", { name: /evaluate expression/i });
+
+    await user.type(input, "1+1{Enter}");
+
+    await waitFor(() => expect(useConsoleStore.getState().busy).toBe(true));
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("aria-busy", "true");
+
+    release();
+    await waitFor(() => expect(useConsoleStore.getState().busy).toBe(false));
+    expect(input).toHaveAttribute("aria-busy", "false");
+    const log = await screen.findByRole("log");
+    expect(await within(log).findByText("2")).toBeInTheDocument();
+  });
+
+  it("surfaces evaluate and clear failures in the alert banner", async () => {
+    const user = userEvent.setup();
+    const backend = attachedBackend();
+    backend.console.evaluate = () => Promise.reject(new Error("evaluate: session closed"));
+    render(<App backend={backend} />);
+    const input = await screen.findByRole("textbox", { name: /evaluate expression/i });
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.type(input, "1+1{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent("evaluate: session closed");
+
+    backend.console.clear = () => Promise.reject(new Error("clear: session closed"));
+    await user.click(screen.getByRole("button", { name: /clear console/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("clear: session closed");
+  });
+
+  it("reports a failing sync instead of staying silently empty", async () => {
+    const backend = createMockBackend();
+    const realStats = backend.console.stats;
+    const realRange = backend.console.range;
+    backend.console.stats = () => Promise.reject(new Error("stats: backend unavailable"));
+    render(<App backend={backend} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("stats: backend unavailable");
+
+    backend.console.stats = realStats;
+    backend.console.range = () => Promise.reject(new Error("range: backend unavailable"));
+    backend.log({ text: "unreachable" });
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("range: backend unavailable"),
+    );
+    expect(screen.queryByText("unreachable")).not.toBeInTheDocument();
+
+    // The next successful pull clears the banner the sync itself raised.
+    backend.console.range = realRange;
+    backend.log({ text: "back again" });
+    expect(await screen.findByText("back again")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("is disabled until an app is attached", async () => {
     render(<App backend={createMockBackend()} />);
     expect(await screen.findByRole("textbox", { name: /evaluate expression/i })).toBeDisabled();
@@ -130,6 +197,34 @@ describe("ConsolePanel", () => {
 
     await user.click(second);
     expect(await within(log).findByRole("note")).toHaveTextContent(/no longer available/);
+  });
+
+  it("renders own and inherited properties that share a name as separate rows", async () => {
+    const user = userEvent.setup();
+    const backend = attachedBackend();
+    const base = { summary: "", enumerable: true, writable: true, hasGetter: false };
+    backend.setProperties("obj-2", [
+      { ...base, name: "constructor", summary: "ƒ Point()", isOwn: true },
+      { ...base, name: "constructor", summary: "ƒ Object()", isOwn: false },
+    ]);
+    backend.log({
+      text: "Point",
+      args: [{ type: "object", className: "Point", description: "Point", objectId: "obj-2" }],
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<App backend={backend} />);
+    const log = await screen.findByRole("log");
+
+    await user.click(await within(log).findByRole("button", { name: /expand Point/i }));
+
+    expect(await within(log).findByText("ƒ Point()")).toBeInTheDocument();
+    expect(within(log).getByText("ƒ Object()")).toBeInTheDocument();
+    expect(within(log).getAllByText("constructor:")).toHaveLength(2);
+    const keyWarnings = consoleError.mock.calls.filter((args) =>
+      args.some((a) => typeof a === "string" && a.includes("same key")),
+    );
+    consoleError.mockRestore();
+    expect(keyWarnings).toEqual([]);
   });
 
   it("drops entries from before a reload unless preserve log is on", async () => {
