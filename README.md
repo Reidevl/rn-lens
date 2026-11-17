@@ -21,6 +21,21 @@ window.
 | Storage (AsyncStorage, MMKV, SecureStore)     | `@rnlens/sdk`                      | One hook        |
 | Performance traces (Perfetto export)          | CDP                                | No              |
 
+## How it connects
+
+Lens polls Metro for debuggable apps, attaches over the Chrome DevTools
+Protocol as a first-class React Native DevTools client, and reconnects on its
+own when Metro or the app restarts. The Targets panel shows what Metro
+advertises, the app metadata React Native reports, and one-click reload or
+hand-off to React Native DevTools. Details: [docs/guides/connect.md](docs/guides/connect.md).
+
+Headless helpers:
+
+```bash
+rnlens targets                 # list targets as JSON (exit 2 when none)
+rnlens record -out cap.jsonl   # record a target's CDP traffic for fixtures
+```
+
 ## Development
 
 Requirements: Go 1.26+, Node 22+, pnpm 10+, [Task](https://taskfile.dev), and
