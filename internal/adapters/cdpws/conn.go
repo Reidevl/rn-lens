@@ -81,6 +81,10 @@ type Conn struct {
 	queueBytes  int64
 	queueNotify chan struct{} // readLoop -> pumpEvents: something was queued
 	queueSpace  chan struct{} // pumpEvents -> readLoop: something was dequeued
+	// paused is set while readLoop waits for queue space: pongs are consumed
+	// by readLoop, so the keepalive must not blame the peer for a stalled
+	// consumer.
+	paused atomic.Bool
 
 	done chan struct{}
 
@@ -320,9 +324,12 @@ func (c *Conn) enqueueEvent(ev cdp.Event) bool {
 			return true
 		}
 		c.queueMu.Unlock()
+		c.paused.Store(true)
 		select {
 		case <-c.queueSpace:
+			c.paused.Store(false)
 		case <-c.done:
+			c.paused.Store(false)
 			return false
 		}
 	}
@@ -405,6 +412,10 @@ func (c *Conn) keepAlive() {
 		case <-c.done:
 			return
 		case <-ticker.C:
+		}
+		if c.paused.Load() {
+			// readLoop is parked on backpressure and cannot read the pong.
+			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), c.opts.PingTimeout)
 		err := c.ws.Ping(ctx)

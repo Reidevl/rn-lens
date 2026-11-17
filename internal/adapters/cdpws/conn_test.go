@@ -430,7 +430,7 @@ func TestKeepAliveEndsAHalfOpenConnection(t *testing.T) {
 func TestKeepAliveLeavesAResponsivePeerAlone(t *testing.T) {
 	t.Parallel()
 	srv := cdptest.New(t)
-	conn := dial(t, srv, cdpws.Options{PingInterval: 10 * time.Millisecond, PingTimeout: 50 * time.Millisecond})
+	conn := dial(t, srv, cdpws.Options{PingInterval: 10 * time.Millisecond, PingTimeout: 250 * time.Millisecond})
 	if !srv.WaitConnected(time.Second) {
 		t.Fatal("client did not connect")
 	}
@@ -530,5 +530,41 @@ func TestDeliveredReplyIsReturnedEvenWhenThePeerClosesRightAfter(t *testing.T) {
 	case <-conn.Done():
 	case <-time.After(2 * time.Second):
 		t.Fatal("connection did not end after the close frame")
+	}
+}
+
+func TestKeepAliveWaitsWhileTheConsumerIsStalled(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	conn := dial(t, srv, cdpws.Options{
+		EventBuffer: 1, EventQueueBytes: 1,
+		PingInterval: 10 * time.Millisecond, PingTimeout: 50 * time.Millisecond,
+	})
+	if !srv.WaitConnected(time.Second) {
+		t.Fatal("client did not connect")
+	}
+
+	// Nobody drains Events(): readLoop parks on backpressure and cannot read
+	// pongs. The keepalive must not end the connection for that.
+	const n = 8
+	for i := range n {
+		srv.Emit("Runtime.consoleAPICalled", map[string]any{"type": "log", "n": i})
+	}
+	select {
+	case <-conn.Done():
+		t.Fatalf("connection ended while the consumer was stalled: %v", conn.Err())
+	case <-time.After(300 * time.Millisecond):
+	}
+	for i := range n {
+		select {
+		case <-conn.Events():
+		case <-time.After(2 * time.Second):
+			t.Fatalf("event %d not delivered once drained", i)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := conn.Call(ctx, "Runtime.enable", nil); !errors.As(err, new(*cdp.Error)) {
+		t.Fatalf("Call after draining = %v, want the fake's method-not-found error", err)
 	}
 }
