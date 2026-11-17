@@ -79,7 +79,7 @@ tasks:
 
   typecheck:
     summary: Type-checks every TypeScript workspace package
-    deps: [common:install:frontend:deps]
+    deps: [common:install:frontend:deps, common:generate:bindings]
     cmds:
       - pnpm run typecheck
 
@@ -101,7 +101,7 @@ tasks:
 
   test:frontend:
     summary: Runs Vitest across the pnpm workspace
-    deps: [common:install:frontend:deps]
+    deps: [common:install:frontend:deps, common:generate:bindings]
     cmds:
       - pnpm run test
 
