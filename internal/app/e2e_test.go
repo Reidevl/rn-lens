@@ -88,4 +88,30 @@ func TestE2E_AttachToRunningApp(t *testing.T) {
 	if _, err := a.Session().Call(ctx, cdp.MethodRuntimeEnable, nil); err != nil {
 		t.Fatalf("Runtime.enable after reload: %v", err)
 	}
+
+	// Console: the example app logs "tick" every two seconds and Hermes
+	// replays buffered lines on Runtime.enable.
+	tickDeadline := time.After(6 * time.Second)
+	for {
+		found := false
+		for _, e := range a.Console().Store().Range(1, 0) {
+			if e.Kind == "log" && len(e.Text) >= 4 && e.Text[:4] == "tick" {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-tickDeadline:
+			t.Fatal("no 'tick' console entry within 6 s of attaching")
+		}
+	}
+	result, err := a.Console().Evaluate(ctx, "1+1")
+	if err != nil || result.Text != "2" {
+		t.Fatalf("Evaluate(1+1) = %+v, %v", result, err)
+	}
+	t.Logf("console entries: %d; eval 1+1 = %s", a.Console().Store().Stats().Len, result.Text)
 }
