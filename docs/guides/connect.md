@@ -22,11 +22,11 @@ Console and Network panels.
 
 ## Reconnection rules
 
-| Situation                              | What Lens does                                                                                                                                                                         |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Metro restarts or the app process dies | The status bar shows **Reconnecting** with the attempt count. Lens retries with backoff (0.5 s doubling up to 5 s) until the target is back or you detach.                             |
-| Another debugger takes the page        | Metro closes the socket with `[NEW_DEBUGGER_OPENED]`. Lens shows **Disconnected by another debugger** and waits for you to **Attach again**, so two clients never fight over one slot. |
-| You detach                             | The session closes and nothing reconnects.                                                                                                                                             |
+| Situation                              | What Lens does                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Metro restarts or the app process dies | The status bar shows **Reconnecting**; the session card in the Targets panel shows the attempt count. Lens retries with backoff (0.5 s doubling up to 5 s) until the target is back or you detach. If the app comes back under a new page id (for example after a restart), Lens follows it and re-attaches to the new page automatically. |
+| Another debugger takes the page        | Metro closes the socket with `[NEW_DEBUGGER_OPENED]`. Lens shows **Disconnected by another debugger** and waits for you to **Attach again**, so two clients never fight over one slot.                                                                                                                                                     |
+| You detach                             | The session closes and nothing reconnects.                                                                                                                                                                                                                                                                                                 |
 
 ## Exclusive attach
 
