@@ -14,10 +14,11 @@ import (
 
 // fakeMetro serves /json from a mutable page list and records /open-debugger calls.
 type fakeMetro struct {
-	mu     sync.Mutex
-	pages  []metro.Page
-	opened []string
-	srv    *httptest.Server
+	mu      sync.Mutex
+	pages   []metro.Page
+	failing bool
+	opened  []string
+	srv     *httptest.Server
 }
 
 func newFakeMetro(t *testing.T) *fakeMetro {
@@ -27,6 +28,10 @@ func newFakeMetro(t *testing.T) *fakeMetro {
 	mux.HandleFunc("GET /json", func(w http.ResponseWriter, _ *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.failing {
+			http.Error(w, "bundling", http.StatusServiceUnavailable)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(f.pages)
 	})
 	mux.HandleFunc("GET /json/version", func(w http.ResponseWriter, _ *http.Request) {
@@ -52,6 +57,14 @@ func (f *fakeMetro) setPages(pages ...metro.Page) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pages = pages
+}
+
+// setFailing makes GET /json answer 503 until cleared, standing in for a Metro
+// whose event loop is busy bundling and misses the client timeout.
+func (f *fakeMetro) setFailing(failing bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failing = failing
 }
 
 func fuseboxPage(id, title string) metro.Page {
@@ -268,5 +281,147 @@ func TestDiscoveryRefreshIsSynchronous(t *testing.T) {
 
 	if got := d.Snapshot(); len(got) != 2 || got[0].Page.PageID() != "1" || got[1].Page.PageID() != "2" {
 		t.Fatalf("Snapshot = %+v, want pages 1 and 2 sorted", got)
+	}
+}
+
+// syncRecorder collects changes emitted by the synchronous Refresh path.
+type syncRecorder struct {
+	changes []metro.Change
+}
+
+func (r *syncRecorder) onChange(changes []metro.Change) {
+	r.changes = append(r.changes, changes...)
+}
+
+func (r *syncRecorder) count(kind metro.ChangeKind) int {
+	n := 0
+	for _, c := range r.changes {
+		if c.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+// discoverOne returns a discovery whose first Refresh has already listed page 1
+// of f, so each test starts from an attached target.
+func discoverOne(t *testing.T, f *fakeMetro, rec *syncRecorder, failuresBeforeRemoval int) *metro.Discovery {
+	t.Helper()
+	f.setPages(fuseboxPage("1", "React Native"))
+	d := metro.NewDiscovery(metro.NewClient(nil), metro.DiscoveryOptions{
+		Endpoints:             []string{f.srv.URL},
+		FailuresBeforeRemoval: failuresBeforeRemoval,
+		OnChange:              rec.onChange,
+	})
+	d.Refresh(context.Background())
+	if got := d.Snapshot(); len(got) != 1 {
+		t.Fatalf("Snapshot after first poll = %+v, want one page", got)
+	}
+	return d
+}
+
+func TestDiscoveryKeepsPagesUntilConsecutiveFailuresReachThreshold(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		threshold   int
+		failures    int
+		wantRemoved bool
+	}{
+		{name: "default keeps pages after two failures", threshold: 0, failures: 2, wantRemoved: false},
+		{name: "default removes pages on the third failure", threshold: 0, failures: 3, wantRemoved: true},
+		{name: "threshold one removes on the first failure", threshold: 1, failures: 1, wantRemoved: true},
+		{name: "threshold five keeps pages after four failures", threshold: 5, failures: 4, wantRemoved: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFakeMetro(t)
+			rec := &syncRecorder{}
+			d := discoverOne(t, f, rec, tt.threshold)
+
+			f.setFailing(true)
+			for i := 0; i < tt.failures; i++ {
+				d.Refresh(context.Background())
+				if d.Reachable(f.srv.URL) {
+					t.Fatalf("Reachable = true after failure %d, want false", i+1)
+				}
+			}
+
+			wantRemoved, wantPages := 0, 1
+			if tt.wantRemoved {
+				wantRemoved, wantPages = 1, 0
+			}
+			if got := rec.count(metro.Removed); got != wantRemoved {
+				t.Fatalf("removed events = %d, want %d (changes %+v)", got, wantRemoved, rec.changes)
+			}
+			if got := d.Snapshot(); len(got) != wantPages {
+				t.Fatalf("Snapshot = %+v, want %d pages", got, wantPages)
+			}
+		})
+	}
+}
+
+func TestDiscoverySuccessfulPollResetsFailureCount(t *testing.T) {
+	t.Parallel()
+	f := newFakeMetro(t)
+	rec := &syncRecorder{}
+	d := discoverOne(t, f, rec, 0)
+
+	// Two failures, one success, two more failures: never three in a row.
+	f.setFailing(true)
+	d.Refresh(context.Background())
+	d.Refresh(context.Background())
+	f.setFailing(false)
+	d.Refresh(context.Background())
+	if !d.Reachable(f.srv.URL) {
+		t.Fatal("Reachable = false after a successful poll, want true")
+	}
+	f.setFailing(true)
+	d.Refresh(context.Background())
+	d.Refresh(context.Background())
+
+	if got := rec.count(metro.Removed); got != 0 {
+		t.Fatalf("removed events = %d, want 0 (changes %+v)", got, rec.changes)
+	}
+	if got := d.Snapshot(); len(got) != 1 {
+		t.Fatalf("Snapshot = %+v, want the page kept", got)
+	}
+	if got := rec.count(metro.Added); got != 1 {
+		t.Fatalf("added events = %d, want the single initial add", got)
+	}
+}
+
+func TestDiscoveryHealthyEndpointStillAddsUpdatesAndRemoves(t *testing.T) {
+	t.Parallel()
+	f := newFakeMetro(t)
+	rec := &syncRecorder{}
+	d := discoverOne(t, f, rec, 0)
+
+	f.setPages(fuseboxPage("1", "React Native (renamed)"))
+	d.Refresh(context.Background())
+	// Metro itself drops the page: removal is immediate, the failure threshold
+	// only applies to polls that fail.
+	f.setPages()
+	d.Refresh(context.Background())
+
+	kinds := make([]metro.ChangeKind, 0, len(rec.changes))
+	for _, c := range rec.changes {
+		kinds = append(kinds, c.Kind)
+	}
+	want := []metro.ChangeKind{metro.Added, metro.Updated, metro.Removed}
+	if len(kinds) != len(want) {
+		t.Fatalf("changes = %v, want %v", kinds, want)
+	}
+	for i := range want {
+		if kinds[i] != want[i] {
+			t.Fatalf("changes = %v, want %v", kinds, want)
+		}
+	}
+	if got := d.Snapshot(); len(got) != 0 {
+		t.Fatalf("Snapshot = %+v, want empty", got)
+	}
+	if !d.Reachable(f.srv.URL) {
+		t.Fatal("Reachable = false for a healthy endpoint, want true")
 	}
 }
