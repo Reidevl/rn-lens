@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -182,6 +183,7 @@ func (s *Server) Sessions() []*Session {
 	for _, sess := range s.sessions {
 		out = append(out, sess)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].connectedAt.Before(out[j].connectedAt) })
 	return out
 }
 

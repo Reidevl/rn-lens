@@ -2,6 +2,7 @@ package sdkws
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"sync"
@@ -123,7 +124,7 @@ func (s *Session) handshake() error {
 		s.Close(CloseBadVersion, fmt.Sprintf("lens speaks protocol version %d", protocol.Version))
 		return fmt.Errorf("%w: sdk announced %d", protocol.ErrVersion, hello.ProtocolVersion)
 	}
-	if opts.Token != "" && hello.Token != opts.Token {
+	if opts.Token != "" && subtle.ConstantTimeCompare([]byte(hello.Token), []byte(opts.Token)) != 1 {
 		s.Close(CloseBadToken, "pairing token missing or wrong; start the SDK with the token Lens shows")
 		return errors.New("pairing token mismatch")
 	}

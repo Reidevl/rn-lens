@@ -443,6 +443,38 @@ func TestStopClosesSessions(t *testing.T) {
 	}
 }
 
+func TestSessionsAreListedInConnectionOrder(t *testing.T) {
+	t.Parallel()
+	srv, rec, url := startServer(t, sdkws.Options{})
+	keys := []string{"dev-c", "dev-a", "dev-b"}
+	for _, dev := range keys {
+		c := dial(t, url)
+		h := hello("")
+		h.Device.ID = dev
+		send(t, c, protocol.TypeHello, "", h)
+		read(t, c)
+		rec.next(t, "connect")
+	}
+	for attempt := range 5 {
+		got := srv.Sessions()
+		if len(got) != len(keys) {
+			t.Fatalf("sessions = %d, want %d", len(got), len(keys))
+		}
+		ok := true
+		for i, sess := range got {
+			if sess.Key.DeviceID != keys[i] {
+				ok = false
+			}
+		}
+		if ok {
+			return
+		}
+		if attempt == 4 {
+			t.Fatalf("sessions not in connection order: %v %v %v", got[0].Key.DeviceID, got[1].Key.DeviceID, got[2].Key.DeviceID)
+		}
+	}
+}
+
 // Stop must not return while a session goroutine is still delivering
 // OnDisconnect, and a connection that arrives once Stop began is refused.
 func TestStopWaitsForSessionsAndRefusesLateConnections(t *testing.T) {
