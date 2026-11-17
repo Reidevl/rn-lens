@@ -1,16 +1,16 @@
 # Lens developer workflow. Run `task --list` to see every task.
 # Platform build tasks come from the Wails v3 template under build/.
-version: '3'
+version: "3"
 
 vars:
   APP_NAME: "rnlens"
   BIN_DIR: "bin"
   MAIN_PACKAGE: "./cmd/rnlens"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "pnpm"}}'
-  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  VITE_PORT: "{{.WAILS_VITE_PORT | default 9245}}"
   # Target OS for build/package/run. Defaults to the host OS, and is overridden
   # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation.
-  GOOS: '{{.GOOS | default OS}}'
+  GOOS: "{{.GOOS | default OS}}"
 
 includes:
   common: ./build/Taskfile.yml

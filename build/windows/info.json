@@ -1,0 +1,17 @@
+{
+	"fixed": {
+		"file_version": "0.1.0",
+		"product_version": "0.1.0"
+	},
+	"info": {
+		"0409": {
+			"FileVersion": "0.1.0",
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Lens",
+			"FileDescription": "React Native DevTools written in Go",
+			"LegalCopyright": "(c) 2026, Reiwil Lugo and Lens contributors",
+			"ProductName": "Lens",
+			"Comments": "https://github.com/Reidevl/rn-lens"
+		}
+	}
+}
