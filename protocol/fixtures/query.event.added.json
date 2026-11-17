@@ -1,0 +1,41 @@
+{
+  "v": 1,
+  "type": "query.event",
+  "payload": {
+    "kind": "added",
+    "queryHash": "[\"todos\",{\"page\":1}]",
+    "query": {
+      "queryHash": "[\"todos\",{\"page\":1}]",
+      "queryKey": [
+        "todos",
+        {
+          "page": 1
+        }
+      ],
+      "state": {
+        "status": "success",
+        "fetchStatus": "idle",
+        "dataUpdatedAt": 1794926158416,
+        "errorUpdatedAt": 0,
+        "dataUpdateCount": 3,
+        "errorUpdateCount": 0,
+        "fetchFailureCount": 0,
+        "isInvalidated": false,
+        "data": [
+          {
+            "id": 1,
+            "title": "Ship Lens"
+          }
+        ],
+        "error": null
+      },
+      "observersCount": 1,
+      "isActive": true,
+      "isStale": false,
+      "gcTime": 300000,
+      "meta": {
+        "source": "example"
+      }
+    }
+  }
+}

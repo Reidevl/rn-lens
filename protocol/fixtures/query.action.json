@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "query.action",
+  "id": "a1",
+  "payload": {
+    "id": "a1",
+    "type": "INVALIDATE",
+    "queryHash": "[\"todos\",{\"page\":1}]"
+  }
+}

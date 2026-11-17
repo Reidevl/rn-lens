@@ -1,0 +1,849 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rnlens.dev/schema/lens-protocol/v1",
+  "title": "LensMessage",
+  "description": "Every frame exchanged between @rnlens/sdk and Lens over the SDK WebSocket. Protocol version 1.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/HelloMessage"
+    },
+    {
+      "$ref": "#/$defs/QueriesSnapshotMessage"
+    },
+    {
+      "$ref": "#/$defs/QueryEventMessage"
+    },
+    {
+      "$ref": "#/$defs/MutationEventMessage"
+    },
+    {
+      "$ref": "#/$defs/OnlineStatusMessage"
+    },
+    {
+      "$ref": "#/$defs/ActionResultMessage"
+    },
+    {
+      "$ref": "#/$defs/PongMessage"
+    },
+    {
+      "$ref": "#/$defs/WelcomeMessage"
+    },
+    {
+      "$ref": "#/$defs/SnapshotRequestMessage"
+    },
+    {
+      "$ref": "#/$defs/QueryActionMessage"
+    },
+    {
+      "$ref": "#/$defs/OnlineSetMessage"
+    },
+    {
+      "$ref": "#/$defs/PingMessage"
+    }
+  ],
+  "$defs": {
+    "JsonValue": {
+      "title": "JsonValue",
+      "description": "Any JSON value (object, array, string, number, boolean or null).",
+      "anyOf": [
+        { "type": "object" },
+        { "type": "array" },
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    },
+    "QueryKey": {
+      "title": "QueryKey",
+      "type": "array",
+      "description": "TanStack Query key: an array of JSON values.",
+      "items": {
+        "$ref": "#/$defs/JsonValue"
+      }
+    },
+    "QueryStatus": {
+      "title": "QueryStatus",
+      "type": "string",
+      "enum": ["pending", "error", "success"]
+    },
+    "FetchStatus": {
+      "title": "FetchStatus",
+      "type": "string",
+      "enum": ["fetching", "paused", "idle"]
+    },
+    "MutationStatus": {
+      "title": "MutationStatus",
+      "type": "string",
+      "enum": ["idle", "pending", "success", "error"]
+    },
+    "QueryState": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/QueryStatus"
+        },
+        "fetchStatus": {
+          "$ref": "#/$defs/FetchStatus"
+        },
+        "dataUpdatedAt": {
+          "type": "number",
+          "description": "Milliseconds since epoch; 0 when never updated."
+        },
+        "errorUpdatedAt": {
+          "type": "number"
+        },
+        "dataUpdateCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errorUpdateCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fetchFailureCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "isInvalidated": {
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "error": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "fetchMeta": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": [
+        "status",
+        "fetchStatus",
+        "dataUpdatedAt",
+        "errorUpdatedAt",
+        "dataUpdateCount",
+        "errorUpdateCount",
+        "fetchFailureCount",
+        "isInvalidated"
+      ],
+      "additionalProperties": false,
+      "title": "QueryState"
+    },
+    "Query": {
+      "type": "object",
+      "properties": {
+        "queryHash": {
+          "type": "string",
+          "description": "Stable hash of the key, as TanStack computes it."
+        },
+        "queryKey": {
+          "$ref": "#/$defs/QueryKey"
+        },
+        "state": {
+          "$ref": "#/$defs/QueryState"
+        },
+        "observersCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "At least one enabled observer."
+        },
+        "isStale": {
+          "type": "boolean",
+          "description": "As computed on the device with the observers' staleTime."
+        },
+        "gcTime": {
+          "type": "number",
+          "description": "Milliseconds; Infinity is sent as -1."
+        },
+        "meta": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "dataTruncated": {
+          "type": "boolean",
+          "description": "data was cut at the SDK's size cap."
+        }
+      },
+      "required": ["queryHash", "queryKey", "state", "observersCount", "isActive", "isStale"],
+      "additionalProperties": false,
+      "title": "Query"
+    },
+    "QueryStateDelta": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/QueryStatus"
+        },
+        "fetchStatus": {
+          "$ref": "#/$defs/FetchStatus"
+        },
+        "dataUpdatedAt": {
+          "type": "number",
+          "description": "Milliseconds since epoch; 0 when never updated."
+        },
+        "errorUpdatedAt": {
+          "type": "number"
+        },
+        "dataUpdateCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errorUpdateCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fetchFailureCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "isInvalidated": {
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "error": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "fetchMeta": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "title": "QueryStateDelta",
+      "description": "Subset of QueryState fields that changed."
+    },
+    "MutationState": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/MutationStatus"
+        },
+        "submittedAt": {
+          "type": "number"
+        },
+        "isPaused": {
+          "type": "boolean"
+        },
+        "variables": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "data": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "error": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "failureCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failureReason": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "context": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": ["status", "submittedAt", "isPaused"],
+      "additionalProperties": false,
+      "title": "MutationState"
+    },
+    "Mutation": {
+      "type": "object",
+      "properties": {
+        "mutationId": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mutationKey": {
+          "$ref": "#/$defs/QueryKey"
+        },
+        "state": {
+          "$ref": "#/$defs/MutationState"
+        },
+        "scope": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "meta": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "dataTruncated": {
+          "type": "boolean"
+        }
+      },
+      "required": ["mutationId", "state"],
+      "additionalProperties": false,
+      "title": "Mutation"
+    },
+    "AppInfo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Bundle id or package name."
+        },
+        "name": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["ios", "android", "web", "macos", "windows", "other"]
+        },
+        "rnVersion": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "platform"],
+      "additionalProperties": false,
+      "title": "AppInfo"
+    },
+    "DeviceInfo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable per install; the SDK persists it."
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false,
+      "title": "DeviceInfo"
+    },
+    "HelloPayload": {
+      "type": "object",
+      "properties": {
+        "sdkVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "app": {
+          "$ref": "#/$defs/AppInfo"
+        },
+        "device": {
+          "$ref": "#/$defs/DeviceInfo"
+        },
+        "scriptURL": {
+          "type": "string",
+          "description": "Metro bundle URL the app loaded, used for diagnostics."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["queries", "storage", "plugins"]
+          },
+          "uniqueItems": true
+        },
+        "token": {
+          "type": "string",
+          "description": "Pairing token when Lens runs with --sdk-token."
+        }
+      },
+      "required": ["sdkVersion", "protocolVersion", "app", "device", "features"],
+      "additionalProperties": false,
+      "title": "HelloPayload"
+    },
+    "WelcomePayload": {
+      "type": "object",
+      "properties": {
+        "lensVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": ["lensVersion", "protocolVersion", "sessionId"],
+      "additionalProperties": false,
+      "title": "WelcomePayload"
+    },
+    "QueriesSnapshotPayload": {
+      "type": "object",
+      "properties": {
+        "queries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Query"
+          }
+        },
+        "mutations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Mutation"
+          }
+        },
+        "online": {
+          "type": "boolean"
+        }
+      },
+      "required": ["queries", "mutations", "online"],
+      "additionalProperties": false,
+      "title": "QueriesSnapshotPayload"
+    },
+    "QueryEventKind": {
+      "title": "QueryEventKind",
+      "type": "string",
+      "enum": ["added", "updated", "removed", "observers"]
+    },
+    "QueryEventPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/QueryEventKind"
+        },
+        "queryHash": {
+          "type": "string"
+        },
+        "query": {
+          "$ref": "#/$defs/Query"
+        },
+        "action": {
+          "type": "string",
+          "description": "TanStack action type for kind=updated (fetch, success, error, setState, invalidate, pause, continue, ...)."
+        },
+        "delta": {
+          "$ref": "#/$defs/QueryStateDelta"
+        },
+        "observersCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "isStale": {
+          "type": "boolean"
+        }
+      },
+      "required": ["kind", "queryHash"],
+      "additionalProperties": false,
+      "title": "QueryEventPayload",
+      "description": "added: query present. updated: delta present (or query when the action is unknown). removed: hash only. observers: observersCount/isActive/isStale present."
+    },
+    "MutationEventKind": {
+      "title": "MutationEventKind",
+      "type": "string",
+      "enum": ["added", "updated", "removed"]
+    },
+    "MutationEventPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/MutationEventKind"
+        },
+        "mutationId": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mutation": {
+          "$ref": "#/$defs/Mutation"
+        },
+        "delta": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "$ref": "#/$defs/MutationStatus"
+            },
+            "submittedAt": {
+              "type": "number"
+            },
+            "isPaused": {
+              "type": "boolean"
+            },
+            "variables": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "error": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "failureCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failureReason": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "context": {
+              "$ref": "#/$defs/JsonValue"
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "title": "MutationStateDelta"
+        }
+      },
+      "required": ["kind", "mutationId"],
+      "additionalProperties": false,
+      "title": "MutationEventPayload"
+    },
+    "OnlineStatusPayload": {
+      "type": "object",
+      "properties": {
+        "online": {
+          "type": "boolean"
+        }
+      },
+      "required": ["online"],
+      "additionalProperties": false,
+      "title": "OnlineStatusPayload"
+    },
+    "ActionResultPayload": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The query.action id this answers."
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "ok"],
+      "additionalProperties": false,
+      "title": "ActionResultPayload"
+    },
+    "EmptyPayload": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false,
+      "title": "EmptyPayload"
+    },
+    "QueryActionType": {
+      "title": "QueryActionType",
+      "type": "string",
+      "enum": [
+        "REFETCH",
+        "INVALIDATE",
+        "RESET",
+        "REMOVE",
+        "SET_QUERY_DATA",
+        "TRIGGER_ERROR",
+        "RESTORE_ERROR",
+        "TRIGGER_LOADING",
+        "RESTORE_LOADING",
+        "CLEAR_QUERY_CACHE",
+        "CLEAR_MUTATION_CACHE"
+      ]
+    },
+    "QueryActionPayload": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Correlates with action.result."
+        },
+        "type": {
+          "$ref": "#/$defs/QueryActionType"
+        },
+        "queryHash": {
+          "type": "string",
+          "description": "Required for every type except the CLEAR_* ones."
+        },
+        "data": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "title": "QueryActionPayload"
+    },
+    "OnlineSetPayload": {
+      "type": "object",
+      "properties": {
+        "online": {
+          "type": "boolean"
+        }
+      },
+      "required": ["online"],
+      "additionalProperties": false,
+      "title": "OnlineSetPayload"
+    },
+    "HelloMessage": {
+      "title": "HelloMessage",
+      "description": "First message the SDK sends after the socket opens.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "hello"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/HelloPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "QueriesSnapshotMessage": {
+      "title": "QueriesSnapshotMessage",
+      "description": "Full cache contents; sent after welcome and on snapshot.request.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "queries.snapshot"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/QueriesSnapshotPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "QueryEventMessage": {
+      "title": "QueryEventMessage",
+      "description": "One query cache change.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "query.event"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/QueryEventPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "MutationEventMessage": {
+      "title": "MutationEventMessage",
+      "description": "One mutation cache change.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "mutation.event"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/MutationEventPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "OnlineStatusMessage": {
+      "title": "OnlineStatusMessage",
+      "description": "onlineManager changed on the device.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "online.status"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/OnlineStatusPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "ActionResultMessage": {
+      "title": "ActionResultMessage",
+      "description": "Outcome of a query.action.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "action.result"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/ActionResultPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "PongMessage": {
+      "title": "PongMessage",
+      "description": "Reply to ping.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "pong"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "WelcomeMessage": {
+      "title": "WelcomeMessage",
+      "description": "Lens accepted the hello.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "welcome"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/WelcomePayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "SnapshotRequestMessage": {
+      "title": "SnapshotRequestMessage",
+      "description": "Lens asks for a fresh queries.snapshot.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "snapshot.request"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "QueryActionMessage": {
+      "title": "QueryActionMessage",
+      "description": "Lens asks the device to run a devtools action.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "query.action"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/QueryActionPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "OnlineSetMessage": {
+      "title": "OnlineSetMessage",
+      "description": "Lens sets onlineManager on the device.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "online.set"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/OnlineSetPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "PingMessage": {
+      "title": "PingMessage",
+      "description": "Liveness probe; the SDK answers with pong.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "ping"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    }
+  }
+}

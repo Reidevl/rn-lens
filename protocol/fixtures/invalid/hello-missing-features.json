@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "hello",
+  "payload": {
+    "sdkVersion": "0.1.0",
+    "protocolVersion": 1,
+    "app": {
+      "id": "x",
+      "platform": "ios"
+    },
+    "device": {
+      "id": "d"
+    }
+  }
+}

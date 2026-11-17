@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "type": "query.action",
+  "id": "a3",
+  "payload": {
+    "id": "a3",
+    "type": "SET_QUERY_DATA",
+    "queryHash": "[\"todos\",{\"page\":1}]",
+    "data": [
+      {
+        "id": 1,
+        "title": "Edited in Lens"
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "query.event",
+  "payload": {
+    "kind": "updated",
+    "queryHash": "[\"todos\",{\"page\":1}]",
+    "action": "fetch",
+    "delta": {
+      "status": "success",
+      "fetchStatus": "fetching",
+      "dataUpdatedAt": 1794926158416,
+      "errorUpdatedAt": 0
+    }
+  }
+}

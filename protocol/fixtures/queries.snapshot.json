@@ -1,0 +1,61 @@
+{
+  "v": 1,
+  "type": "queries.snapshot",
+  "payload": {
+    "queries": [
+      {
+        "queryHash": "[\"todos\",{\"page\":1}]",
+        "queryKey": [
+          "todos",
+          {
+            "page": 1
+          }
+        ],
+        "state": {
+          "status": "success",
+          "fetchStatus": "idle",
+          "dataUpdatedAt": 1794926158416,
+          "errorUpdatedAt": 0,
+          "dataUpdateCount": 3,
+          "errorUpdateCount": 0,
+          "fetchFailureCount": 0,
+          "isInvalidated": false,
+          "data": [
+            {
+              "id": 1,
+              "title": "Ship Lens"
+            }
+          ],
+          "error": null
+        },
+        "observersCount": 1,
+        "isActive": true,
+        "isStale": false,
+        "gcTime": 300000,
+        "meta": {
+          "source": "example"
+        }
+      }
+    ],
+    "mutations": [
+      {
+        "mutationId": 7,
+        "mutationKey": ["addTodo"],
+        "state": {
+          "status": "success",
+          "submittedAt": 1794926160000,
+          "isPaused": false,
+          "variables": {
+            "title": "x"
+          },
+          "data": {
+            "id": 9
+          },
+          "error": null,
+          "failureCount": 0
+        }
+      }
+    ],
+    "online": true
+  }
+}

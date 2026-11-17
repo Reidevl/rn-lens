@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "query.event",
+  "payload": {
+    "kind": "observers",
+    "queryHash": "[\"todos\",{\"page\":1}]",
+    "observersCount": 0,
+    "isActive": false,
+    "isStale": true
+  }
+}
