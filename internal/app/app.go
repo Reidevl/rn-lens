@@ -85,14 +85,12 @@ func New(cfg Config) *App {
 		Endpoints: cfg.MetroEndpoints,
 		Interval:  cfg.PollInterval,
 		Logger:    cfg.Logger,
-		OnChange: func([]metro.Change) {
-			a.reconcileSession()
-			a.bus.Publish(TopicTargetsChanged, nil)
-		},
+		OnChange:  func([]metro.Change) { a.bus.Publish(TopicTargetsChanged, nil) },
 	})
 	a.session = targets.NewSession(targets.DialerFunc(a.dial), targets.SessionOptions{
 		Logger:   cfg.Logger,
 		OnChange: func(targets.Snapshot) { a.bus.Publish(TopicSessionChanged, nil) },
+		Resolve:  a.resolveTarget,
 	})
 	return a
 }
@@ -120,14 +118,15 @@ func (a *App) Start() {
 	})
 }
 
-// Stop detaches any session and stops discovery. It is idempotent.
+// Stop ends discovery first, so nothing can re-attach, then detaches the
+// session. It is idempotent.
 func (a *App) Stop() {
 	a.stopOnce.Do(func() {
-		a.session.Detach()
 		if a.cancel != nil {
 			a.cancel()
 			<-a.stopped
 		}
+		a.session.Detach()
 	})
 }
 
@@ -185,25 +184,18 @@ func (a *App) OpenInReactNativeDevTools(ctx context.Context, id string) error {
 	return a.metro.OpenDebugger(ctx, t.Endpoint, t.MetroID)
 }
 
-// reconcileSession re-points a reconnecting session at the page that now
-// represents the same app on the same device. After an app restart Metro can
-// list the app under a new page id, so retrying the old WebSocket URL would
-// fail forever with [PAGE_NOT_FOUND].
-func (a *App) reconcileSession() {
-	snap := a.session.Snapshot()
-	if snap.State != targets.StateReconnecting || snap.Target == nil {
-		return
-	}
-	current := a.Targets()
-	for _, t := range current {
-		if t.ID == snap.Target.ID {
-			return // the original page is back; the session's own retry will succeed
+// resolveTarget is consulted by the session before each reconnect attempt.
+// After an app restart Metro can list the app under a new page id, so the
+// session follows the app instead of retrying a URL that only answers
+// [PAGE_NOT_FOUND]. While the original page is still listed it is kept.
+func (a *App) resolveTarget(current targets.Target) (targets.Target, bool) {
+	list := a.Targets()
+	for _, t := range list {
+		if t.ID == current.ID {
+			return current, false
 		}
 	}
-	if replacement, ok := targets.FindReplacement(*snap.Target, current); ok {
-		a.cfg.Logger.Info("target moved, re-attaching", "from", snap.Target.ID, "to", replacement.ID)
-		a.session.Attach(replacement)
-	}
+	return targets.FindReplacement(current, list)
 }
 
 func (a *App) dial(ctx context.Context, wsURL string) (targets.Conn, error) {

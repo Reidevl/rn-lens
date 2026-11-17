@@ -71,13 +71,21 @@ type SessionOptions struct {
 	EnableTimeout time.Duration
 	// OnChange is called after every state change. It must not block.
 	OnChange func(Snapshot)
-	Logger   *slog.Logger
+	// Resolve, when set, is consulted before every reconnect attempt. It may
+	// return a different Target for the same app (for example a new page id
+	// after an app restart); returning false keeps the current target.
+	Resolve func(current Target) (Target, bool)
+	Logger  *slog.Logger
 }
 
 // Session attaches to one target at a time and keeps the connection alive.
 type Session struct {
 	dialer Dialer
 	opts   SessionOptions
+
+	// lifecycle serializes Attach and Detach so two callers can never start
+	// two run loops or leave one running after Detach.
+	lifecycle sync.Mutex
 
 	mu       sync.RWMutex
 	snapshot Snapshot
@@ -132,7 +140,9 @@ func (s *Session) Snapshot() Snapshot {
 // It returns once the background loop is running; watch OnChange or Snapshot
 // for progress.
 func (s *Session) Attach(target Target) {
-	s.Detach()
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	s.detachLocked()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan struct{})
@@ -152,18 +162,33 @@ func (s *Session) Attach(target Target) {
 // Detach closes the current connection and moves to the closed state.
 // It blocks until the background loop has stopped.
 func (s *Session) Detach() {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	s.detachLocked()
+}
+
+// detachLocked requires s.lifecycle to be held by the caller.
+func (s *Session) detachLocked() {
 	s.mu.Lock()
 	cancel := s.cancel
 	finished := s.finished
 	s.cancel = nil
 	s.finished = nil
+	state := s.snapshot.State
 	s.mu.Unlock()
 
-	if cancel == nil {
-		return
+	if cancel != nil {
+		cancel()
+		<-finished
+		s.mu.RLock()
+		state = s.snapshot.State
+		s.mu.RUnlock()
 	}
-	cancel()
-	<-finished
+	// A loop that ended on its own (evicted) leaves its state behind; Detach
+	// still means "closed" to the user.
+	if state != StateIdle && state != StateClosed {
+		s.transition(StateClosed, "detached", 0)
+	}
 }
 
 // Call forwards a CDP request to the attached connection.
@@ -190,6 +215,9 @@ func (s *Session) run(ctx context.Context, target Target, finished chan struct{}
 
 	attempts := 0
 	for {
+		if attempts > 0 {
+			target = s.resolve(target)
+		}
 		conn, err := s.dialer.Dial(ctx, target.WebSocketURL)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -283,6 +311,24 @@ func (s *Session) handleEvent(ev cdp.Event) {
 	for _, h := range handlers {
 		h(ev)
 	}
+}
+
+// resolve lets the owner re-point a reconnecting session at the page that
+// now represents the same app, and records the switch in the snapshot.
+func (s *Session) resolve(current Target) Target {
+	if s.opts.Resolve == nil {
+		return current
+	}
+	next, ok := s.opts.Resolve(current)
+	if !ok || next.ID == current.ID {
+		return current
+	}
+	s.opts.Logger.Info("target moved, re-attaching", "from", current.ID, "to", next.ID)
+	s.mu.Lock()
+	t := next
+	s.snapshot.Target = &t
+	s.mu.Unlock()
+	return next
 }
 
 func (s *Session) wait(ctx context.Context, attempt int) bool {
