@@ -89,13 +89,18 @@ func TestE2E_AttachToRunningApp(t *testing.T) {
 		t.Fatalf("Runtime.enable after reload: %v", err)
 	}
 
-	// Console: the example app logs "tick" every two seconds and Hermes
-	// replays buffered lines on Runtime.enable.
-	tickDeadline := time.After(6 * time.Second)
+	// Console: Hermes replays buffered lines on Runtime.enable, so any app
+	// yields entries; the example app additionally logs "tick" every two
+	// seconds, which is asserted only when it is the attached app.
+	isExample := snap.Metadata.AppIdentifier == "host.exp.Exponent" || target.AppID == "host.exp.Exponent"
+	consoleDeadline := time.After(6 * time.Second)
 	for {
 		found := false
 		for _, e := range a.Console().Store().Range(1, 0) {
-			if e.Kind == "log" && len(e.Text) >= 4 && e.Text[:4] == "tick" {
+			if e.Source != "console" {
+				continue
+			}
+			if !isExample || (e.Kind == "log" && len(e.Text) >= 4 && e.Text[:4] == "tick") {
 				found = true
 				break
 			}
@@ -105,8 +110,8 @@ func TestE2E_AttachToRunningApp(t *testing.T) {
 		}
 		select {
 		case <-time.After(200 * time.Millisecond):
-		case <-tickDeadline:
-			t.Fatal("no 'tick' console entry within 6 s of attaching")
+		case <-consoleDeadline:
+			t.Fatalf("no console entry within 6 s of attaching (example app: %v)", isExample)
 		}
 	}
 	result, err := a.Console().Evaluate(ctx, "1+1")
