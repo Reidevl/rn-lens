@@ -2,6 +2,9 @@ import {
   TOPICS,
   type AppInfo,
   type Backend,
+  type ConsoleEntry,
+  type ConsoleProperty,
+  type ConsoleStats,
   type SessionSnapshot,
   type Target,
   type Unsubscribe,
@@ -16,6 +19,12 @@ export interface MockBackend extends Backend {
   setTargets(targets: Target[]): void;
   /** Replaces the session snapshot and notifies subscribers. */
   setSession(session: SessionSnapshot): void;
+  /** Appends console entries (seq assigned) and notifies subscribers. */
+  log(...entries: Array<Partial<ConsoleEntry> & { text: string }>): ConsoleEntry[];
+  /** Simulates a JavaScript context reset: bumps the epoch and logs a system entry. */
+  resetContext(): void;
+  /** Properties returned by `console.properties` for an objectId. */
+  setProperties(objectId: string, props: ConsoleProperty[]): void;
   /** Every method call, in order, for assertions. */
   readonly calls: string[];
 }
@@ -24,6 +33,8 @@ export interface MockBackendOptions {
   info?: Partial<AppInfo>;
   targets?: Target[];
   session?: SessionSnapshot;
+  /** Console capacity before the oldest entries are dropped. */
+  consoleCapacity?: number;
 }
 
 export const idleSession: SessionSnapshot = {
@@ -60,6 +71,45 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
   let session: SessionSnapshot = options.session ?? idleSession;
   const listeners = new Map<string, Set<Handler>>();
   const calls: string[] = [];
+  const consoleCapacity = options.consoleCapacity ?? 10_000;
+  let entries: ConsoleEntry[] = [];
+  let nextSeq = 1;
+  let dropped = 0;
+  let epoch = 1;
+  let cleared = 0;
+  const propertyTable = new Map<string, ConsoleProperty[]>();
+
+  const consoleStats = (): ConsoleStats => ({
+    lastSeq: nextSeq - 1,
+    oldestSeq: entries[0]?.seq ?? 0,
+    dropped,
+    len: entries.length,
+    epoch,
+    cleared,
+  });
+  const appendEntries = (
+    items: Array<Partial<ConsoleEntry> & { text: string }>,
+  ): ConsoleEntry[] => {
+    const added = items.map((item) => {
+      const kind = item.kind ?? "log";
+      const entry: ConsoleEntry = {
+        seq: nextSeq++,
+        timestamp: new Date().toISOString(),
+        kind,
+        source: item.source ?? "console",
+        level: item.level ?? levelOf(kind),
+        epoch,
+        ...item,
+      };
+      return entry;
+    });
+    entries.push(...added);
+    while (entries.length > consoleCapacity) {
+      entries.shift();
+      dropped++;
+    }
+    return added;
+  };
 
   const emit = (name: string, data: unknown) => {
     listeners.get(name)?.forEach((handler) => handler(data));
@@ -105,6 +155,58 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
         return Promise.resolve();
       },
     },
+    console: {
+      stats: () => {
+        calls.push("console.stats");
+        return Promise.resolve(consoleStats());
+      },
+      range: (fromSeq, limit) => {
+        calls.push(`console.range:${fromSeq}:${limit}`);
+        const slice = entries.filter((e) => e.seq >= fromSeq);
+        return Promise.resolve(limit > 0 ? slice.slice(0, limit) : slice);
+      },
+      clear: () => {
+        calls.push("console.clear");
+        entries = [];
+        dropped = 0;
+        cleared++;
+        emit(TOPICS.consoleChanged, { topic: TOPICS.consoleChanged, seq: Date.now() });
+        return Promise.resolve();
+      },
+      evaluate: (expression) => {
+        calls.push(`console.evaluate:${expression}`);
+        appendEntries([{ kind: "command", source: "eval", text: expression }]);
+        let result: Partial<ConsoleEntry> & { text: string };
+        if (expression === "throw") {
+          result = { kind: "exception", source: "eval", text: "Error: thrown from mock" };
+        } else {
+          let text: string;
+          try {
+            text = String(new Function(`return (${expression})`)());
+          } catch (err) {
+            text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+          }
+          result = {
+            kind: "result",
+            source: "eval",
+            text,
+            args: [{ type: "number", value: Number(text) }],
+          };
+        }
+        const [entry] = appendEntries([result]);
+        emit(TOPICS.consoleChanged, { topic: TOPICS.consoleChanged, seq: Date.now() });
+        return Promise.resolve(entry);
+      },
+      properties: (objectId, entryEpoch) => {
+        calls.push(`console.properties:${objectId}`);
+        if (entryEpoch < epoch) {
+          return Promise.reject(
+            new Error("console: object is no longer available after the context was reset"),
+          );
+        }
+        return Promise.resolve(propertyTable.get(objectId) ?? []);
+      },
+    },
     events: {
       on: (name, handler): Unsubscribe => {
         const set = listeners.get(name) ?? new Set<Handler>();
@@ -124,6 +226,43 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
       session = next;
       emit(TOPICS.sessionChanged, { topic: TOPICS.sessionChanged, seq: Date.now() });
     },
+    log: (...items) => {
+      const added = appendEntries(items);
+      emit(TOPICS.consoleChanged, { topic: TOPICS.consoleChanged, seq: Date.now() });
+      return added;
+    },
+    resetContext: () => {
+      epoch++;
+      appendEntries([
+        { kind: "system", source: "system", text: "JavaScript context was reset (app reloaded)" },
+      ]);
+      emit(TOPICS.consoleChanged, { topic: TOPICS.consoleChanged, seq: Date.now() });
+    },
+    setProperties: (objectId, props) => {
+      propertyTable.set(objectId, props);
+    },
   };
   return backend;
+}
+
+function levelOf(kind: ConsoleEntry["kind"]): ConsoleEntry["level"] {
+  switch (kind) {
+    case "debug":
+    case "trace":
+    case "count":
+    case "timeEnd":
+      return "verbose";
+    case "warning":
+      return "warning";
+    case "error":
+    case "exception":
+    case "assert":
+      return "error";
+    case "system":
+    case "command":
+    case "result":
+      return "system";
+    default:
+      return "info";
+  }
 }

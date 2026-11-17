@@ -1,3 +1,4 @@
+import { ConsolePanel } from "@/features/console/ConsolePanel";
 import { TargetsPanel } from "@/features/targets/TargetsPanel";
 import { useTargetsSync } from "@/features/targets/useTargetsSync";
 
@@ -18,7 +19,13 @@ export function Shell() {
         <LeftRail />
       </aside>
       <main className="min-w-0 overflow-hidden">
-        {panel.id === "targets" ? <TargetsPanel /> : <PlaceholderPanel panel={panel} />}
+        {panel.id === "targets" ? (
+          <TargetsPanel />
+        ) : panel.id === "console" ? (
+          <ConsolePanel />
+        ) : (
+          <PlaceholderPanel panel={panel} />
+        )}
       </main>
       <div className="col-span-2">
         <StatusBar />

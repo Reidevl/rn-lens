@@ -147,6 +147,71 @@ func TestDiscoverAttachReloadAndHandOff(t *testing.T) {
 	}
 }
 
+func TestAttachEnablesConsoleDomainsAndIngestsEvents(t *testing.T) {
+	t.Parallel()
+	debugger := cdptest.New(t)
+	debugger.Handle("Runtime.enable", func(cdptest.Request) (any, *cdptest.Error) { return nil, nil })
+	m := newFakeMetro(t, debugger)
+	a := app.New(app.Config{MetroEndpoints: []string{m.srv.URL}, PollInterval: 10 * time.Millisecond})
+	targetsCh, cancelTargets := a.Bus().Subscribe(app.TopicTargetsChanged, 8)
+	defer cancelTargets()
+	consoleCh, cancelConsole := a.Bus().Subscribe(app.TopicConsoleChanged, 64)
+	defer cancelConsole()
+	a.Start()
+	t.Cleanup(a.Stop)
+
+	waitTopic(t, targetsCh, "targets:changed")
+	if err := a.Attach(a.Targets()[0].ID); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		methods := debugger.Methods()
+		if len(methods) >= 3 {
+			if methods[0] != "ReactNativeApplication.enable" || methods[1] != "Runtime.enable" || methods[2] != "Log.enable" {
+				t.Fatalf("methods = %v", methods)
+			}
+			break
+		}
+		select {
+		case <-time.After(10 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("domains not enabled; methods = %v", debugger.Methods())
+		}
+	}
+
+	// Metadata updates re-emit an attached snapshot; they must not re-run the
+	// attach sequence (no second Runtime.enable, no "Re-attached" marker).
+	debugger.Emit("ReactNativeApplication.metadataUpdated", map[string]any{"appDisplayName": "Example", "platform": "ios", "reactNativeVersion": "0.88.0"})
+	debugger.Emit("Runtime.consoleAPICalled", map[string]any{"type": "log", "args": []map[string]any{{"type": "string", "value": "hello"}}, "executionContextId": 1})
+	for {
+		entries := a.Console().Store().Range(1, 0)
+		if len(entries) >= 2 && entries[len(entries)-1].Text == "hello" {
+			break
+		}
+		waitTopic(t, consoleCh, "console:changed")
+	}
+	time.Sleep(50 * time.Millisecond)
+	enables := 0
+	for _, m := range debugger.Methods() {
+		if m == "Runtime.enable" {
+			enables++
+		}
+	}
+	if enables != 1 {
+		t.Fatalf("Runtime.enable sent %d times after a metadata update, want 1", enables)
+	}
+	for _, e := range a.Console().Store().Range(1, 0) {
+		if e.Kind == "system" && e.Text != "Attached to React Native" {
+			t.Fatalf("unexpected system entry %q", e.Text)
+		}
+	}
+	if got := a.Console().Store().Epoch(); got != 1 {
+		t.Fatalf("epoch = %d after a metadata update, want 1", got)
+	}
+}
+
 func TestSessionFollowsTheAppToANewPageId(t *testing.T) {
 	t.Parallel()
 	first := cdptest.New(t)

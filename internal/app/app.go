@@ -17,6 +17,7 @@ import (
 
 	"github.com/Reidevl/rn-lens/internal/adapters/cdpws"
 	"github.com/Reidevl/rn-lens/internal/adapters/metro"
+	"github.com/Reidevl/rn-lens/internal/console"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 	"github.com/Reidevl/rn-lens/internal/targets"
@@ -27,6 +28,7 @@ import (
 const (
 	TopicTargetsChanged = "targets:changed"
 	TopicSessionChanged = "session:changed"
+	TopicConsoleChanged = "console:changed"
 )
 
 // Config holds the values the composition root needs from its caller.
@@ -41,7 +43,9 @@ type Config struct {
 	HTTPClient *http.Client
 	// FrameObserver, when set, sees every CDP frame (used by `rnlens record`).
 	FrameObserver func(dir cdp.Direction, raw []byte)
-	Logger        *slog.Logger
+	// ConsoleCapacity bounds the console log. Zero means console.DefaultCapacity.
+	ConsoleCapacity int
+	Logger          *slog.Logger
 }
 
 // Info describes the running Lens instance.
@@ -60,11 +64,19 @@ type App struct {
 	metro     *metro.Client
 	discovery *metro.Discovery
 	session   *targets.Session
+	console   *console.Service
 
 	startOnce sync.Once
 	stopOnce  sync.Once
 	cancel    context.CancelFunc
 	stopped   chan struct{}
+
+	// lastState lets onSessionChange detect transitions: the session also
+	// re-emits snapshots (metadata updates) whose state did not change.
+	stateMu   sync.Mutex
+	lastState targets.State
+	// attachMu serializes console domain enabling across fast re-attaches.
+	attachMu sync.Mutex
 }
 
 // New builds the application graph from cfg. It performs no I/O until Start.
@@ -89,11 +101,48 @@ func New(cfg Config) *App {
 	})
 	a.session = targets.NewSession(targets.DialerFunc(a.dial), targets.SessionOptions{
 		Logger:   cfg.Logger,
-		OnChange: func(targets.Snapshot) { a.bus.Publish(TopicSessionChanged, nil) },
+		OnChange: a.onSessionChange,
 		Resolve:  a.resolveTarget,
 	})
+	a.console = console.NewService(console.NewStore(cfg.ConsoleCapacity, nil), a.session, console.ServiceOptions{
+		Notify: func() { a.bus.Publish(TopicConsoleChanged, nil) },
+		Logger: cfg.Logger,
+	})
+	a.session.OnEvent(a.console.HandleEvent)
 	return a
 }
+
+// onSessionChange fans session transitions out: the UI learns through the
+// bus, and features that need the live connection start their domains.
+func (a *App) onSessionChange(snap targets.Snapshot) {
+	a.bus.Publish(TopicSessionChanged, nil)
+
+	a.stateMu.Lock()
+	entered := snap.State == targets.StateAttached && a.lastState != targets.StateAttached
+	a.lastState = snap.State
+	a.stateMu.Unlock()
+	if !entered {
+		return
+	}
+	name := ""
+	if snap.Target != nil {
+		name = snap.Target.Title
+	}
+	// Enable asynchronously: the callback runs on the session goroutine and
+	// must not wait on the connection it is reporting about.
+	go func() {
+		a.attachMu.Lock()
+		defer a.attachMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := a.console.OnAttached(ctx, name); err != nil {
+			a.cfg.Logger.Warn("console domains not enabled", "err", err)
+		}
+	}()
+}
+
+// Console exposes the console feature to UI adapters.
+func (a *App) Console() *console.Service { return a.console }
 
 // Info returns static information about this Lens build.
 func (a *App) Info() Info {

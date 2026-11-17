@@ -59,10 +59,104 @@ export interface SessionSnapshot {
   since: string;
 }
 
+/** Mirrors Runtime.RemoteObject (subset Lens decodes). */
+export interface RemoteObject {
+  type: string;
+  subtype?: string;
+  className?: string;
+  value?: unknown;
+  unserializableValue?: string;
+  description?: string;
+  objectId?: string;
+  preview?: ObjectPreview | null;
+}
+
+export interface ObjectPreview {
+  type: string;
+  subtype?: string;
+  description?: string;
+  overflow: boolean;
+  properties: Array<{ name: string; type: string; value?: string; subtype?: string }>;
+}
+
+export interface CallFrame {
+  functionName: string;
+  scriptId: string;
+  url: string;
+  lineNumber: number;
+  columnNumber: number;
+}
+
+export interface StackTrace {
+  description?: string;
+  callFrames: CallFrame[];
+  parent?: StackTrace | null;
+}
+
+export type ConsoleKind =
+  | "log"
+  | "debug"
+  | "info"
+  | "warning"
+  | "error"
+  | "dir"
+  | "dirxml"
+  | "table"
+  | "trace"
+  | "clear"
+  | "startGroup"
+  | "startGroupCollapsed"
+  | "endGroup"
+  | "assert"
+  | "count"
+  | "timeEnd"
+  | "exception"
+  | "command"
+  | "result"
+  | "system";
+
+export type ConsoleLevel = "verbose" | "info" | "warning" | "error" | "system";
+export type ConsoleSource = "console" | "exception" | "log" | "eval" | "system";
+
+export interface ConsoleEntry {
+  seq: number;
+  timestamp: string;
+  kind: ConsoleKind;
+  source: ConsoleSource;
+  level: ConsoleLevel;
+  text: string;
+  args?: RemoteObject[] | null;
+  stack?: StackTrace | null;
+  location?: { url: string; line: number; column: number } | null;
+  contextId?: number;
+  epoch: number;
+}
+
+export interface ConsoleStats {
+  lastSeq: number;
+  oldestSeq: number;
+  dropped: number;
+  len: number;
+  epoch: number;
+  /** Clear generation: changes whenever the Go log was cleared. */
+  cleared: number;
+}
+
+export interface ConsoleProperty {
+  name: string;
+  value?: RemoteObject | null;
+  summary: string;
+  isOwn: boolean;
+  enumerable: boolean;
+  writable: boolean;
+  hasGetter: boolean;
+}
+
 /** Change-notification topics emitted by Go. Payloads carry no data. */
 export const TOPICS = {
   targetsChanged: "targets:changed",
   sessionChanged: "session:changed",
+  consoleChanged: "console:changed",
 } as const;
 
 export type Unsubscribe = () => void;
@@ -83,6 +177,14 @@ export interface Backend {
     detach(): Promise<void>;
     reload(): Promise<void>;
     openInReactNativeDevTools(id: string): Promise<void>;
+  };
+
+  console: {
+    stats(): Promise<ConsoleStats>;
+    range(fromSeq: number, limit: number): Promise<ConsoleEntry[]>;
+    clear(): Promise<void>;
+    evaluate(expression: string): Promise<ConsoleEntry>;
+    properties(objectId: string, epoch: number): Promise<ConsoleProperty[]>;
   };
 
   events: {
