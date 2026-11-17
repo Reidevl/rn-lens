@@ -70,6 +70,37 @@ func (r *stateRecorder) sequence() []targets.State {
 	return out
 }
 
+// sawBefore reports whether a snapshot matching first was recorded before the
+// earliest snapshot matching second. It is false when second never happened.
+func (r *stateRecorder) sawBefore(first, second func(targets.Snapshot) bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.states {
+		if second(s) {
+			return false
+		}
+		if first(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// targetSequence lists the state and target id of every recorded snapshot.
+func (r *stateRecorder) targetSequence() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.states))
+	for _, s := range r.states {
+		id := "<nil>"
+		if s.Target != nil {
+			id = s.Target.ID
+		}
+		out = append(out, string(s.State)+":"+id)
+	}
+	return out
+}
+
 func inState(state targets.State) func(targets.Snapshot) bool {
 	return func(s targets.Snapshot) bool { return s.State == state }
 }
@@ -409,5 +440,58 @@ func TestResolveRepointsReconnectingSession(t *testing.T) {
 	})
 	if snap.Target.WebSocketURL != second.URL() {
 		t.Fatalf("re-attached to %s, want %s", snap.Target.WebSocketURL, second.URL())
+	}
+
+	// The UI must learn that the target moved while the session is still
+	// reconnecting, before the attached snapshot for the new page arrives.
+	if !rec.sawBefore(
+		func(s targets.Snapshot) bool {
+			return s.State == targets.StateReconnecting && s.Target != nil && s.Target.ID == moved.ID
+		},
+		func(s targets.Snapshot) bool {
+			return s.State == targets.StateAttached && s.Target != nil && s.Target.ID == moved.ID
+		},
+	) {
+		t.Fatalf("no reconnecting snapshot carried the moved target before attached; targets: %v", rec.targetSequence())
+	}
+}
+
+// A reconnect whose Resolve keeps the same page emits no extra target change:
+// the reconnecting and attached snapshots all carry the original target.
+func TestResolveKeepingSamePageEmitsNoExtraChange(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	rec := newStateRecorder()
+	original := targetFor(srv)
+	s := targets.NewSession(wsDialer, targets.SessionOptions{
+		BackoffMin: 5 * time.Millisecond,
+		BackoffMax: 20 * time.Millisecond,
+		OnChange:   rec.onChange,
+		Resolve: func(current targets.Target) (targets.Target, bool) {
+			return current, true
+		},
+	})
+	t.Cleanup(s.Detach)
+
+	s.Attach(original)
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	srv.WaitConnected(time.Second)
+	srv.CloseAll(websocket.StatusNormalClosure, "[CONNECTION_LOST] Connection lost")
+	rec.waitFor(t, "reconnecting", inState(targets.StateReconnecting))
+	rec.waitFor(t, "re-attached", inState(targets.StateAttached))
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	firstRetries := 0
+	for _, snap := range rec.states {
+		if snap.Target == nil || snap.Target.ID != original.ID {
+			t.Fatalf("snapshot %s carries target %+v, want %s", snap.State, snap.Target, original.ID)
+		}
+		if snap.State == targets.StateReconnecting && snap.Attempts == 1 {
+			firstRetries++
+		}
+	}
+	if firstRetries != 1 {
+		t.Fatalf("first retry emitted %d reconnecting snapshots, want 1 (no extra change for an unchanged page)", firstRetries)
 	}
 }

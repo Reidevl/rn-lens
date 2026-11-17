@@ -314,7 +314,9 @@ func (s *Session) handleEvent(ev cdp.Event) {
 }
 
 // resolve lets the owner re-point a reconnecting session at the page that
-// now represents the same app, and records the switch in the snapshot.
+// now represents the same app, records the switch in the snapshot and
+// notifies observers while the state is still reconnecting, so the UI never
+// shows the old target as attached while Lens is already dialing the new one.
 func (s *Session) resolve(current Target) Target {
 	if s.opts.Resolve == nil {
 		return current
@@ -327,7 +329,9 @@ func (s *Session) resolve(current Target) Target {
 	s.mu.Lock()
 	t := next
 	s.snapshot.Target = &t
+	snap := s.snapshot
 	s.mu.Unlock()
+	s.emit(snap)
 	return next
 }
 
