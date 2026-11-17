@@ -1,6 +1,6 @@
 import type { AppInfo } from "@rnlens/protocol";
 
-import { loadReactNative } from "./optional-require";
+import { loadReactNative } from "./optional-require.cjs";
 
 export const DEFAULT_LENS_PORT = 7420;
 export const DEFAULT_LENS_PATH = "/lens";

@@ -12,7 +12,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type { Log } from "../logger";
-import { loadReactQuery } from "../optional-require";
+import { loadReactQuery } from "../optional-require.cjs";
 import { runQueryAction } from "./actions";
 import {
   mutationDelta,

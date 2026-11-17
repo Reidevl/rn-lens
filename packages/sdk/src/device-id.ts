@@ -1,4 +1,4 @@
-import { loadAsyncStorage as loadAsyncStorageModule } from "./optional-require";
+import { loadAsyncStorage as loadAsyncStorageModule } from "./optional-require.cjs";
 
 const STORAGE_KEY = "@rnlens/device-id";
 

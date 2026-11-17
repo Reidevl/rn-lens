@@ -28,7 +28,7 @@
     "lens"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/check-dist.mjs",
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint .",
     "test": "vitest run",

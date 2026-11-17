@@ -11,6 +11,10 @@ export default tseslint.config(
   reactHooks.configs.flat.recommended,
   prettier,
   {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
