@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -201,6 +202,10 @@ func TestCloseIsIdempotentAndReportsErrClosed(t *testing.T) {
 	if !errors.Is(conn.Err(), cdpws.ErrClosed) {
 		t.Fatalf("Err = %v, want ErrClosed", conn.Err())
 	}
+	want := cdp.CloseReason{Status: int(websocket.StatusNormalClosure), Message: "closed by user"}
+	if got := conn.Reason(); got != want {
+		t.Fatalf("Reason after Close = %+v, want %+v", got, want)
+	}
 }
 
 func TestOnFrameObservesBothDirections(t *testing.T) {
@@ -243,5 +248,88 @@ func TestParseCloseReason(t *testing.T) {
 				t.Fatalf("ParseCloseReason(%q) = %+v", tt.in, got)
 			}
 		})
+	}
+}
+
+func TestMalformedFrameIsSkipped(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	conn := dial(t, srv, cdpws.Options{})
+	if !srv.WaitConnected(time.Second) {
+		t.Fatal("client did not connect")
+	}
+
+	srv.EmitRaw([]byte(`{"method": "Runtime.consoleAPICalled", "params": {`))
+	srv.Emit("Runtime.consoleAPICalled", map[string]any{"type": "log"})
+
+	select {
+	case ev := <-conn.Events():
+		if ev.Method != "Runtime.consoleAPICalled" {
+			t.Fatalf("event after malformed frame = %s, want Runtime.consoleAPICalled", ev.Method)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("event after malformed frame not received")
+	}
+	if _, err := conn.Call(context.Background(), "Runtime.enable", nil); !errors.As(err, new(*cdp.Error)) {
+		t.Fatalf("Call after malformed frame = %v, want the fake's method-not-found error", err)
+	}
+	select {
+	case <-conn.Done():
+		t.Fatalf("connection ended after a malformed frame: %v", conn.Err())
+	default:
+	}
+}
+
+func TestOversizedFrameEndsTheConnection(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	srv.Handle("Network.getResponseBody", func(cdptest.Request) (any, *cdptest.Error) {
+		return map[string]string{"body": strings.Repeat("x", 4096)}, nil
+	})
+	conn := dial(t, srv, cdpws.Options{MaxFrameBytes: 1024})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := conn.Call(ctx, "Network.getResponseBody", nil); err == nil {
+		t.Fatal("Call returned an oversized result, want an error")
+	}
+	select {
+	case <-conn.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done not closed after an oversized frame")
+	}
+	if conn.Err() == nil {
+		t.Fatal("Err = nil after an oversized frame")
+	}
+	reason := conn.Reason()
+	if reason.Status != -1 || reason.Code != "" || !strings.Contains(reason.Message, "message too big") {
+		t.Fatalf("Reason = %+v, want status -1 and the read-limit error as the message", reason)
+	}
+}
+
+func TestTransportErrorIsTheCloseReason(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	conn := dial(t, srv, cdpws.Options{})
+	if !srv.WaitConnected(time.Second) {
+		t.Fatal("client did not connect")
+	}
+
+	srv.DropAll()
+
+	select {
+	case <-conn.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection did not report the dropped socket")
+	}
+	reason := conn.Reason()
+	if reason.Code != "" || reason.Message == "" {
+		t.Fatalf("Reason = %+v, want no code and the transport error as the message", reason)
+	}
+	if reason.Status != -1 {
+		t.Fatalf("Reason.Status = %d, want -1 (no close frame)", reason.Status)
+	}
+	if err := conn.Err(); err == nil || !strings.Contains(err.Error(), reason.Message) {
+		t.Fatalf("Err = %v, want it to carry %q", err, reason.Message)
 	}
 }

@@ -37,6 +37,9 @@ type Error struct {
 type Server struct {
 	t         testing.TB
 	http      *httptest.Server
+	ctx       context.Context
+	cancel    context.CancelFunc
+	serving   sync.WaitGroup
 	mu        sync.Mutex
 	handlers  map[string]Handler
 	conns     []*websocket.Conn
@@ -45,7 +48,9 @@ type Server struct {
 	connected chan struct{}
 }
 
-// New starts a server. It is closed automatically when the test ends.
+// New starts a server. When the test ends every accepted socket is closed
+// and the serve loops are waited for, so a test that forgets to close its
+// client cannot leak a goroutine blocked in Read.
 func New(tb testing.TB) *Server {
 	tb.Helper()
 	s := &Server{
@@ -53,8 +58,22 @@ func New(tb testing.TB) *Server {
 		handlers:  make(map[string]Handler),
 		connected: make(chan struct{}, 16),
 	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.http = httptest.NewServer(http.HandlerFunc(s.serve))
-	tb.Cleanup(s.http.Close)
+	tb.Cleanup(func() {
+		s.cancel()
+		s.http.Close()
+		idle := make(chan struct{})
+		go func() {
+			s.serving.Wait()
+			close(idle)
+		}()
+		select {
+		case <-idle:
+		case <-time.After(5 * time.Second):
+			tb.Errorf("cdptest: serve loop still running after cleanup")
+		}
+	})
 	return s
 }
 
@@ -113,11 +132,14 @@ func (s *Server) Emit(method string, params any) {
 	if err != nil {
 		s.t.Fatalf("cdptest: marshal event: %v", err)
 	}
-	s.mu.Lock()
-	conns := append([]*websocket.Conn(nil), s.conns...)
-	s.mu.Unlock()
-	for _, c := range conns {
-		_ = c.Write(context.Background(), websocket.MessageText, raw)
+	s.EmitRaw(raw)
+}
+
+// EmitRaw writes raw as one text frame to every connected client, without
+// validating it. Use it to send malformed or hand-built frames.
+func (s *Server) EmitRaw(raw []byte) {
+	for _, c := range s.clients() {
+		_ = c.Write(s.ctx, websocket.MessageText, raw)
 	}
 }
 
@@ -133,7 +155,28 @@ func (s *Server) CloseAll(status websocket.StatusCode, reason string) {
 	}
 }
 
+// DropAll ends every client connection without a close frame, the way a
+// crashed proxy or a reset tunnel does. Clients see a transport error.
+func (s *Server) DropAll() {
+	s.mu.Lock()
+	conns := s.conns
+	s.conns = nil
+	s.mu.Unlock()
+	for _, c := range conns {
+		_ = c.CloseNow()
+	}
+}
+
+func (s *Server) clients() []*websocket.Conn {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*websocket.Conn(nil), s.conns...)
+}
+
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	s.serving.Add(1)
+	defer s.serving.Done()
+
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return
@@ -147,7 +190,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 	}
 
-	ctx := context.Background()
+	// Reading with the server context closes the socket when the test ends.
+	ctx := s.ctx
 	for {
 		_, raw, err := c.Read(ctx)
 		if err != nil {
