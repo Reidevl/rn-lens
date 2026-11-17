@@ -301,7 +301,7 @@ func OriginFor(wsURL string) string {
 	}
 	host := u.Host
 	switch strings.ToLower(u.Hostname()) {
-	case "localhost", "::1", "[::1]", "127.0.0.1", "0.0.0.0":
+	case "localhost", "::1", "127.0.0.1", "0.0.0.0":
 		host = "127.0.0.1"
 		if port := u.Port(); port != "" {
 			host += ":" + port
