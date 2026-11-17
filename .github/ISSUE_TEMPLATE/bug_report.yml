@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in Lens does not work as documented.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Precise versions make bugs reproducible.
+  - type: input
+    id: lens-version
+    attributes:
+      label: Lens version
+      description: Shown in the status bar, or run `rnlens --version`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: rn-version
+    attributes:
+      label: React Native version
+      placeholder: 0.88.1
+    validations:
+      required: true
+  - type: input
+    id: expo-version
+    attributes:
+      label: Expo SDK version (if any)
+      placeholder: SDK 55, or "bare React Native"
+  - type: dropdown
+    id: platform
+    attributes:
+      label: App platform
+      multiple: true
+      options: [iOS simulator, iOS device, Android emulator, Android device]
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Lens host OS
+      options: [macOS, Windows, Linux]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the example app with `pnpm start`
+        2. Open Lens, select the target
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior (include logs or screenshots)
+    validations:
+      required: true

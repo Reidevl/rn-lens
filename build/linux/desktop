@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Lens
+Comment=React Native DevTools written in Go
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/rnlens %u
+Terminal=false
+Type=Application
+Icon=rnlens
+Categories=Utility;
+StartupWMClass=rnlens
+
+ 
