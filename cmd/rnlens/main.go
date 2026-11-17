@@ -2,13 +2,14 @@
 //
 // Usage:
 //
-//	rnlens                 open the desktop app
+//	rnlens [--sdk-port N] [--sdk-token T]   open the desktop app
 //	rnlens targets         print discovered targets as JSON and exit
 //	rnlens record ...      record the CDP traffic of a target to a JSONL file
 //	rnlens --version       print the build version
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -50,7 +51,18 @@ func run(args []string) int {
 		}
 	}
 
-	core := app.New(app.Config{Version: buildVersion()})
+	fs := flag.NewFlagSet("rnlens", flag.ContinueOnError)
+	sdkPort := fs.Int("sdk-port", 7420, "port the @rnlens/sdk WebSocket server listens on (0 disables it)")
+	sdkToken := fs.String("sdk-token", "", "pairing token the SDK must present (optional)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	sdkAddr := fmt.Sprintf(":%d", *sdkPort)
+	if *sdkPort == 0 {
+		sdkAddr = "off"
+	}
+
+	core := app.New(app.Config{Version: buildVersion(), SDKAddr: sdkAddr, SDKToken: *sdkToken})
 	core.Start()
 	defer core.Stop()
 
@@ -66,6 +78,8 @@ func printUsage() {
 
 Usage:
   rnlens                 Open the desktop app
+    --sdk-port N         Port for the @rnlens/sdk server (default 7420; 0 disables it)
+    --sdk-token T        Pairing token the SDK must present (optional)
   rnlens targets         Print discovered targets as JSON and exit
   rnlens record          Record a target's CDP traffic to a JSONL file
   rnlens --version       Print the build version

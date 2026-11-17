@@ -6,14 +6,20 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/Reidevl/rn-lens/internal/adapters/cdpws/cdptest"
 	"github.com/Reidevl/rn-lens/internal/adapters/metro"
+	"github.com/Reidevl/rn-lens/internal/adapters/sdkws"
 	"github.com/Reidevl/rn-lens/internal/app"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
+	"github.com/Reidevl/rn-lens/internal/protocol"
+	"github.com/Reidevl/rn-lens/internal/queries"
 	"github.com/Reidevl/rn-lens/internal/targets"
 )
 
@@ -289,5 +295,53 @@ func TestOriginFor(t *testing.T) {
 		if got := app.OriginFor(tt.in); got != tt.want {
 			t.Errorf("OriginFor(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestSDKServerFeedsTheQueriesFeature(t *testing.T) {
+	t.Parallel()
+	a := app.New(app.Config{MetroEndpoints: []string{"http://127.0.0.1:1"}, PollInterval: time.Hour, SDKAddr: "127.0.0.1:0"})
+	queriesCh, cancelQ := a.Bus().Subscribe(app.TopicQueriesChanged, 16)
+	defer cancelQ()
+	a.Start()
+	t.Cleanup(a.Stop)
+	if a.SDKAddr() == "" {
+		t.Fatal("sdk server did not start")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, resp, err := websocket.Dial(ctx, "ws://"+a.SDKAddr()+sdkws.Path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	t.Cleanup(func() { _ = c.CloseNow() })
+	hello, _ := protocol.Encode(protocol.TypeHello, "", protocol.Hello{
+		SDKVersion: "0.1.0", ProtocolVersion: 1,
+		App: protocol.AppInfo{ID: "com.example.app", Platform: "ios"}, Device: protocol.DeviceInfo{ID: "d1"},
+		Features: []string{protocol.FeatureQueries},
+	})
+	if err := c.Write(ctx, websocket.MessageText, hello); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Read(ctx); err != nil { // welcome
+		t.Fatal(err)
+	}
+	waitTopic(t, queriesCh, "queries:changed after connect")
+	if devs := a.Queries().Devices(); len(devs) != 1 || devs[0].App.ID != "com.example.app" {
+		t.Fatalf("devices = %+v", devs)
+	}
+
+	snapshot, _ := os.ReadFile("../../protocol/fixtures/queries.snapshot.json")
+	if err := c.Write(ctx, websocket.MessageText, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	waitTopic(t, queriesCh, "queries:changed after snapshot")
+	list, _, err := a.Queries().Queries(queries.DeviceKey("com.example.app", "d1"))
+	if err != nil || len(list) != 1 {
+		t.Fatalf("queries = %+v err = %v", list, err)
 	}
 }
