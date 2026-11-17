@@ -142,6 +142,7 @@ describe("ConsolePanel", () => {
   it("reports a failing sync instead of staying silently empty", async () => {
     const backend = createMockBackend();
     const realStats = backend.console.stats;
+    const realRange = backend.console.range;
     backend.console.stats = () => Promise.reject(new Error("stats: backend unavailable"));
     render(<App backend={backend} />);
 
@@ -154,6 +155,12 @@ describe("ConsolePanel", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("range: backend unavailable"),
     );
     expect(screen.queryByText("unreachable")).not.toBeInTheDocument();
+
+    // The next successful pull clears the banner the sync itself raised.
+    backend.console.range = realRange;
+    backend.log({ text: "back again" });
+    expect(await screen.findByText("back again")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("is disabled until an app is attached", async () => {
