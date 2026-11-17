@@ -70,6 +70,11 @@ Usage:
   rnlens record          Record a target's CDP traffic to a JSONL file
   rnlens --version       Print the build version
 
+Exit codes:
+  0  Success
+  1  Error
+  2  Bad usage, or no target found (targets, record)
+
 Run "rnlens <command> -h" for command flags.
 `)
 }

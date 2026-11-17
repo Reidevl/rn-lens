@@ -40,7 +40,10 @@ the official debugger, then attach Lens again.
 
 ```bash
 rnlens targets                       # JSON list of targets; exit 2 when none
-rnlens record -out capture.jsonl     # attach and log every CDP frame for 30 s
+rnlens record -out capture.jsonl     # attach and log every CDP frame for 30 s; exit 2 when no target
 ```
+
+Exit code 0 means success, 1 an error and 2 bad usage or no target found
+(`rnlens --help` lists them).
 
 Recordings feed the fake proxy used by the test suite.
