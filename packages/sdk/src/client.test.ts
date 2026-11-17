@@ -89,6 +89,43 @@ describe("createLensClient", () => {
     expect(client.state).toBe("connected");
   });
 
+  it("accepts frames carrying fields this SDK does not know (additive minors)", async () => {
+    const { QueryClient } = await import("@tanstack/react-query");
+    const warn = vi.fn();
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      queryClient: new QueryClient(),
+      backoff: fastBackoff,
+      logger: { warn },
+    });
+    client.connect();
+    await lens.next("hello");
+    lens.sendRaw(
+      JSON.stringify({
+        v: 1,
+        type: "welcome",
+        future: true,
+        payload: { lensVersion: "9.9.0", protocolVersion: 1, sessionId: "s1", motd: "hi" },
+      }),
+    );
+    await waitFor(() => client?.state === "connected");
+    await lens.next("queries.snapshot");
+
+    lens.sendRaw(
+      JSON.stringify({
+        v: 1,
+        type: "query.action",
+        id: "a1",
+        payload: { id: "a1", type: "REFETCH", queryHash: '["nope"]', priority: "high" },
+      }),
+    );
+    const result = await lens.next("action.result");
+    expect(result.payload).toEqual({ id: "a1", ok: false, error: "query not found" });
+    expect(warn).not.toHaveBeenCalled();
+    expect(client.state).toBe("connected");
+  });
+
   it("reconnects with backoff after the server closes the socket", async () => {
     const states: LensClientState[] = [];
     client = createLensClient({ url: lens.url, enabled: true, backoff: fastBackoff });

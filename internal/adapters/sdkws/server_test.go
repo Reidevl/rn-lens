@@ -268,14 +268,80 @@ func TestMessagesReachTheHandlerAndRepliesReachTheClient(t *testing.T) {
 	if reply.Type != protocol.TypeQueryAction || reply.ID != "a1" || reply.PayloadInto(&act) != nil || act.Type != protocol.ActionRefetch {
 		t.Fatalf("reply = %+v", reply)
 	}
+}
 
-	// Malformed frames are ignored, not fatal.
+func writeRaw(t *testing.T, c *websocket.Conn, typ websocket.MessageType, raw []byte) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	_ = c.Write(ctx, websocket.MessageText, []byte(`not json`))
-	cancel()
-	send(t, c, protocol.TypeOnlineStatus, "", protocol.OnlineStatus{Online: true})
-	if got := rec.next(t, "message"); got.msg.Type != protocol.TypeOnlineStatus {
-		t.Fatalf("after garbage got %s", got.msg.Type)
+	defer cancel()
+	if err := c.Write(ctx, typ, raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Minors are additive: fields this Lens does not know are ignored, in the
+// envelope and in the payload, so a newer SDK still connects.
+func TestUnknownFieldsAreIgnored(t *testing.T) {
+	t.Parallel()
+	_, rec, url := startServer(t, sdkws.Options{})
+	c := dial(t, url)
+	writeRaw(t, c, websocket.MessageText, []byte(`{"v":1,"type":"hello","future":1,"payload":{`+
+		`"sdkVersion":"9.9.0","protocolVersion":1,"app":{"id":"com.example.app","platform":"ios","color":"blue"},`+
+		`"device":{"id":"dev-1"},"features":["queries","holograms"],"newOptional":{"x":1}}}`))
+	if msg := read(t, c); msg.Type != protocol.TypeWelcome {
+		t.Fatalf("got %s, want welcome", msg.Type)
+	}
+	ev := rec.next(t, "connect")
+	if ev.sess.Hello.SDKVersion != "9.9.0" || ev.sess.Key.AppID != "com.example.app" {
+		t.Fatalf("hello = %+v", ev.sess.Hello)
+	}
+
+	writeRaw(t, c, websocket.MessageText, []byte(`{"v":1,"type":"online.status","future":1,"payload":{"online":false,"since":1}}`))
+	got := rec.next(t, "message")
+	var st protocol.OnlineStatus
+	if got.msg.Type != protocol.TypeOnlineStatus || got.msg.PayloadInto(&st) != nil || st.Online {
+		t.Fatalf("message = %+v", got.msg)
+	}
+}
+
+func TestInvalidFramesAfterHandshakeCloseTheSession(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		typ  websocket.MessageType
+		raw  []byte
+		want websocket.StatusCode
+	}{
+		{name: "undecodable json", typ: websocket.MessageText, raw: []byte(`{not json`), want: sdkws.CloseProtocolError},
+		{name: "json that is not an envelope", typ: websocket.MessageText, raw: []byte(`[1,2]`), want: sdkws.CloseProtocolError},
+		{name: "missing type", typ: websocket.MessageText, raw: []byte(`{"v":1,"payload":{}}`), want: sdkws.CloseProtocolError},
+		{name: "binary frame", typ: websocket.MessageBinary, raw: []byte(`{"v":1,"type":"ping","payload":{}}`), want: sdkws.CloseProtocolError},
+		{name: "other major", typ: websocket.MessageText, raw: []byte(`{"v":2,"type":"ping","payload":{}}`), want: sdkws.CloseBadVersion},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv, rec, url := startServer(t, sdkws.Options{})
+			c := dial(t, url)
+			send(t, c, protocol.TypeHello, "", hello(""))
+			read(t, c)
+			sess := rec.next(t, "connect").sess
+
+			writeRaw(t, c, tt.typ, tt.raw)
+			if got := closeStatus(t, c); got != tt.want {
+				t.Fatalf("close status = %d, want %d", got, tt.want)
+			}
+			ev := rec.next(t, "disconnect")
+			if ev.sess != sess || ev.err == nil {
+				t.Fatalf("disconnect = %+v", ev)
+			}
+			if _, ok := srv.Session(sess.Key); ok {
+				t.Fatal("session still registered after a protocol error")
+			}
+			if n := rec.count("message"); n != 0 {
+				t.Fatalf("handler saw %d messages for an invalid frame", n)
+			}
+		})
 	}
 }
 
