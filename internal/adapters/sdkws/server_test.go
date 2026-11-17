@@ -481,6 +481,9 @@ func TestStopWaitsForSessionsAndRefusesLateConnections(t *testing.T) {
 	t.Parallel()
 	srv, rec, url := startServer(t, sdkws.Options{})
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	// A failed assertion must not leave Stop deadlocked behind OnDisconnect.
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 	rec.beforeDisconnect = func() { <-release }
 
 	clients := []*websocket.Conn{dial(t, url), dial(t, url)}
@@ -498,8 +501,13 @@ func TestStopWaitsForSessionsAndRefusesLateConnections(t *testing.T) {
 		defer cancel()
 		stopped <- srv.Stop(ctx)
 	}()
+	// Read the close frames concurrently: Stop closes sessions in map order.
+	statuses := make(chan websocket.StatusCode, len(clients))
 	for _, c := range clients {
-		if got := closeStatus(t, c); got != sdkws.CloseServerShutdown {
+		go func(c *websocket.Conn) { statuses <- closeStatus(t, c) }(c)
+	}
+	for range clients {
+		if got := <-statuses; got != sdkws.CloseServerShutdown {
 			t.Fatalf("close status = %d, want %d", got, sdkws.CloseServerShutdown)
 		}
 	}
@@ -509,7 +517,7 @@ func TestStopWaitsForSessionsAndRefusesLateConnections(t *testing.T) {
 	case <-time.After(150 * time.Millisecond):
 	}
 
-	close(release)
+	releaseOnce.Do(func() { close(release) })
 	select {
 	case err := <-stopped:
 		if err != nil {

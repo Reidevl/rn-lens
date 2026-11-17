@@ -149,9 +149,18 @@ func (s *Server) Stop(ctx context.Context) error {
 		sessions = append(sessions, sess)
 	}
 	s.mu.Unlock()
+	// Close concurrently: each close handshake waits for its peer (up to the
+	// library's 5 s budget while the session's Read holds the socket), so a
+	// sequential loop would stall every later session behind a slow one.
+	var closes sync.WaitGroup
 	for _, sess := range sessions {
-		sess.Close(CloseServerShutdown, "lens is shutting down")
+		closes.Add(1)
+		go func(sess *Session) {
+			defer closes.Done()
+			sess.Close(CloseServerShutdown, "lens is shutting down")
+		}(sess)
 	}
+	closes.Wait()
 	var err error
 	if s.http != nil {
 		// Shutdown closes the listener; it does not track hijacked sockets,
