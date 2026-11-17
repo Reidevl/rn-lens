@@ -41,6 +41,7 @@ type Server struct {
 	handlers  map[string]Handler
 	conns     []*websocket.Conn
 	requests  []Request
+	accepted  int
 	connected chan struct{}
 }
 
@@ -89,6 +90,13 @@ func (s *Server) Methods() []string {
 	return out
 }
 
+// ConnectionCount returns how many WebSocket connections were accepted in total.
+func (s *Server) ConnectionCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.accepted
+}
+
 // WaitConnected blocks until a client connects or the timeout expires.
 func (s *Server) WaitConnected(timeout time.Duration) bool {
 	select {
@@ -132,6 +140,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	s.conns = append(s.conns, c)
+	s.accepted++
 	s.mu.Unlock()
 	select {
 	case s.connected <- struct{}{}:
