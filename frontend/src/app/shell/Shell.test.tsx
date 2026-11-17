@@ -34,6 +34,12 @@ describe("Shell", () => {
     expect(screen.getByRole("heading", { name: "Console" })).toBeInTheDocument();
   });
 
+  it("renders the Targets panel by default", () => {
+    render(<App backend={createMockBackend()} />);
+
+    expect(screen.getByRole("heading", { name: "Targets" })).toBeInTheDocument();
+  });
+
   it("toggles between dark and light themes", async () => {
     const user = userEvent.setup();
     render(<App backend={createMockBackend()} />);
