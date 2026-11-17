@@ -8,3 +8,4 @@ build/
 *.png
 odd/
 examples/
+CHANGELOG.md
