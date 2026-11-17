@@ -437,3 +437,65 @@ func TestDataTruncatedFollowsEveryDelta(t *testing.T) {
 		t.Fatalf("small data after a capped one must clear dataTruncated, got %+v", got)
 	}
 }
+
+func TestQueriesOrderNewestDataFirstWithinALabel(t *testing.T) {
+	svc, _, key, _ := connect(t)
+	add := func(hash string, updatedAt float64) {
+		t.Helper()
+		q := protocol.Query{
+			QueryHash: hash, QueryKey: json.RawMessage(hash), ObserversCount: 1, IsActive: true,
+			State: protocol.QueryState{Status: "success", FetchStatus: "idle", DataUpdatedAt: updatedAt},
+		}
+		raw, _ := json.Marshal(protocol.QueryEvent{Kind: protocol.EventAdded, QueryHash: hash, Query: &q})
+		if err := svc.Message(key, "s1", protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(`["a"]`, 10)
+	add(`["z"]`, 20)
+	add(`["m"]`, 20)
+	list, _, _ := svc.Queries(key)
+	got := []string{list[0].QueryHash, list[1].QueryHash, list[2].QueryHash}
+	want := []string{`["m"]`, `["z"]`, `["a"]`}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want newest data first then hash: %v", got, want)
+		}
+	}
+}
+
+func TestMutationPayloadsAreCappedServerSide(t *testing.T) {
+	svc, _, key, _ := connect(t)
+	big := json.RawMessage(`"` + strings.Repeat("v", queries.MaxDataBytes+1) + `"`)
+	m := protocol.Mutation{
+		MutationID: 3, MutationKey: json.RawMessage(`["upload"]`),
+		State: protocol.MutationState{Status: "success", Variables: big, Data: big, Context: json.RawMessage(`{"small":true}`)},
+	}
+	raw, _ := json.Marshal(protocol.MutationEvent{Kind: protocol.EventAdded, MutationID: 3, Mutation: &m})
+	if err := svc.Message(key, "s1", protocol.Message{V: 1, Type: protocol.TypeMutationEvent, Payload: raw}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := svc.Mutations(key)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("mutations = %+v, %v", list, err)
+	}
+	st := list[0].State
+	if !strings.Contains(string(st.Variables), `"__lensTruncated":true`) || !strings.Contains(string(st.Data), `"__lensTruncated":true`) {
+		t.Fatalf("oversized payloads must be replaced by the marker: variables=%d bytes data=%d bytes", len(st.Variables), len(st.Data))
+	}
+	if string(st.Context) != `{"small":true}` {
+		t.Fatalf("small payloads must stay intact, got %s", st.Context)
+	}
+}
+
+func TestDisconnectOfAnotherSessionDoesNotNotify(t *testing.T) {
+	svc, _, key, notifies := connect(t)
+	before := *notifies
+	svc.Disconnect(key, "not-the-current-session")
+	if *notifies != before {
+		t.Fatalf("notified %d times for a no-op disconnect", *notifies-before)
+	}
+	if _, err := svc.Query(key, "missing"); errors.Is(err, queries.ErrUnknownDevice) {
+		t.Fatal("device must survive a stale disconnect")
+	}
+}

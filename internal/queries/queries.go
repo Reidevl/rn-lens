@@ -173,7 +173,8 @@ func (s *Service) Connect(sessionID string, hello protocol.Hello, sender Sender)
 func (s *Service) Disconnect(key, sessionID string) {
 	s.mu.Lock()
 	d, ok := s.devices[key]
-	if ok && d.info.SessionID == sessionID {
+	removed := ok && d.info.SessionID == sessionID
+	if removed {
 		for id, ch := range d.pending {
 			close(ch)
 			delete(d.pending, id)
@@ -181,7 +182,7 @@ func (s *Service) Disconnect(key, sessionID string) {
 		delete(s.devices, key)
 	}
 	s.mu.Unlock()
-	if ok {
+	if removed {
 		s.emit()
 	}
 }
@@ -222,7 +223,7 @@ func (d *deviceState) apply(msg protocol.Message) (bool, error) {
 		}
 		d.mutations = make(map[int]protocol.Mutation, len(p.Mutations))
 		for _, m := range p.Mutations {
-			d.mutations[m.MutationID] = m
+			d.mutations[m.MutationID] = capMutation(m)
 		}
 		d.info.Online = p.Online
 		return true, nil
@@ -363,7 +364,7 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 		if ev.Mutation == nil {
 			return false
 		}
-		d.mutations[ev.MutationID] = *ev.Mutation
+		d.mutations[ev.MutationID] = capMutation(*ev.Mutation)
 		return true
 	case protocol.EventRemoved:
 		_, ok := d.mutations[ev.MutationID]
@@ -371,7 +372,7 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 		return ok
 	case protocol.EventUpdated:
 		if ev.Mutation != nil {
-			d.mutations[ev.MutationID] = *ev.Mutation
+			d.mutations[ev.MutationID] = capMutation(*ev.Mutation)
 			return true
 		}
 		m, ok := d.mutations[ev.MutationID]
@@ -396,7 +397,7 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 		}
 		applyRaw(&m.State.FailureReason, dl.FailureReason)
 		applyRaw(&m.State.Context, dl.Context)
-		d.mutations[ev.MutationID] = m
+		d.mutations[ev.MutationID] = capMutation(m)
 		return true
 	default:
 		return false
@@ -413,6 +414,22 @@ func capData(q protocol.Query) protocol.Query {
 	}
 	q.DataTruncated = isTruncationMarker(q.State.Data)
 	return q
+}
+
+// capMutation enforces MaxDataBytes on the mutation payloads that can carry
+// arbitrary user data; the marker shape matches the SDK's.
+func capMutation(m protocol.Mutation) protocol.Mutation {
+	m.State.Variables = capRaw(m.State.Variables)
+	m.State.Data = capRaw(m.State.Data)
+	m.State.Context = capRaw(m.State.Context)
+	return m
+}
+
+func capRaw(raw json.RawMessage) json.RawMessage {
+	if len(raw) > MaxDataBytes {
+		return json.RawMessage(fmt.Sprintf(`{"__lensTruncated":true,"bytes":%d}`, len(raw)))
+	}
+	return raw
 }
 
 // isTruncationMarker reports whether data is the `{"__lensTruncated":true,...}`
@@ -468,10 +485,10 @@ func (s *Service) Queries(key string) ([]Query, Counts, error) {
 		if ri != rj {
 			return ri < rj
 		}
-		if out[i].QueryHash != out[j].QueryHash {
-			return out[i].QueryHash < out[j].QueryHash
+		if out[i].State.DataUpdatedAt != out[j].State.DataUpdatedAt {
+			return out[i].State.DataUpdatedAt > out[j].State.DataUpdatedAt
 		}
-		return out[i].State.DataUpdatedAt > out[j].State.DataUpdatedAt
+		return out[i].QueryHash < out[j].QueryHash
 	})
 	return out, c, nil
 }

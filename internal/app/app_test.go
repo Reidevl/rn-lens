@@ -335,7 +335,10 @@ func TestSDKServerFeedsTheQueriesFeature(t *testing.T) {
 		t.Fatalf("devices = %+v", devs)
 	}
 
-	snapshot, _ := os.ReadFile("../../protocol/fixtures/queries.snapshot.json")
+	snapshot, err := os.ReadFile("../../protocol/fixtures/queries.snapshot.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := c.Write(ctx, websocket.MessageText, snapshot); err != nil {
 		t.Fatal(err)
 	}
