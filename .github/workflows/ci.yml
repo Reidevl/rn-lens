@@ -18,13 +18,39 @@ env:
   WAILS_VERSION: "v3.1.0"
 
 jobs:
+  # Child PRs (feat/<milestone>-NN-<slice>) run on Ubuntu only; tracker PRs,
+  # PRs into main and pushes to main run the full three-OS matrix. macOS
+  # minutes cost ten times Linux minutes on private repositories.
+  plan:
+    name: plan matrix
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.pick.outputs.os }}
+    steps:
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+          REF: ${{ github.ref }}
+        run: |
+          full='["ubuntu-latest","macos-latest","windows-latest"]'
+          light='["ubuntu-latest"]'
+          os="$full"
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE" != "main" ] && printf '%s' "$HEAD" | grep -Eq '^feat/m[0-9]+-[a-z0-9-]+-[0-9]{2}-'; then
+            os="$light"
+          fi
+          echo "head=$HEAD base=$BASE ref=$REF -> $os"
+          echo "os=$os" >> "$GITHUB_OUTPUT"
+
   check:
     name: check (${{ matrix.os }})
+    needs: plan
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(needs.plan.outputs.os) }}
     steps:
       - uses: actions/checkout@v7
 
