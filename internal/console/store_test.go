@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,5 +180,53 @@ func TestIngestRecordedSession(t *testing.T) {
 	first := s.Range(1, 1)[0]
 	if first.Text != "tick Object" || first.Kind != console.KindLog || first.Args[1].ObjectID == "" {
 		t.Fatalf("first entry = %+v", first)
+	}
+}
+
+func TestClearAdvancesTheClearedGeneration(t *testing.T) {
+	t.Parallel()
+	s := console.NewStore(10, nil)
+	s.Append(console.Entry{Kind: console.KindLog, Text: "a"})
+	if s.Stats().Cleared != 0 {
+		t.Fatal("fresh store should report zero clears")
+	}
+	s.Clear()
+	s.Append(console.Entry{Kind: console.KindLog, Text: "b"})
+	st := s.Stats()
+	if st.Cleared != 1 || st.Len != 1 {
+		t.Fatalf("stats after clear + append = %+v", st)
+	}
+}
+
+// Appends racing a context reset must never land on the wrong side of the
+// marker with the wrong epoch.
+func TestAppendAndResetContextKeepEpochsOrdered(t *testing.T) {
+	t.Parallel()
+	s := console.NewStore(10_000, nil)
+	var wg sync.WaitGroup
+	for w := range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 300 {
+				if w == 0 && i%50 == 0 {
+					s.ResetContext("reset")
+					continue
+				}
+				s.Append(console.Entry{Kind: console.KindLog, Text: "x"})
+			}
+		}()
+	}
+	wg.Wait()
+
+	epoch := uint64(0)
+	for _, e := range s.Range(1, 0) {
+		if e.Epoch < epoch {
+			t.Fatalf("entry %d has epoch %d after an entry with epoch %d", e.Seq, e.Epoch, epoch)
+		}
+		if e.Kind == console.KindSystem && e.Epoch == epoch {
+			t.Fatalf("marker %d did not start a new epoch", e.Seq)
+		}
+		epoch = e.Epoch
 	}
 }

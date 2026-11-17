@@ -181,6 +181,9 @@ func TestAttachEnablesConsoleDomainsAndIngestsEvents(t *testing.T) {
 		}
 	}
 
+	// Metadata updates re-emit an attached snapshot; they must not re-run the
+	// attach sequence (no second Runtime.enable, no "Re-attached" marker).
+	debugger.Emit("ReactNativeApplication.metadataUpdated", map[string]any{"appDisplayName": "Example", "platform": "ios", "reactNativeVersion": "0.88.0"})
 	debugger.Emit("Runtime.consoleAPICalled", map[string]any{"type": "log", "args": []map[string]any{{"type": "string", "value": "hello"}}, "executionContextId": 1})
 	for {
 		entries := a.Console().Store().Range(1, 0)
@@ -188,6 +191,24 @@ func TestAttachEnablesConsoleDomainsAndIngestsEvents(t *testing.T) {
 			break
 		}
 		waitTopic(t, consoleCh, "console:changed")
+	}
+	time.Sleep(50 * time.Millisecond)
+	enables := 0
+	for _, m := range debugger.Methods() {
+		if m == "Runtime.enable" {
+			enables++
+		}
+	}
+	if enables != 1 {
+		t.Fatalf("Runtime.enable sent %d times after a metadata update, want 1", enables)
+	}
+	for _, e := range a.Console().Store().Range(1, 0) {
+		if e.Kind == "system" && e.Text != "Attached to React Native" {
+			t.Fatalf("unexpected system entry %q", e.Text)
+		}
+	}
+	if got := a.Console().Store().Epoch(); got != 1 {
+		t.Fatalf("epoch = %d after a metadata update, want 1", got)
 	}
 }
 

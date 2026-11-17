@@ -2,6 +2,7 @@ package console
 
 import (
 	"encoding/json"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,13 +21,21 @@ type Stats struct {
 	Dropped   uint64 `json:"dropped"`
 	Len       int    `json:"len"`
 	Epoch     uint64 `json:"epoch"`
+	// Cleared counts Clear calls so a reader can tell a clear apart from a
+	// buffer that was emptied and refilled between two pulls.
+	Cleared uint64 `json:"cleared"`
 }
 
 // Store is the bounded console log. It is safe for concurrent use.
 type Store struct {
-	buf   *ringbuf.Buffer[Entry]
-	clk   clock.Clock
-	epoch atomic.Uint64
+	buf *ringbuf.Buffer[Entry]
+	clk clock.Clock
+	// mu orders epoch changes against appends so an entry can never carry an
+	// epoch from the wrong side of a reset marker. epoch stays atomic for
+	// lock-free IsStale reads.
+	mu      sync.Mutex
+	epoch   atomic.Uint64
+	cleared atomic.Uint64
 }
 
 // NewStore creates a store keeping capacity entries (DefaultCapacity when <= 0).
@@ -50,10 +59,15 @@ func (s *Store) Append(e Entry) Entry {
 	if e.Level == "" {
 		e.Level = LevelOf(e.Kind)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.appendLocked(e)
+}
+
+// appendLocked requires s.mu.
+func (s *Store) appendLocked(e Entry) Entry {
 	e.Epoch = s.epoch.Load()
-	// Seq is assigned by the buffer; store a copy with it filled in.
-	seq := s.buf.Append(e)
-	e.Seq = seq
+	e.Seq = s.buf.Append(e)
 	return e
 }
 
@@ -77,11 +91,18 @@ func (s *Store) Stats() Stats {
 		Dropped:   s.buf.Dropped(),
 		Len:       s.buf.Len(),
 		Epoch:     s.epoch.Load(),
+		Cleared:   s.cleared.Load(),
 	}
 }
 
-// Clear drops every entry. Sequence numbers keep increasing.
-func (s *Store) Clear() { s.buf.Clear() }
+// Clear drops every entry. Sequence numbers keep increasing and the cleared
+// generation advances so pulls can detect the clear.
+func (s *Store) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.buf.Clear()
+	s.cleared.Add(1)
+}
 
 // Epoch is the current JavaScript context generation.
 func (s *Store) Epoch() uint64 { return s.epoch.Load() }
@@ -92,8 +113,10 @@ func (s *Store) IsStale(entryEpoch uint64) bool { return entryEpoch < s.epoch.Lo
 // ResetContext starts a new epoch (the app reloaded or re-attached) and
 // records a system entry so the user sees the boundary.
 func (s *Store) ResetContext(reason string) Entry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.epoch.Add(1)
-	return s.Append(Entry{Kind: KindSystem, Source: SourceSystem, Text: reason})
+	return s.appendLocked(Entry{Kind: KindSystem, Source: SourceSystem, Text: reason, Timestamp: s.clk.Now(), Level: LevelSystem})
 }
 
 // Ingest converts a CDP event into an entry and stores it. It reports false
