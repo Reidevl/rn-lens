@@ -1,10 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { App } from "@/app/App";
 import { useShellStore } from "@/app/shell/shellStore";
-import { createMockBackend, idleSession, sampleTarget } from "@/backend";
+import {
+  TOPICS,
+  createMockBackend,
+  idleSession,
+  sampleTarget,
+  type SessionSnapshot,
+} from "@/backend";
 
 import { useTargetsStore } from "./targetsStore";
 
@@ -89,6 +95,46 @@ describe("TargetsPanel", () => {
     // Shown twice on purpose: in the session card and in the status bar.
     expect(await screen.findAllByText("Disconnected by another debugger")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Attach again" })).toBeInTheDocument();
+  });
+
+  it("keeps the newest session when an older pull resolves last", async () => {
+    const target = sampleTarget();
+    const backend = createMockBackend({ targets: [target] });
+    // Every session() call parks here until the test answers it, so pulls can
+    // be resolved out of order.
+    const pending: Array<(session: SessionSnapshot) => void> = [];
+    backend.targets.session = () =>
+      new Promise<SessionSnapshot>((resolve) => {
+        pending.push(resolve);
+      });
+    const answer = (snapshot: SessionSnapshot) => {
+      const resolve = pending.shift();
+      if (!resolve) throw new Error("no pending session() call");
+      resolve(snapshot);
+    };
+    render(<App backend={backend} />);
+
+    await waitFor(() => expect(pending).toHaveLength(1));
+    answer({ ...idleSession, state: "attached", target });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(target.title));
+
+    // Two overlapping pulls, A then B; Go answers B (closed) before A (attached).
+    backend.emit(TOPICS.sessionChanged, { topic: TOPICS.sessionChanged, seq: 1 });
+    backend.emit(TOPICS.sessionChanged, { topic: TOPICS.sessionChanged, seq: 2 });
+    await waitFor(() => expect(pending).toHaveLength(2));
+    const answerA = pending.shift();
+    answer({ ...idleSession, state: "closed", reason: "detached" });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Disconnected"));
+
+    answerA?.({ ...idleSession, state: "attached", target });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Disconnected");
+    expect(
+      screen.getByRole("button", { name: /attach to host.exp.Exponent/i }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces action errors inline", async () => {
