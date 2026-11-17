@@ -36,6 +36,8 @@ export default function App() {
 `useLens` creates one client for the component's lifetime, connects on mount,
 disconnects on unmount and returns the connection state
 (`"idle" | "connecting" | "connected" | "reconnecting" | "disabled"`).
+`disabled` is the state of a production (no-op) client and of a client that
+stopped after a fatal close code (see Troubleshooting); `connect()` retries.
 
 Outside React, or when you need the client itself:
 
@@ -87,7 +89,9 @@ alias for the host machine.
 - `queries.snapshot` right after Lens answers `welcome`, and again on
   `snapshot.request`.
 - `query.event` and `mutation.event` for every cache change, following the
-  delta policy described in [`protocol/README.md`](../../protocol/README.md).
+  delta policy described in [`protocol/README.md`](../../protocol/README.md);
+  a field the device cleared (`data: undefined` after `TRIGGER_LOADING`,
+  `TRIGGER_ERROR`, `RESET`) travels as an explicit `null`.
 - `online.status` when `onlineManager` changes; `online.set` from Lens calls
   `onlineManager.setOnline`.
 
@@ -96,6 +100,13 @@ string, functions `"[Function]"`, circular references `"[Circular]"`, Map and
 Set arrays, Error `{ name, message, stack }`. Values above 1 MiB are replaced
 with `{ "__lensTruncated": true, "bytes": n }` and the query or mutation gets
 `dataTruncated: true`.
+
+A whole `queries.snapshot` is capped at `SNAPSHOT_MAX_BYTES` (6 MiB, exported):
+when the serialized snapshot would exceed it, the `data` of the largest queries
+is replaced with the same marker, largest first, until the frame fits. Every
+query stays listed; the client warns through `logger` how many were cut. Lens
+reads frames of at most 8 MiB, so a snapshot above the budget would otherwise
+be dropped and resent on every reconnect.
 
 ## Production behavior
 
@@ -116,7 +127,10 @@ drop what you do not import.
   the default.
 - **Lens closes the socket right away.** Lens was started with `--sdk-token`;
   pass the same value as `token`. A protocol mismatch closes with code 4002:
-  update either side.
+  update either side. Both codes (4003 token, 4002 protocol) are fatal: the
+  client logs a warning naming the code, goes `disabled` and stops
+  reconnecting until `connect()` is called again. Every other close keeps
+  reconnecting with backoff.
 - **Nothing shows up.** Pass `logger: console` to see the resolved URL,
   reconnect attempts and the Lens version after `welcome`. Check that
   `queryClient` is the instance your `QueryClientProvider` uses.

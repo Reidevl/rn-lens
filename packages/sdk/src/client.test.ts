@@ -89,6 +89,43 @@ describe("createLensClient", () => {
     expect(client.state).toBe("connected");
   });
 
+  it("accepts frames carrying fields this SDK does not know (additive minors)", async () => {
+    const { QueryClient } = await import("@tanstack/react-query");
+    const warn = vi.fn();
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      queryClient: new QueryClient(),
+      backoff: fastBackoff,
+      logger: { warn },
+    });
+    client.connect();
+    await lens.next("hello");
+    lens.sendRaw(
+      JSON.stringify({
+        v: 1,
+        type: "welcome",
+        future: true,
+        payload: { lensVersion: "9.9.0", protocolVersion: 1, sessionId: "s1", motd: "hi" },
+      }),
+    );
+    await waitFor(() => client?.state === "connected");
+    await lens.next("queries.snapshot");
+
+    lens.sendRaw(
+      JSON.stringify({
+        v: 1,
+        type: "query.action",
+        id: "a1",
+        payload: { id: "a1", type: "REFETCH", queryHash: '["nope"]', priority: "high" },
+      }),
+    );
+    const result = await lens.next("action.result");
+    expect(result.payload).toEqual({ id: "a1", ok: false, error: "query not found" });
+    expect(warn).not.toHaveBeenCalled();
+    expect(client.state).toBe("connected");
+  });
+
   it("reconnects with backoff after the server closes the socket", async () => {
     const states: LensClientState[] = [];
     client = createLensClient({ url: lens.url, enabled: true, backoff: fastBackoff });
@@ -103,6 +140,45 @@ describe("createLensClient", () => {
     expect(hello.type).toBe("hello");
     await waitFor(() => client?.state === "connected");
     expect(states).toEqual(["connecting", "connected", "reconnecting", "connected"]);
+  });
+
+  it.each([
+    [4002, "protocol version"],
+    [4003, "token"],
+  ])("stops reconnecting after fatal close code %i and warns", async (code, meaning) => {
+    const warn = vi.fn();
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      backoff: fastBackoff,
+      logger: { warn },
+    });
+    client.connect();
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+
+    lens.closeClients(code);
+    await waitFor(() => client?.state === "disabled");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message] = warn.mock.calls[0] as [string];
+    expect(message).toContain(String(code));
+    expect(message).toContain(meaning);
+
+    await new Promise((r) => setTimeout(r, 150));
+    expect(lens.connectionCount).toBe(0);
+    expect(lens.frames.filter((f) => f.type === "hello")).toHaveLength(1);
+    expect(client.state).toBe("disabled");
+  });
+
+  it("keeps reconnecting after every other close code", async () => {
+    client = createLensClient({ url: lens.url, enabled: true, backoff: fastBackoff });
+    client.connect();
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+    lens.closeClients(4004);
+    await waitFor(() => client?.state === "reconnecting");
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
   });
 
   it("keeps retrying while the server is down and connects once it is back", async () => {

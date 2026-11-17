@@ -3,6 +3,7 @@ package sdkws_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +27,8 @@ type recorder struct {
 	mu     sync.Mutex
 	queue  []event
 	notify chan struct{}
+	// beforeDisconnect, when set, runs before a disconnect event is recorded.
+	beforeDisconnect func()
 }
 
 func newRecorder() *recorder { return &recorder{notify: make(chan struct{}, 256)} }
@@ -47,6 +50,9 @@ func (r *recorder) OnMessage(s *sdkws.Session, m protocol.Message) {
 }
 
 func (r *recorder) OnDisconnect(s *sdkws.Session, err error) {
+	if r.beforeDisconnect != nil {
+		r.beforeDisconnect()
+	}
 	r.push(event{kind: "disconnect", sess: s, err: err})
 }
 
@@ -268,14 +274,80 @@ func TestMessagesReachTheHandlerAndRepliesReachTheClient(t *testing.T) {
 	if reply.Type != protocol.TypeQueryAction || reply.ID != "a1" || reply.PayloadInto(&act) != nil || act.Type != protocol.ActionRefetch {
 		t.Fatalf("reply = %+v", reply)
 	}
+}
 
-	// Malformed frames are ignored, not fatal.
+func writeRaw(t *testing.T, c *websocket.Conn, typ websocket.MessageType, raw []byte) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	_ = c.Write(ctx, websocket.MessageText, []byte(`not json`))
-	cancel()
-	send(t, c, protocol.TypeOnlineStatus, "", protocol.OnlineStatus{Online: true})
-	if got := rec.next(t, "message"); got.msg.Type != protocol.TypeOnlineStatus {
-		t.Fatalf("after garbage got %s", got.msg.Type)
+	defer cancel()
+	if err := c.Write(ctx, typ, raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Minors are additive: fields this Lens does not know are ignored, in the
+// envelope and in the payload, so a newer SDK still connects.
+func TestUnknownFieldsAreIgnored(t *testing.T) {
+	t.Parallel()
+	_, rec, url := startServer(t, sdkws.Options{})
+	c := dial(t, url)
+	writeRaw(t, c, websocket.MessageText, []byte(`{"v":1,"type":"hello","future":1,"payload":{`+
+		`"sdkVersion":"9.9.0","protocolVersion":1,"app":{"id":"com.example.app","platform":"ios","color":"blue"},`+
+		`"device":{"id":"dev-1"},"features":["queries","holograms"],"newOptional":{"x":1}}}`))
+	if msg := read(t, c); msg.Type != protocol.TypeWelcome {
+		t.Fatalf("got %s, want welcome", msg.Type)
+	}
+	ev := rec.next(t, "connect")
+	if ev.sess.Hello.SDKVersion != "9.9.0" || ev.sess.Key.AppID != "com.example.app" {
+		t.Fatalf("hello = %+v", ev.sess.Hello)
+	}
+
+	writeRaw(t, c, websocket.MessageText, []byte(`{"v":1,"type":"online.status","future":1,"payload":{"online":false,"since":1}}`))
+	got := rec.next(t, "message")
+	var st protocol.OnlineStatus
+	if got.msg.Type != protocol.TypeOnlineStatus || got.msg.PayloadInto(&st) != nil || st.Online {
+		t.Fatalf("message = %+v", got.msg)
+	}
+}
+
+func TestInvalidFramesAfterHandshakeCloseTheSession(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		typ  websocket.MessageType
+		raw  []byte
+		want websocket.StatusCode
+	}{
+		{name: "undecodable json", typ: websocket.MessageText, raw: []byte(`{not json`), want: sdkws.CloseProtocolError},
+		{name: "json that is not an envelope", typ: websocket.MessageText, raw: []byte(`[1,2]`), want: sdkws.CloseProtocolError},
+		{name: "missing type", typ: websocket.MessageText, raw: []byte(`{"v":1,"payload":{}}`), want: sdkws.CloseProtocolError},
+		{name: "binary frame", typ: websocket.MessageBinary, raw: []byte(`{"v":1,"type":"ping","payload":{}}`), want: sdkws.CloseProtocolError},
+		{name: "other major", typ: websocket.MessageText, raw: []byte(`{"v":2,"type":"ping","payload":{}}`), want: sdkws.CloseBadVersion},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv, rec, url := startServer(t, sdkws.Options{})
+			c := dial(t, url)
+			send(t, c, protocol.TypeHello, "", hello(""))
+			read(t, c)
+			sess := rec.next(t, "connect").sess
+
+			writeRaw(t, c, tt.typ, tt.raw)
+			if got := closeStatus(t, c); got != tt.want {
+				t.Fatalf("close status = %d, want %d", got, tt.want)
+			}
+			ev := rec.next(t, "disconnect")
+			if ev.sess != sess || ev.err == nil {
+				t.Fatalf("disconnect = %+v", ev)
+			}
+			if _, ok := srv.Session(sess.Key); ok {
+				t.Fatal("session still registered after a protocol error")
+			}
+			if n := rec.count("message"); n != 0 {
+				t.Fatalf("handler saw %d messages for an invalid frame", n)
+			}
+		})
 	}
 }
 
@@ -368,6 +440,108 @@ func TestStopClosesSessions(t *testing.T) {
 	rec.next(t, "disconnect")
 	if len(srv.Sessions()) != 0 {
 		t.Fatalf("sessions after Stop = %d", len(srv.Sessions()))
+	}
+}
+
+func TestSessionsAreListedInConnectionOrder(t *testing.T) {
+	t.Parallel()
+	srv, rec, url := startServer(t, sdkws.Options{})
+	keys := []string{"dev-c", "dev-a", "dev-b"}
+	for _, dev := range keys {
+		c := dial(t, url)
+		h := hello("")
+		h.Device.ID = dev
+		send(t, c, protocol.TypeHello, "", h)
+		read(t, c)
+		rec.next(t, "connect")
+	}
+	for attempt := range 5 {
+		got := srv.Sessions()
+		if len(got) != len(keys) {
+			t.Fatalf("sessions = %d, want %d", len(got), len(keys))
+		}
+		ok := true
+		for i, sess := range got {
+			if sess.Key.DeviceID != keys[i] {
+				ok = false
+			}
+		}
+		if ok {
+			return
+		}
+		if attempt == 4 {
+			t.Fatalf("sessions not in connection order: %v %v %v", got[0].Key.DeviceID, got[1].Key.DeviceID, got[2].Key.DeviceID)
+		}
+	}
+}
+
+// Stop must not return while a session goroutine is still delivering
+// OnDisconnect, and a connection that arrives once Stop began is refused.
+func TestStopWaitsForSessionsAndRefusesLateConnections(t *testing.T) {
+	t.Parallel()
+	srv, rec, url := startServer(t, sdkws.Options{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	// A failed assertion must not leave Stop deadlocked behind OnDisconnect.
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	rec.beforeDisconnect = func() { <-release }
+
+	clients := []*websocket.Conn{dial(t, url), dial(t, url)}
+	for i, c := range clients {
+		h := hello("")
+		h.Device.ID = fmt.Sprintf("dev-%d", i)
+		send(t, c, protocol.TypeHello, "", h)
+		read(t, c)
+		rec.next(t, "connect")
+	}
+
+	stopped := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		stopped <- srv.Stop(ctx)
+	}()
+	// Read the close frames concurrently: Stop closes sessions in map order.
+	statuses := make(chan websocket.StatusCode, len(clients))
+	for _, c := range clients {
+		go func(c *websocket.Conn) { statuses <- closeStatus(t, c) }(c)
+	}
+	for range clients {
+		if got := <-statuses; got != sdkws.CloseServerShutdown {
+			t.Fatalf("close status = %d, want %d", got, sdkws.CloseServerShutdown)
+		}
+	}
+	select {
+	case err := <-stopped:
+		t.Fatalf("Stop returned (%v) before OnDisconnect was delivered", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop did not return after the sessions ended")
+	}
+	if n := rec.count("disconnect"); n != len(clients) {
+		t.Fatalf("Stop returned with %d of %d disconnects delivered", n, len(clients))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, url, nil)
+	if err != nil {
+		return // the listener is gone: refused at the TCP level
+	}
+	t.Cleanup(func() { _ = c.CloseNow() })
+	if got := closeStatus(t, c); got != sdkws.CloseServerShutdown && got != websocket.StatusTryAgainLater {
+		t.Fatalf("late connection closed with %d, want %d or %d", got, sdkws.CloseServerShutdown, websocket.StatusTryAgainLater)
+	}
+	if n := rec.count("connect"); n != 0 {
+		t.Fatalf("handler saw %d connect events after Stop", n)
 	}
 }
 

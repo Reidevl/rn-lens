@@ -2,6 +2,7 @@ package sdkws
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"sync"
@@ -123,7 +124,7 @@ func (s *Session) handshake() error {
 		s.Close(CloseBadVersion, fmt.Sprintf("lens speaks protocol version %d", protocol.Version))
 		return fmt.Errorf("%w: sdk announced %d", protocol.ErrVersion, hello.ProtocolVersion)
 	}
-	if opts.Token != "" && hello.Token != opts.Token {
+	if opts.Token != "" && subtle.ConstantTimeCompare([]byte(hello.Token), []byte(opts.Token)) != 1 {
 		s.Close(CloseBadToken, "pairing token missing or wrong; start the SDK with the token Lens shows")
 		return errors.New("pairing token mismatch")
 	}
@@ -153,15 +154,30 @@ func (s *Session) run() {
 
 	var reason error
 	for {
-		_, raw, err := s.conn.Read(context.Background())
+		typ, raw, err := s.conn.Read(context.Background())
 		if err != nil {
 			reason = err
 			break
 		}
+		// After the handshake every frame must be a text frame holding a
+		// protocol envelope; anything else is a protocol error, not noise:
+		// an SDK that disagrees on the major is told so (4002) and a peer
+		// that sends garbage is cut (4006) instead of being silently ignored.
+		if typ != websocket.MessageText {
+			srv.opts.Logger.Info("sdk session closed on a non-text frame", "session", s.ID)
+			s.Close(CloseProtocolError, "frames must be text")
+			break
+		}
 		msg, err := protocol.Decode(raw)
+		if errors.Is(err, protocol.ErrVersion) {
+			srv.opts.Logger.Info("sdk session closed on a protocol version mismatch", "session", s.ID, "err", err)
+			s.Close(CloseBadVersion, fmt.Sprintf("lens speaks protocol version %d", protocol.Version))
+			break
+		}
 		if err != nil {
-			srv.opts.Logger.Debug("sdk frame ignored", "session", s.ID, "err", err)
-			continue
+			srv.opts.Logger.Info("sdk session closed on an undecodable frame", "session", s.ID, "err", err)
+			s.Close(CloseProtocolError, "frame is not a protocol envelope")
+			break
 		}
 		if msg.Type == protocol.TypePong {
 			s.missedPing.Store(0)

@@ -15,20 +15,26 @@ import type { Log } from "../logger";
 import { loadReactQuery } from "../optional-require.cjs";
 import { runQueryAction } from "./actions";
 import {
+  capSnapshot,
   mutationDelta,
   pickQueryState,
   QUERY_ACTION_DELTA_FIELDS,
   QUERY_DELTA_KEYS,
   serializeMutation,
   serializeQuery,
+  SNAPSHOT_MAX_BYTES,
   type SerializeLimits,
 } from "./serialize";
+
+export { SNAPSHOT_MAX_BYTES };
 
 export type OnlineManagerLike = Pick<typeof OnlineManager, "subscribe" | "setOnline" | "isOnline">;
 
 /** The piece of the client the adapter talks to. */
 export interface AdapterHost {
   send(message: LensMessage): boolean;
+  /** Sends an already serialized frame; used for the size-capped snapshot. */
+  sendRaw(json: string): boolean;
   /** True once `welcome` arrived on the current socket. */
   isReady(): boolean;
   log: Log;
@@ -89,13 +95,15 @@ export function createQueryAdapter(
       case "updated": {
         const action = event.action.type;
         if (action === "setState") {
-          const { delta } = pickQueryState(event.action.state, QUERY_DELTA_KEYS, limits);
+          const { delta } = pickQueryState(event.action.state, QUERY_DELTA_KEYS, limits, {
+            explicitNull: true,
+          });
           host.send(queryEvent({ kind: "updated", queryHash, action, delta }));
           return;
         }
         const fields = QUERY_ACTION_DELTA_FIELDS[action];
         if (fields) {
-          const { delta } = pickQueryState(query.state, fields, limits);
+          const { delta } = pickQueryState(query.state, fields, limits, { explicitNull: true });
           host.send(queryEvent({ kind: "updated", queryHash, action, delta }));
           return;
         }
@@ -166,7 +174,16 @@ export function createQueryAdapter(
         online: onlineManager ? onlineManager.isOnline() : true,
       },
     };
-    host.send(message);
+    const { json, bytes, truncated } = capSnapshot(message, SNAPSHOT_MAX_BYTES);
+    if (truncated.length > 0) {
+      host.log.warn(
+        `snapshot over ${SNAPSHOT_MAX_BYTES} bytes; data of ${truncated.length} queries truncated`,
+      );
+    }
+    if (bytes > SNAPSHOT_MAX_BYTES) {
+      host.log.warn(`snapshot still ${bytes} bytes after truncating every query; Lens may drop it`);
+    }
+    host.sendRaw(json);
   }
 
   function attach(): void {

@@ -166,10 +166,13 @@ func TestE2E_AttachToRunningApp(t *testing.T) {
 			t.Fatal("the todos query never appeared")
 		}
 	}
-	if err := a.Queries().Action(ctx, deviceKey, "INVALIDATE", todosHash, nil); err != nil {
+	// Fresh deadline for the SDK leg: the attach context above may be nearly spent.
+	sdkCtx, cancelSDK := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelSDK()
+	if err := a.Queries().Action(sdkCtx, deviceKey, "INVALIDATE", todosHash, nil); err != nil {
 		t.Fatalf("INVALIDATE: %v", err)
 	}
-	if err := a.Queries().Action(ctx, deviceKey, "SET_QUERY_DATA", todosHash, []byte(`[{"id":99,"title":"Edited in Lens"}]`)); err != nil {
+	if err := a.Queries().Action(sdkCtx, deviceKey, "SET_QUERY_DATA", todosHash, []byte(`[{"id":99,"title":"Edited in Lens"}]`)); err != nil {
 		t.Fatalf("SET_QUERY_DATA: %v", err)
 	}
 	editedDeadline := time.After(5 * time.Second)
@@ -186,6 +189,10 @@ func TestE2E_AttachToRunningApp(t *testing.T) {
 	}
 	if err := a.Queries().SetOnline(deviceKey, false); err != nil {
 		t.Fatalf("SetOnline: %v", err)
+	}
+	// Leave the app online for whoever uses it next.
+	if err := a.Queries().SetOnline(deviceKey, true); err != nil {
+		t.Fatalf("SetOnline(true): %v", err)
 	}
 	t.Logf("sdk device %s: todos invalidated, data edited and read back, offline sent", deviceKey)
 }

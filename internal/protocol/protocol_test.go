@@ -75,15 +75,15 @@ func TestFixturesConformOnBothSides(t *testing.T) {
 				t.Fatalf("schema rejects fixture: %v", err)
 			}
 
-			msg, err := protocol.Decode(raw)
+			msg, err := protocol.DecodeStrict(raw)
 			if err != nil {
-				t.Fatalf("Decode: %v", err)
+				t.Fatalf("DecodeStrict: %v", err)
 			}
 			dst := protocol.PayloadType(msg.Type)
 			if dst == nil {
 				t.Fatalf("no Go payload type for %q", msg.Type)
 			}
-			if err := msg.PayloadInto(dst); err != nil {
+			if err := msg.PayloadIntoStrict(dst); err != nil {
 				t.Fatalf("strict payload decode: %v", err)
 			}
 
@@ -126,21 +126,44 @@ func TestInvalidFixturesAreRejected(t *testing.T) {
 	}
 }
 
-func TestDecodeRejectsOtherMajorsAndUnknownFields(t *testing.T) {
+func TestDecodeRejectsOtherMajorsAndMissingType(t *testing.T) {
 	t.Parallel()
 	if _, err := protocol.Decode([]byte(`{"v":2,"type":"ping","payload":{}}`)); !errors.Is(err, protocol.ErrVersion) {
 		t.Fatalf("err = %v, want ErrVersion", err)
 	}
-	msg, err := protocol.Decode([]byte(`{"v":1,"type":"online.set","payload":{"online":true,"extra":1}}`))
+	if _, err := protocol.Decode([]byte(`{"v":1,"payload":{}}`)); err == nil {
+		t.Fatal("missing type was accepted")
+	}
+	if _, err := protocol.Decode([]byte(`{"v":1,"type":"ping","payload":{}} trailing`)); err == nil {
+		t.Fatal("trailing data was accepted")
+	}
+}
+
+// Minors are additive: a decoder must ignore fields it does not know so an
+// older Lens can talk to a newer SDK (protocol/README.md). The strict variants
+// exist for the fixture conformance test only.
+func TestDecodeIgnoresUnknownFieldsUnlessStrict(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{"v":1,"type":"online.set","future":true,"payload":{"online":true,"extra":1}}`)
+
+	msg, err := protocol.Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode with unknown envelope field: %v", err)
+	}
+	var p protocol.OnlineSet
+	if err := msg.PayloadInto(&p); err != nil || !p.Online {
+		t.Fatalf("PayloadInto with unknown payload field: err=%v online=%v", err, p.Online)
+	}
+
+	if _, err := protocol.DecodeStrict(raw); err == nil {
+		t.Fatal("DecodeStrict accepted an unknown envelope field")
+	}
+	strictMsg, err := protocol.DecodeStrict([]byte(`{"v":1,"type":"online.set","payload":{"online":true,"extra":1}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var p protocol.OnlineSet
-	if err := msg.PayloadInto(&p); err == nil {
-		t.Fatal("unknown payload field was accepted")
-	}
-	if _, err := protocol.Decode([]byte(`{"v":1,"payload":{}}`)); err == nil {
-		t.Fatal("missing type was accepted")
+	if err := strictMsg.PayloadIntoStrict(&p); err == nil {
+		t.Fatal("PayloadIntoStrict accepted an unknown payload field")
 	}
 }
 

@@ -4,6 +4,11 @@
 // these hand-written types are proven against every fixture by a strict
 // decode in protocol_test.go, so a field added to the schema without a Go
 // counterpart fails the build's tests.
+//
+// At runtime decoding is tolerant: minors are additive, so Decode and
+// PayloadInto ignore fields they do not know and a newer SDK can talk to an
+// older Lens (protocol/README.md). DecodeStrict and PayloadIntoStrict reject
+// unknown fields and exist for the fixture conformance test.
 package protocol
 
 import (
@@ -43,11 +48,21 @@ type Message struct {
 // ErrVersion is returned when the envelope carries another protocol major.
 var ErrVersion = errors.New("protocol: unsupported version")
 
-// Decode parses a frame and checks the version. The payload stays raw until
-// the caller picks the typed accessor for msg.Type.
+// Decode parses a frame and checks the version, ignoring unknown envelope
+// fields. The payload stays raw until the caller picks the typed accessor for
+// msg.Type.
 func Decode(raw []byte) (Message, error) {
+	return decode(raw, json.Unmarshal)
+}
+
+// DecodeStrict is Decode rejecting unknown envelope fields.
+func DecodeStrict(raw []byte) (Message, error) {
+	return decode(raw, strictUnmarshal)
+}
+
+func decode(raw []byte, unmarshal func([]byte, any) error) (Message, error) {
 	var m Message
-	if err := strictUnmarshal(raw, &m); err != nil {
+	if err := unmarshal(raw, &m); err != nil {
 		return Message{}, fmt.Errorf("protocol: decode envelope: %w", err)
 	}
 	if m.V != Version {
@@ -68,8 +83,16 @@ func Encode(typ, id string, payload any) ([]byte, error) {
 	return json.Marshal(Message{V: Version, Type: typ, ID: id, Payload: raw})
 }
 
-// PayloadInto strictly decodes the payload into dst, rejecting unknown fields.
+// PayloadInto decodes the payload into dst, ignoring unknown fields.
 func (m Message) PayloadInto(dst any) error {
+	if err := json.Unmarshal(m.Payload, dst); err != nil {
+		return fmt.Errorf("protocol: decode %s payload: %w", m.Type, err)
+	}
+	return nil
+}
+
+// PayloadIntoStrict is PayloadInto rejecting unknown fields.
+func (m Message) PayloadIntoStrict(dst any) error {
 	if err := strictUnmarshal(m.Payload, dst); err != nil {
 		return fmt.Errorf("protocol: decode %s payload: %w", m.Type, err)
 	}

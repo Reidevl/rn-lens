@@ -5,6 +5,7 @@
 package queries
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -113,6 +114,7 @@ type Counts struct {
 // Errors returned by Service.
 var (
 	ErrUnknownDevice = errors.New("queries: unknown device")
+	ErrStaleSession  = errors.New("queries: frame from a replaced session")
 	ErrActionFailed  = errors.New("queries: action failed on the device")
 )
 
@@ -171,7 +173,8 @@ func (s *Service) Connect(sessionID string, hello protocol.Hello, sender Sender)
 func (s *Service) Disconnect(key, sessionID string) {
 	s.mu.Lock()
 	d, ok := s.devices[key]
-	if ok && d.info.SessionID == sessionID {
+	removed := ok && d.info.SessionID == sessionID
+	if removed {
 		for id, ch := range d.pending {
 			close(ch)
 			delete(d.pending, id)
@@ -179,18 +182,25 @@ func (s *Service) Disconnect(key, sessionID string) {
 		delete(s.devices, key)
 	}
 	s.mu.Unlock()
-	if ok {
+	if removed {
 		s.emit()
 	}
 }
 
-// Message applies one decoded frame from the device.
-func (s *Service) Message(key string, msg protocol.Message) error {
+// Message applies one decoded frame from the device. sessionID names the
+// connection that carried the frame: a frame from a session that a newer
+// connection replaced is ignored with ErrStaleSession so it can never land on
+// the mirror the new session owns.
+func (s *Service) Message(key, sessionID string, msg protocol.Message) error {
 	s.mu.Lock()
 	d, ok := s.devices[key]
 	if !ok {
 		s.mu.Unlock()
 		return ErrUnknownDevice
+	}
+	if d.info.SessionID != sessionID {
+		s.mu.Unlock()
+		return ErrStaleSession
 	}
 	changed, err := d.apply(msg)
 	s.mu.Unlock()
@@ -213,7 +223,7 @@ func (d *deviceState) apply(msg protocol.Message) (bool, error) {
 		}
 		d.mutations = make(map[int]protocol.Mutation, len(p.Mutations))
 		for _, m := range p.Mutations {
-			d.mutations[m.MutationID] = m
+			d.mutations[m.MutationID] = capMutation(m)
 		}
 		d.info.Online = p.Online
 		return true, nil
@@ -326,15 +336,26 @@ func applyDelta(st *protocol.QueryState, dl *protocol.QueryStateDelta) {
 	if dl.IsInvalidated != nil {
 		st.IsInvalidated = *dl.IsInvalidated
 	}
-	if dl.Data != nil {
-		st.Data = dl.Data
+	applyRaw(&st.Data, dl.Data)
+	applyRaw(&st.Error, dl.Error)
+	applyRaw(&st.FetchMeta, dl.FetchMeta)
+}
+
+// applyRaw applies one JSON-typed delta field: absent (nil) leaves dst
+// untouched, JSON null clears it (the device set the field to undefined, as
+// TRIGGER_LOADING, TRIGGER_ERROR and RESET do) and any other value replaces it.
+func applyRaw(dst *json.RawMessage, src json.RawMessage) {
+	switch {
+	case src == nil:
+	case isJSONNull(src):
+		*dst = nil
+	default:
+		*dst = src
 	}
-	if dl.Error != nil {
-		st.Error = dl.Error
-	}
-	if dl.FetchMeta != nil {
-		st.FetchMeta = dl.FetchMeta
-	}
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return string(bytes.TrimSpace(raw)) == "null"
 }
 
 func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
@@ -343,7 +364,7 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 		if ev.Mutation == nil {
 			return false
 		}
-		d.mutations[ev.MutationID] = *ev.Mutation
+		d.mutations[ev.MutationID] = capMutation(*ev.Mutation)
 		return true
 	case protocol.EventRemoved:
 		_, ok := d.mutations[ev.MutationID]
@@ -351,7 +372,7 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 		return ok
 	case protocol.EventUpdated:
 		if ev.Mutation != nil {
-			d.mutations[ev.MutationID] = *ev.Mutation
+			d.mutations[ev.MutationID] = capMutation(*ev.Mutation)
 			return true
 		}
 		m, ok := d.mutations[ev.MutationID]
@@ -368,38 +389,56 @@ func (d *deviceState) applyMutationEvent(ev protocol.MutationEvent) bool {
 		if dl.IsPaused != nil {
 			m.State.IsPaused = *dl.IsPaused
 		}
-		if dl.Variables != nil {
-			m.State.Variables = dl.Variables
-		}
-		if dl.Data != nil {
-			m.State.Data = dl.Data
-		}
-		if dl.Error != nil {
-			m.State.Error = dl.Error
-		}
+		applyRaw(&m.State.Variables, dl.Variables)
+		applyRaw(&m.State.Data, dl.Data)
+		applyRaw(&m.State.Error, dl.Error)
 		if dl.FailureCount != nil {
 			m.State.FailureCount = *dl.FailureCount
 		}
-		if dl.FailureReason != nil {
-			m.State.FailureReason = dl.FailureReason
-		}
-		if dl.Context != nil {
-			m.State.Context = dl.Context
-		}
-		d.mutations[ev.MutationID] = m
+		applyRaw(&m.State.FailureReason, dl.FailureReason)
+		applyRaw(&m.State.Context, dl.Context)
+		d.mutations[ev.MutationID] = capMutation(m)
 		return true
 	default:
 		return false
 	}
 }
 
-// capData enforces MaxDataBytes on the server side too.
+// capData enforces MaxDataBytes on the server side too and derives
+// DataTruncated from the data on every apply: true when Lens capped it here or
+// when the SDK already replaced it with its truncation marker, false otherwise,
+// so a later delta that carries real data clears the flag.
 func capData(q protocol.Query) protocol.Query {
 	if len(q.State.Data) > MaxDataBytes {
 		q.State.Data = json.RawMessage(fmt.Sprintf(`{"__lensTruncated":true,"bytes":%d}`, len(q.State.Data)))
-		q.DataTruncated = true
 	}
+	q.DataTruncated = isTruncationMarker(q.State.Data)
 	return q
+}
+
+// capMutation enforces MaxDataBytes on the mutation payloads that can carry
+// arbitrary user data; the marker shape matches the SDK's.
+func capMutation(m protocol.Mutation) protocol.Mutation {
+	m.State.Variables = capRaw(m.State.Variables)
+	m.State.Data = capRaw(m.State.Data)
+	m.State.Context = capRaw(m.State.Context)
+	return m
+}
+
+func capRaw(raw json.RawMessage) json.RawMessage {
+	if len(raw) > MaxDataBytes {
+		return json.RawMessage(fmt.Sprintf(`{"__lensTruncated":true,"bytes":%d}`, len(raw)))
+	}
+	return raw
+}
+
+// isTruncationMarker reports whether data is the `{"__lensTruncated":true,...}`
+// placeholder the SDK and Lens substitute for oversized values.
+func isTruncationMarker(data json.RawMessage) bool {
+	var marker struct {
+		Truncated bool `json:"__lensTruncated"`
+	}
+	return len(data) > 0 && data[0] == '{' && json.Unmarshal(data, &marker) == nil && marker.Truncated
 }
 
 // Devices lists connected devices, oldest connection first.
@@ -446,10 +485,10 @@ func (s *Service) Queries(key string) ([]Query, Counts, error) {
 		if ri != rj {
 			return ri < rj
 		}
-		if out[i].QueryHash != out[j].QueryHash {
-			return out[i].QueryHash < out[j].QueryHash
+		if out[i].State.DataUpdatedAt != out[j].State.DataUpdatedAt {
+			return out[i].State.DataUpdatedAt > out[j].State.DataUpdatedAt
 		}
-		return out[i].State.DataUpdatedAt > out[j].State.DataUpdatedAt
+		return out[i].QueryHash < out[j].QueryHash
 	})
 	return out, c, nil
 }
