@@ -35,7 +35,7 @@ linters:
           arguments: ["checkPrivateReceivers", "disableStutteringCheck"]
     gocritic:
       enabled-tags: [diagnostic, performance, style]
-      disabled-checks: [hugeParam, unnamedResult]
+      disabled-checks: [hugeParam, unnamedResult, rangeValCopy]
     gosec:
       excludes:
         - G204 # subprocess launched with variable: we launch user-selected tools on purpose
