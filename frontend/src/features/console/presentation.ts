@@ -37,7 +37,14 @@ export function isExpandable(o: RemoteObject): boolean {
   return (o.type === "object" || o.type === "function") && !!o.objectId && o.subtype !== "null";
 }
 
-/** Shortens a bundle URL to its path for stack frames. */
+/**
+ * Shortens a bundle URL to its path for stack frames.
+ *
+ * Metro serves Hermes the bundle's query string folded into the path as
+ * `/index.bundle//&platform=ios&dev=true…`, so `URL.pathname` keeps it; the
+ * replace drops everything from that `//` on. A regular `?query` is already
+ * excluded by `pathname`.
+ */
 export function shortUrl(url: string): string {
   try {
     const u = new URL(url);

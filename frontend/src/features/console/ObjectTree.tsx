@@ -64,7 +64,7 @@ export function ObjectTree({ object, epoch, label, depth = 0 }: Props) {
       </button>
       {open ? (
         <ul
-          className="ml-4 border-l border-border pl-2"
+          className="border-l border-border pl-2"
           style={{ marginLeft: `${Math.min(depth, 6) * 0.25 + 1}rem` }}
         >
           {loading ? <li className="text-xs text-muted-foreground">Loading…</li> : null}
@@ -74,7 +74,12 @@ export function ObjectTree({ object, epoch, label, depth = 0 }: Props) {
             </li>
           ) : null}
           {props?.map((p) => (
-            <li key={p.name} className="flex gap-1 font-mono text-xs">
+            // Own and inherited properties may share a name (shadowed fields,
+            // `constructor`), so the key carries both.
+            <li
+              key={`${p.isOwn ? "own" : "proto"}:${p.name}`}
+              className="flex gap-1 font-mono text-xs"
+            >
               <span className="text-info">{p.name}:</span>
               {p.value && isExpandable(p.value) ? (
                 <ObjectTree object={p.value} epoch={epoch} label={p.summary} depth={depth + 1} />

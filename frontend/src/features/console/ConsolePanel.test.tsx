@@ -192,6 +192,34 @@ describe("ConsolePanel", () => {
     expect(await within(log).findByRole("note")).toHaveTextContent(/no longer available/);
   });
 
+  it("renders own and inherited properties that share a name as separate rows", async () => {
+    const user = userEvent.setup();
+    const backend = attachedBackend();
+    const base = { summary: "", enumerable: true, writable: true, hasGetter: false };
+    backend.setProperties("obj-2", [
+      { ...base, name: "constructor", summary: "ƒ Point()", isOwn: true },
+      { ...base, name: "constructor", summary: "ƒ Object()", isOwn: false },
+    ]);
+    backend.log({
+      text: "Point",
+      args: [{ type: "object", className: "Point", description: "Point", objectId: "obj-2" }],
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<App backend={backend} />);
+    const log = await screen.findByRole("log");
+
+    await user.click(await within(log).findByRole("button", { name: /expand Point/i }));
+
+    expect(await within(log).findByText("ƒ Point()")).toBeInTheDocument();
+    expect(within(log).getByText("ƒ Object()")).toBeInTheDocument();
+    expect(within(log).getAllByText("constructor:")).toHaveLength(2);
+    const keyWarnings = consoleError.mock.calls.filter((args) =>
+      args.some((a) => typeof a === "string" && a.includes("same key")),
+    );
+    consoleError.mockRestore();
+    expect(keyWarnings).toEqual([]);
+  });
+
   it("drops entries from before a reload unless preserve log is on", async () => {
     const user = userEvent.setup();
     const backend = createMockBackend();

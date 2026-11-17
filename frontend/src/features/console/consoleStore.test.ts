@@ -93,3 +93,51 @@ describe("runConsoleAction", () => {
     expect(useConsoleStore.getState().busy).toBe(false);
   });
 });
+
+describe("mock console backend", () => {
+  it("owns seq and epoch even when a caller passes them", () => {
+    const backend = createMockBackend();
+
+    const [entry] = backend.log({ text: "x", seq: 99, epoch: 7 });
+
+    expect(entry.seq).toBe(1);
+    expect(entry.epoch).toBe(1);
+  });
+
+  it("reports evaluate results as RemoteObjects of the value's own type", async () => {
+    const backend = createMockBackend();
+
+    await expect(backend.console.evaluate("1+1")).resolves.toMatchObject({
+      kind: "result",
+      text: "2",
+      args: [{ type: "number", value: 2 }],
+    });
+    await expect(backend.console.evaluate('"hi"')).resolves.toMatchObject({
+      kind: "result",
+      text: "hi",
+      args: [{ type: "string", value: "hi" }],
+    });
+    await expect(backend.console.evaluate("null")).resolves.toMatchObject({
+      kind: "result",
+      text: "null",
+      args: [{ type: "object", subtype: "null" }],
+    });
+    await expect(backend.console.evaluate('{"a":1}')).resolves.toMatchObject({
+      kind: "result",
+      args: [{ type: "object", className: "Object" }],
+    });
+  });
+
+  it("answers unknown expressions with an exception instead of executing them", async () => {
+    const backend = createMockBackend();
+
+    await expect(backend.console.evaluate("window.secret")).resolves.toMatchObject({
+      kind: "exception",
+      level: "error",
+    });
+    await expect(backend.console.evaluate("throw")).resolves.toMatchObject({
+      kind: "exception",
+      text: "Error: thrown from mock",
+    });
+  });
+});

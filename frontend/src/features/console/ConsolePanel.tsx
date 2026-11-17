@@ -1,7 +1,7 @@
 import { Ban, Search } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
-import { useBackend, type ConsoleLevel } from "@/backend";
+import { useBackend, type Backend, type ConsoleLevel } from "@/backend";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/atoms/Button";
 
@@ -12,6 +12,10 @@ import { levelLabel } from "./presentation";
 import { useConsoleSync } from "./useConsoleSync";
 
 const LEVELS: ConsoleLevel[] = ["error", "warning", "info", "verbose", "system"];
+
+function clearConsole(backend: Backend): void {
+  void runConsoleAction(() => backend.console.clear());
+}
 
 /** Container: wires sync, filters and actions to the presentational pieces. */
 export function ConsolePanel() {
@@ -31,14 +35,12 @@ export function ConsolePanel() {
   const visible = useMemo(() => visibleEntries(entries, levels, query), [entries, levels, query]);
   const counts = useMemo(() => countByLevel(entries), [entries]);
 
-  const clear = () => void runConsoleAction(() => backend.console.clear());
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "l") {
         e.preventDefault();
-        clear();
+        clearConsole(backend);
       } else if (mod && e.key.toLowerCase() === "f") {
         e.preventDefault();
         searchRef.current?.focus();
@@ -46,7 +48,6 @@ export function ConsolePanel() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backend]);
 
   return (
@@ -59,7 +60,7 @@ export function ConsolePanel() {
           size="sm"
           aria-label="Clear console (⌘L)"
           title="Clear console (⌘L)"
-          onClick={clear}
+          onClick={() => clearConsole(backend)}
         >
           <Ban aria-hidden="true" className="size-3.5" />
         </Button>
