@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "type": "mutation.event",
+  "payload": {
+    "kind": "updated",
+    "mutationId": 7,
+    "delta": {
+      "status": "pending",
+      "submittedAt": 1794926160000,
+      "isPaused": false
+    }
+  }
+}

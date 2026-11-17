@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "action.result",
+  "id": "a1",
+  "payload": {
+    "id": "a1",
+    "ok": true
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "type": "hello",
+  "payload": {
+    "sdkVersion": "0.1.0",
+    "protocolVersion": 1,
+    "app": {
+      "id": "host.exp.Exponent",
+      "name": "Lens Example",
+      "platform": "ios",
+      "rnVersion": "0.88.1"
+    },
+    "device": {
+      "id": "c2f1f0c8-5b53-4f1a-9f61-2b1e0b2d4a11",
+      "name": "iPhone 17"
+    },
+    "scriptURL": "http://192.168.1.10:8081/index.ts.bundle?platform=ios&dev=true",
+    "features": ["queries"]
+  }
+}

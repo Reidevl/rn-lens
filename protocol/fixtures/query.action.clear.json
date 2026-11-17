@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "query.action",
+  "id": "a4",
+  "payload": {
+    "id": "a4",
+    "type": "CLEAR_MUTATION_CACHE"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "welcome",
+  "payload": {
+    "lensVersion": "0.1.0",
+    "protocolVersion": 1,
+    "sessionId": "4b7c0f5e"
+  }
+}
