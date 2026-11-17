@@ -3,6 +3,7 @@ package sdkws_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +27,8 @@ type recorder struct {
 	mu     sync.Mutex
 	queue  []event
 	notify chan struct{}
+	// beforeDisconnect, when set, runs before a disconnect event is recorded.
+	beforeDisconnect func()
 }
 
 func newRecorder() *recorder { return &recorder{notify: make(chan struct{}, 256)} }
@@ -47,6 +50,9 @@ func (r *recorder) OnMessage(s *sdkws.Session, m protocol.Message) {
 }
 
 func (r *recorder) OnDisconnect(s *sdkws.Session, err error) {
+	if r.beforeDisconnect != nil {
+		r.beforeDisconnect()
+	}
 	r.push(event{kind: "disconnect", sess: s, err: err})
 }
 
@@ -434,6 +440,68 @@ func TestStopClosesSessions(t *testing.T) {
 	rec.next(t, "disconnect")
 	if len(srv.Sessions()) != 0 {
 		t.Fatalf("sessions after Stop = %d", len(srv.Sessions()))
+	}
+}
+
+// Stop must not return while a session goroutine is still delivering
+// OnDisconnect, and a connection that arrives once Stop began is refused.
+func TestStopWaitsForSessionsAndRefusesLateConnections(t *testing.T) {
+	t.Parallel()
+	srv, rec, url := startServer(t, sdkws.Options{})
+	release := make(chan struct{})
+	rec.beforeDisconnect = func() { <-release }
+
+	clients := []*websocket.Conn{dial(t, url), dial(t, url)}
+	for i, c := range clients {
+		h := hello("")
+		h.Device.ID = fmt.Sprintf("dev-%d", i)
+		send(t, c, protocol.TypeHello, "", h)
+		read(t, c)
+		rec.next(t, "connect")
+	}
+
+	stopped := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		stopped <- srv.Stop(ctx)
+	}()
+	for _, c := range clients {
+		if got := closeStatus(t, c); got != sdkws.CloseServerShutdown {
+			t.Fatalf("close status = %d, want %d", got, sdkws.CloseServerShutdown)
+		}
+	}
+	select {
+	case err := <-stopped:
+		t.Fatalf("Stop returned (%v) before OnDisconnect was delivered", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop did not return after the sessions ended")
+	}
+	if n := rec.count("disconnect"); n != len(clients) {
+		t.Fatalf("Stop returned with %d of %d disconnects delivered", n, len(clients))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, url, nil)
+	if err != nil {
+		return // the listener is gone: refused at the TCP level
+	}
+	t.Cleanup(func() { _ = c.CloseNow() })
+	if got := closeStatus(t, c); got != sdkws.CloseServerShutdown && got != websocket.StatusTryAgainLater {
+		t.Fatalf("late connection closed with %d, want %d or %d", got, sdkws.CloseServerShutdown, websocket.StatusTryAgainLater)
+	}
+	if n := rec.count("connect"); n != 0 {
+		t.Fatalf("handler saw %d connect events after Stop", n)
 	}
 }
 

@@ -113,6 +113,7 @@ type Counts struct {
 // Errors returned by Service.
 var (
 	ErrUnknownDevice = errors.New("queries: unknown device")
+	ErrStaleSession  = errors.New("queries: frame from a replaced session")
 	ErrActionFailed  = errors.New("queries: action failed on the device")
 )
 
@@ -184,13 +185,20 @@ func (s *Service) Disconnect(key, sessionID string) {
 	}
 }
 
-// Message applies one decoded frame from the device.
-func (s *Service) Message(key string, msg protocol.Message) error {
+// Message applies one decoded frame from the device. sessionID names the
+// connection that carried the frame: a frame from a session that a newer
+// connection replaced is ignored with ErrStaleSession so it can never land on
+// the mirror the new session owns.
+func (s *Service) Message(key, sessionID string, msg protocol.Message) error {
 	s.mu.Lock()
 	d, ok := s.devices[key]
 	if !ok {
 		s.mu.Unlock()
 		return ErrUnknownDevice
+	}
+	if d.info.SessionID != sessionID {
+		s.mu.Unlock()
+		return ErrStaleSession
 	}
 	changed, err := d.apply(msg)
 	s.mu.Unlock()

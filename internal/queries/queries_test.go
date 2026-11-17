@@ -19,9 +19,10 @@ type fakeSender struct {
 	frames []protocol.Message
 	fail   error
 	// reply, when set, answers query.action frames asynchronously.
-	reply func(action protocol.QueryAction) *protocol.ActionResult
-	svc   *queries.Service
-	key   string
+	reply     func(action protocol.QueryAction) *protocol.ActionResult
+	svc       *queries.Service
+	key       string
+	sessionID string
 }
 
 func (f *fakeSender) Send(typ, id string, payload any) error {
@@ -38,7 +39,7 @@ func (f *fakeSender) Send(typ, id string, payload any) error {
 		if res := f.reply(a); res != nil {
 			go func() {
 				rawRes, _ := json.Marshal(res)
-				_ = f.svc.Message(f.key, protocol.Message{V: 1, Type: protocol.TypeActionResult, Payload: rawRes})
+				_ = f.svc.Message(f.key, f.sessionID, protocol.Message{V: 1, Type: protocol.TypeActionResult, Payload: rawRes})
 			}()
 		}
 	}
@@ -84,7 +85,7 @@ func connect(t *testing.T) (*queries.Service, *fakeSender, string, *int) {
 	notifies := 0
 	var mu sync.Mutex
 	svc := queries.NewService(func() { mu.Lock(); notifies++; mu.Unlock() })
-	sender := &fakeSender{svc: svc}
+	sender := &fakeSender{svc: svc, sessionID: "s1"}
 	dev := svc.Connect("s1", hello(), sender)
 	sender.key = dev.Key
 	return svc, sender, dev.Key, &notifies
@@ -93,7 +94,7 @@ func connect(t *testing.T) (*queries.Service, *fakeSender, string, *int) {
 func TestSnapshotAndLabels(t *testing.T) {
 	t.Parallel()
 	svc, _, key, _ := connect(t)
-	if err := svc.Message(key, fixture(t, "queries.snapshot")); err != nil {
+	if err := svc.Message(key, "s1", fixture(t, "queries.snapshot")); err != nil {
 		t.Fatal(err)
 	}
 	list, counts, err := svc.Queries(key)
@@ -146,7 +147,7 @@ func TestEventsApplyDeltasAndOrdering(t *testing.T) {
 	svc, _, key, notifies := connect(t)
 	must := func(name string) {
 		t.Helper()
-		if err := svc.Message(key, fixture(t, name)); err != nil {
+		if err := svc.Message(key, "s1", fixture(t, name)); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
@@ -168,7 +169,7 @@ func TestEventsApplyDeltasAndOrdering(t *testing.T) {
 		State: protocol.QueryState{Status: "success", FetchStatus: "idle", DataUpdatedAt: 5},
 	}
 	raw, _ := json.Marshal(protocol.QueryEvent{Kind: protocol.EventAdded, QueryHash: `["a"]`, Query: &second})
-	if err := svc.Message(key, protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: raw}); err != nil {
+	if err := svc.Message(key, "s1", protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: raw}); err != nil {
 		t.Fatal(err)
 	}
 	list, counts, _ := svc.Queries(key)
@@ -189,7 +190,7 @@ func TestEventsApplyDeltasAndOrdering(t *testing.T) {
 func TestOnlineStatusAndSetOnline(t *testing.T) {
 	t.Parallel()
 	svc, sender, key, _ := connect(t)
-	if err := svc.Message(key, fixture(t, "online.status")); err != nil {
+	if err := svc.Message(key, "s1", fixture(t, "online.status")); err != nil {
 		t.Fatal(err)
 	}
 	if svc.Devices()[0].Online {
@@ -274,8 +275,40 @@ func TestDisconnectForgetsDeviceAndPendingActions(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("pending action did not resolve on disconnect")
 	}
-	if err := svc.Message(key, fixture(t, "online.status")); !errors.Is(err, queries.ErrUnknownDevice) {
+	if err := svc.Message(key, "s1", fixture(t, "online.status")); !errors.Is(err, queries.ErrUnknownDevice) {
 		t.Fatalf("message after disconnect err = %v", err)
+	}
+}
+
+// A frame still in flight from a replaced session must not touch the mirror
+// the new session owns.
+func TestMessageFromReplacedSessionIsIgnored(t *testing.T) {
+	t.Parallel()
+	svc, _, key, _ := connect(t)
+	if err := svc.Message(key, "s1", fixture(t, "queries.snapshot")); err != nil {
+		t.Fatal(err)
+	}
+	svc.Connect("s2", hello(), &fakeSender{svc: svc, key: key, sessionID: "s2"})
+	if list, _, _ := svc.Queries(key); len(list) != 0 {
+		t.Fatalf("new session starts with %d queries, want 0", len(list))
+	}
+
+	err := svc.Message(key, "s1", fixture(t, "queries.snapshot"))
+	if !errors.Is(err, queries.ErrStaleSession) {
+		t.Fatalf("stale frame err = %v, want ErrStaleSession", err)
+	}
+	if list, _, _ := svc.Queries(key); len(list) != 0 {
+		t.Fatalf("stale frame changed the mirror: %d queries", len(list))
+	}
+	if svc.Devices()[0].SessionID != "s2" {
+		t.Fatalf("device session = %s, want s2", svc.Devices()[0].SessionID)
+	}
+
+	if err := svc.Message(key, "s2", fixture(t, "queries.snapshot")); err != nil {
+		t.Fatal(err)
+	}
+	if list, _, _ := svc.Queries(key); len(list) != 1 {
+		t.Fatalf("current session frame not applied: %d queries", len(list))
 	}
 }
 
@@ -291,7 +324,7 @@ func TestOversizedDataIsCapped(t *testing.T) {
 		State: protocol.QueryState{Status: "success", FetchStatus: "idle", Data: json.RawMessage(`"` + string(big) + `"`)},
 	}
 	raw, _ := json.Marshal(protocol.QueryEvent{Kind: protocol.EventAdded, QueryHash: "big", Query: &q})
-	if err := svc.Message(key, protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: raw}); err != nil {
+	if err := svc.Message(key, "s1", protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: raw}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := svc.Query(key, "big")
@@ -311,24 +344,24 @@ func TestDataTruncatedFollowsEveryDelta(t *testing.T) {
 		return protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: raw}
 	}
 	added, _ := json.Marshal(protocol.QueryEvent{Kind: "added", QueryHash: "h", Query: &q})
-	if err := svc.Message(key, protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: added}); err != nil {
+	if err := svc.Message(key, "s1", protocol.Message{V: 1, Type: protocol.TypeQueryEvent, Payload: added}); err != nil {
 		t.Fatal(err)
 	}
 	marker := json.RawMessage(`{"__lensTruncated":true,"bytes":2000000}`)
-	if err := svc.Message(key, ev(&protocol.QueryStateDelta{Data: marker})); err != nil {
+	if err := svc.Message(key, "s1", ev(&protocol.QueryStateDelta{Data: marker})); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := svc.Query(key, "h"); !got.DataTruncated {
 		t.Fatalf("SDK marker in a delta must set dataTruncated, got %+v", got)
 	}
 	big := json.RawMessage(`"` + strings.Repeat("x", queries.MaxDataBytes+1) + `"`)
-	if err := svc.Message(key, ev(&protocol.QueryStateDelta{Data: big})); err != nil {
+	if err := svc.Message(key, "s1", ev(&protocol.QueryStateDelta{Data: big})); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := svc.Query(key, "h"); !got.DataTruncated {
 		t.Fatal("server-side cap must set dataTruncated")
 	}
-	if err := svc.Message(key, ev(&protocol.QueryStateDelta{Data: json.RawMessage(`{"ok":true}`)})); err != nil {
+	if err := svc.Message(key, "s1", ev(&protocol.QueryStateDelta{Data: json.RawMessage(`{"ok":true}`)})); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := svc.Query(key, "h"); got.DataTruncated || string(got.State.Data) != `{"ok":true}` {

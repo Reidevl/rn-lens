@@ -141,7 +141,7 @@ func (h sdkHandler) OnConnect(s *sdkws.Session) {
 }
 
 func (h sdkHandler) OnMessage(s *sdkws.Session, msg protocol.Message) {
-	if err := h.a.queries.Message(queries.DeviceKey(s.Key.AppID, s.Key.DeviceID), msg); err != nil {
+	if err := h.a.queries.Message(queries.DeviceKey(s.Key.AppID, s.Key.DeviceID), s.ID, msg); err != nil {
 		h.a.cfg.Logger.Debug("sdk message rejected", "type", msg.Type, "err", err)
 	}
 }

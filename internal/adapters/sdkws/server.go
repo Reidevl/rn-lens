@@ -137,7 +137,9 @@ func (s *Server) Addr() string {
 	return s.listener.Addr().String()
 }
 
-// Stop closes every session and the listener.
+// Stop closes every session and the listener, refuses connections that
+// arrive from now on and returns once every session goroutine has delivered
+// its OnDisconnect.
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	s.closed = true
@@ -151,10 +153,25 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	var err error
 	if s.http != nil {
+		// Shutdown closes the listener; it does not track hijacked sockets,
+		// which is why the wait group counts sessions too.
 		err = s.http.Shutdown(ctx)
 	}
 	s.wg.Wait()
 	return err
+}
+
+// track adds the calling connection goroutine to the wait group unless Stop
+// already began. Adding under the mutex that Stop takes before it waits keeps
+// every Add ordered before the Wait.
+func (s *Server) track() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.wg.Add(1)
+	return true
 }
 
 // Sessions lists live sessions, most recently connected last.
@@ -185,18 +202,33 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn.SetReadLimit(maxFrameBytes)
+	if !s.track() {
+		_ = conn.Close(CloseServerShutdown, "lens is shutting down")
+		return
+	}
+	defer s.wg.Done()
 
 	sess := &Session{server: s, conn: conn, remote: r.RemoteAddr, connectedAt: time.Now()}
 	if err := sess.handshake(); err != nil {
 		s.opts.Logger.Info("sdk handshake rejected", "remote", r.RemoteAddr, "err", err)
 		return
 	}
-	s.register(sess)
+	if !s.register(sess) {
+		// Stop began during the handshake and did not see this session.
+		sess.Close(CloseServerShutdown, "lens is shutting down")
+		return
+	}
 	sess.run()
 }
 
-func (s *Server) register(sess *Session) {
+// register makes sess the live session for its key, replacing a previous
+// one. It reports false once Stop began.
+func (s *Server) register(sess *Session) bool {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return false
+	}
 	old, had := s.sessions[sess.Key]
 	s.sessions[sess.Key] = sess
 	s.mu.Unlock()
@@ -204,6 +236,7 @@ func (s *Server) register(sess *Session) {
 		// The close handshake waits for the peer; never block the new session on it.
 		go old.Close(CloseReplaced, "another connection for the same app and device replaced this one")
 	}
+	return true
 }
 
 func (s *Server) unregister(sess *Session) {
