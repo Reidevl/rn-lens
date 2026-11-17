@@ -1,4 +1,6 @@
 import { ConsolePanel } from "@/features/console/ConsolePanel";
+import { MutationsPanel } from "@/features/queries/MutationsPanel";
+import { QueriesPanel } from "@/features/queries/QueriesPanel";
 import { TargetsPanel } from "@/features/targets/TargetsPanel";
 import { useTargetsSync } from "@/features/targets/useTargetsSync";
 
@@ -23,6 +25,10 @@ export function Shell() {
           <TargetsPanel />
         ) : panel.id === "console" ? (
           <ConsolePanel />
+        ) : panel.id === "queries" ? (
+          <QueriesPanel />
+        ) : panel.id === "mutations" ? (
+          <MutationsPanel />
         ) : (
           <PlaceholderPanel panel={panel} />
         )}

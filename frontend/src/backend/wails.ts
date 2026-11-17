@@ -2,8 +2,18 @@ import { Events } from "@wailsio/runtime";
 
 import * as AppService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/appservice";
 import * as ConsoleService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/consoleservice";
+import * as QueriesService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/queriesservice";
 import * as TargetsService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/targetsservice";
-import type { Backend, ConsoleEntry, ConsoleProperty, SessionSnapshot } from "./Backend";
+import type {
+  Backend,
+  ConsoleEntry,
+  ConsoleProperty,
+  MutationItem,
+  QueryCounts,
+  QueryItem,
+  SdkDevice,
+  SessionSnapshot,
+} from "./Backend";
 
 /** Backend backed by the Wails v3 bindings and event bus. */
 export function createWailsBackend(): Backend {
@@ -32,6 +42,24 @@ export function createWailsBackend(): Backend {
         (await ConsoleService.Evaluate(expression)) as unknown as ConsoleEntry,
       properties: async (objectId, epoch) =>
         ((await ConsoleService.Properties(objectId, epoch)) ?? []) as unknown as ConsoleProperty[],
+    },
+    queries: {
+      sdkAddr: () => QueriesService.SDKAddr(),
+      devices: async () => ((await QueriesService.Devices()) ?? []) as unknown as SdkDevice[],
+      queries: async (deviceKey) => {
+        const page = await QueriesService.Queries(deviceKey);
+        return {
+          queries: (page.queries ?? []) as unknown as QueryItem[],
+          counts: page.counts as unknown as QueryCounts,
+        };
+      },
+      query: async (deviceKey, queryHash) =>
+        (await QueriesService.Query(deviceKey, queryHash)) as unknown as QueryItem,
+      mutations: async (deviceKey) =>
+        ((await QueriesService.Mutations(deviceKey)) ?? []) as unknown as MutationItem[],
+      action: (deviceKey, type, queryHash, dataJSON) =>
+        QueriesService.Action(deviceKey, type, queryHash, dataJSON),
+      setOnline: (deviceKey, online) => QueriesService.SetOnline(deviceKey, online),
     },
     events: {
       on: (name, handler) =>
