@@ -6,12 +6,23 @@
 package wailsui
 
 import (
+	"context"
 	"io/fs"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/Reidevl/rn-lens/internal/app"
 )
+
+// notifyTick bounds how often a changed topic reaches the webview.
+const notifyTick = 16 * time.Millisecond
+
+func init() {
+	// Registering the events gives the bindings generator typed TS signatures.
+	application.RegisterEvent[ChangeNotice](app.TopicTargetsChanged)
+	application.RegisterEvent[ChangeNotice](app.TopicSessionChanged)
+}
 
 const (
 	windowTitle  = "Lens"
@@ -30,6 +41,7 @@ func Run(core *app.App, assets fs.FS) error {
 		Description: "React Native DevTools written in Go",
 		Services: []application.Service{
 			application.NewService(NewAppService(core)),
+			application.NewService(NewTargetsService(core)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -54,6 +66,12 @@ func Run(core *app.App, assets fs.FS) error {
 		BackgroundColour: application.NewRGB(15, 23, 42),
 		URL:              "/",
 	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	coalescer := NewCoalescer(core.Bus(), []string{app.TopicTargetsChanged, app.TopicSessionChanged}, notifyTick,
+		func(topic string, notice ChangeNotice) { desktop.Event.Emit(topic, notice) })
+	go coalescer.Run(ctx)
 
 	return desktop.Run()
 }
