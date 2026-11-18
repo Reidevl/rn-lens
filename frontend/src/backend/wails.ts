@@ -2,6 +2,7 @@ import { Clipboard, Events } from "@wailsio/runtime";
 
 import * as AppService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/appservice";
 import * as ConsoleService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/consoleservice";
+import * as MCPService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/mcpservice";
 import * as PluginsService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/pluginsservice";
 import * as PerformanceService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/performanceservice";
 import * as NetworkService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/networkservice";
@@ -16,6 +17,8 @@ import type {
   NetworkSummary,
   MutationItem,
   PerformanceStatus,
+  McpCall,
+  McpTool,
   PluginDevice,
   PluginInfo,
   Screenshot,
@@ -167,6 +170,14 @@ export function createWailsBackend({ browser = false }: WailsBackendOptions = {}
         const result = await PerformanceService.SaveHeapSnapshot();
         return { ...result, path: await delivered(result.path) };
       },
+    },
+    mcp: {
+      status: () => MCPService.Status(),
+      // Enums and RawMessage arrive structurally typed; narrow once here.
+      tools: async () => ((await MCPService.Tools()) ?? []) as unknown as McpTool[],
+      activity: async (after) => ((await MCPService.Activity(after)) ?? []) as unknown as McpCall[],
+      clearActivity: () => done(MCPService.ClearActivity()),
+      setReadOnly: (on) => done(MCPService.SetReadOnly(on)),
     },
     plugins: {
       devices: async () => ((await PluginsService.Devices()) ?? []) as unknown as PluginDevice[],

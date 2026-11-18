@@ -2,6 +2,8 @@ import {
   TOPICS,
   type AppInfo,
   type MCPInfo,
+  type McpCall,
+  type McpTool,
   type Backend,
   type ConsoleEntry,
   type ConsoleProperty,
@@ -91,6 +93,8 @@ export interface MockBackend extends Backend {
       rowId?: string;
     }) => string | Promise<string>,
   ): void;
+  /** Records an AI tool call (seq and time are filled in) and notifies. */
+  recordMcpCall(call: Partial<McpCall> & { tool: string }): McpCall;
   /** Text last written through `clipboard.writeText`. */
   readonly clipboardText: string;
   /** Makes `clipboard.writeText` reject, to exercise the failure path. */
@@ -169,6 +173,15 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     fastRefresh: { phase: "off" },
   };
   let perfFailure: string | null = null;
+  let mcpReadOnly = false;
+  let mcpCalls: McpCall[] = [];
+  let mcpSeq = 0;
+  const mcpTools: McpTool[] = [
+    { name: "status", description: "Lens version and the attached app.", kind: "read" },
+    { name: "set_online", description: "Switch onlineManager.", kind: "change" },
+    { name: "clear_storage", description: "Delete every key of a store.", kind: "destructive" },
+  ];
+  const notifyMcp = () => emit(TOPICS.mcpChanged, { topic: TOPICS.mcpChanged, seq: Date.now() });
   const pluginDevices = new Map<string, { device: PluginDevice; plugins: PluginInfo[] }>();
   let pluginActionHandler: Parameters<MockBackend["onPluginAction"]>[0] = () => "";
   const notifyPlugins = () =>
@@ -669,6 +682,40 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
           ...(rowId ? { rowId } : {}),
         });
       },
+    },
+    mcp: {
+      status: async () => ({
+        enabled: Boolean(options.mcp?.url),
+        url: options.mcp?.url ?? "",
+        tokenSet: Boolean(options.mcp?.token),
+        readOnly: mcpReadOnly,
+      }),
+      tools: async () => (options.mcp?.url ? [...mcpTools] : []),
+      activity: async (after) => mcpCalls.filter((c) => c.seq > after),
+      clearActivity: async () => {
+        calls.push("mcp.clearActivity");
+        mcpCalls = [];
+        notifyMcp();
+      },
+      setReadOnly: async (on) => {
+        calls.push(`mcp.setReadOnly:${on}`);
+        if (!options.mcp?.url) throw new Error("MCP is off");
+        mcpReadOnly = on;
+        notifyMcp();
+      },
+    },
+    recordMcpCall: (call) => {
+      const full: McpCall = {
+        client: "claude-code 2.1",
+        kind: "read",
+        durationMs: 3,
+        time: new Date().toISOString(),
+        ...call,
+        seq: ++mcpSeq,
+      };
+      mcpCalls = [...mcpCalls, full];
+      notifyMcp();
+      return full;
     },
     setPlugins: (device, plugins) => {
       pluginDevices.set(device.key, { device, plugins });

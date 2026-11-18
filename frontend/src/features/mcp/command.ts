@@ -10,3 +10,9 @@ export function mcpCommand({ url, token }: MCPInfo): string {
   const base = `claude mcp add --transport http lens ${url}`;
   return token ? `${base} --header ${shellQuote(`Authorization: Bearer ${token}`)}` : base;
 }
+
+/** A Cursor `mcp.json` entry for this Lens. */
+export function cursorConfig({ url, token }: MCPInfo): string {
+  const server = token ? { url, headers: { Authorization: `Bearer ${token}` } } : { url };
+  return JSON.stringify({ mcpServers: { lens: server } }, null, 2);
+}

@@ -22,6 +22,22 @@ plugin panels, and screenshots.
 
 Any client that speaks MCP over streamable HTTP connects to the same URL.
 
+## The MCP panel
+
+**MCP** at the bottom of Lens's sidebar shows:
+
+- **Connect**: the endpoint URL and copy buttons for the Claude Code command,
+  a Cursor `mcp.json` entry and the plain URL (with the token header when one
+  is set; the token is never shown on screen).
+- **Read-only**: when on, every tool that changes the app is refused before
+  it runs, with a message telling the AI why; read tools keep working.
+  `--mcp-read-only` starts Lens with it on.
+- **Tools**: every tool with its kind (read, change, destructive).
+- **Activity**: every tool call an AI client made, newest first, with the
+  client, the outcome (ok, error, refused) and how long it took; click a
+  tool to see its arguments and result. Lens keeps the last 500 calls;
+  **Clear** empties the list.
+
 ## Tools
 
 | Tool                 | Does                                                                                                                                       | Kind        |
@@ -58,10 +74,11 @@ is unique). Results above 256 KiB are cut: narrow them with `search` or
 
 ## Options
 
-| Flag            | Default | Meaning                                                                |
-| --------------- | ------- | ---------------------------------------------------------------------- |
-| `--mcp-port N`  | `7431`  | Port of the MCP endpoint; `0` turns MCP off                            |
-| `--mcp-token T` | none    | Clients must send `Authorization: Bearer T`; prefer `RNLENS_MCP_TOKEN` |
+| Flag              | Default | Meaning                                                                |
+| ----------------- | ------- | ---------------------------------------------------------------------- |
+| `--mcp-port N`    | `7431`  | Port of the MCP endpoint; `0` turns MCP off                            |
+| `--mcp-token T`   | none    | Clients must send `Authorization: Bearer T`; prefer `RNLENS_MCP_TOKEN` |
+| `--mcp-read-only` | off     | Refuse the tools that change the app (switch it in the MCP panel)      |
 
 Set the token in the environment rather than on the command line: other
 users of the machine can read a process's arguments (`ps`), but not its
