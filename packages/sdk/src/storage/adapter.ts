@@ -8,7 +8,9 @@ import type {
   StorageValue,
 } from "@rnlens/protocol";
 
+import type { Log } from "../logger";
 import { jsonByteLength } from "../serialize";
+import { SNAPSHOT_FRAME_MAX_BYTES } from "../tanstack/serialize";
 import type { AdapterHost } from "../tanstack/adapter";
 import { decodeBase64, encodeBase64 } from "./base64";
 import type { AsyncStorageLike, LensStorageOptions, MMKVLike, SecureStoreLike } from "./types";
@@ -194,7 +196,7 @@ function mmkvSize(mmkv: MMKVLike, key: string): number | undefined {
 
 function parseMMKVValue(
   value: StorageValue,
-): string | number | boolean | Uint8Array | { error: string } {
+): string | number | boolean | ArrayBuffer | { error: string } {
   switch (value.type) {
     case "string":
       return value.value;
@@ -206,8 +208,15 @@ function parseMMKVValue(
       if (value.value === "true") return true;
       if (value.value === "false") return false;
       return { error: "value is not a boolean" };
-    case "bytes":
-      return decodeBase64(value.value) ?? { error: "value is not base64" };
+    case "bytes": {
+      // react-native-mmkv 4 (Nitro) takes bytes only as an ArrayBuffer.
+      const bytes = decodeBase64(value.value);
+      if (!bytes) return { error: "value is not base64" };
+      return bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer;
+    }
     default:
       return { error: `unsupported value type "${String((value as StorageValue).type)}"` };
   }
@@ -359,7 +368,10 @@ export function createStorageAdapter(
   }
 
   async function snapshot(only?: StoreDriver): Promise<void> {
-    const stores = await Promise.all((only ? [only] : drivers).map(describeStore));
+    const stores = fitFrame(
+      await Promise.all((only ? [only] : drivers).map(describeStore)),
+      host.log,
+    );
     if (!host.isReady()) return;
     const payload = only ? { stores, storeId: only.info.id } : { stores };
     host.send({ v: 1, type: "storage.snapshot", payload });
@@ -441,4 +453,30 @@ function removeMMKV(mmkv: MMKVLike, key: string): void {
   if (typeof mmkv.remove === "function") mmkv.remove(key);
   else if (typeof mmkv.delete === "function") mmkv.delete(key);
   else throw new Error("this MMKV instance has neither remove() nor delete()");
+}
+
+/**
+ * Keeps a storage.snapshot under Lens's frame limit (8 MiB): while the stores'
+ * keys are too large, the store with the most key bytes keeps fewer keys and
+ * is marked truncated. Only very long keys or many large stores need it.
+ */
+function fitFrame(stores: StorageStore[], log: Log): StorageStore[] {
+  const budget = SNAPSHOT_FRAME_MAX_BYTES - 64 * 1024; // envelope and slack
+  const bytesOf = (st: StorageStore) => utf8(JSON.stringify(st));
+  let total = stores.reduce((n, st) => n + bytesOf(st), 0);
+  if (total <= budget) return stores;
+  const out = stores.map((st) => ({ ...st, keys: [...st.keys] }));
+  while (total > budget) {
+    const largest = out.reduce((a, b) => (bytesOf(b) > bytesOf(a) ? b : a));
+    const size = bytesOf(largest);
+    const perKey = size / Math.max(largest.keys.length, 1);
+    const drop = Math.max(1, Math.ceil((total - budget) / perKey));
+    largest.keys = largest.keys.slice(0, Math.max(0, largest.keys.length - drop));
+    largest.truncated = true;
+    total = out.reduce((n, st) => n + bytesOf(st), 0);
+  }
+  log.warn(
+    `storage snapshot trimmed to fit the ${SNAPSHOT_FRAME_MAX_BYTES}-byte frame limit; very long keys were left out`,
+  );
+  return out;
 }

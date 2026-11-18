@@ -357,7 +357,8 @@ describe("MMKV", () => {
     expect((await set("b", "boolean", "true")).ok).toBe(true);
     expect(mmkv.data.get("b")).toBe(true);
     expect((await set("raw", "bytes", "AP8Q")).ok).toBe(true);
-    expect(mmkv.data.get("raw")).toEqual(bytes(0, 255, 16));
+    expect(mmkv.data.get("raw")).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(mmkv.data.get("raw") as ArrayBuffer)).toEqual(bytes(0, 255, 16));
     await lens.sync();
     const events = lens.drain("storage.event").map((e) => e.type === "storage.event" && e.payload);
     expect(events).toEqual([
@@ -486,5 +487,17 @@ describe("MMKV v4 value types (observed on a device)", () => {
     const res = await act({ type: "GET", storeId: "mmkv:m", key });
     expect(res.ok).toBe(true);
     expect(res.value).toMatchObject(want);
+  });
+});
+
+describe("snapshot size", () => {
+  it("keeps a storage.snapshot under Lens's 8 MiB frame limit", async () => {
+    const seed: Record<string, string> = {};
+    for (let i = 0; i < STORAGE_SNAPSHOT_MAX_KEYS; i++) seed[`${"k".repeat(900)}${i}`] = "v";
+    const stores = await connect({ asyncStorage: new FakeAsyncStorage(seed) });
+    const frame = JSON.stringify({ v: 1, type: "storage.snapshot", payload: { stores } });
+    expect(new TextEncoder().encode(frame).length).toBeLessThanOrEqual(8 * 1024 * 1024);
+    expect(stores[0].truncated).toBe(true);
+    expect(stores[0].keys.length).toBeGreaterThan(5_000);
   });
 });

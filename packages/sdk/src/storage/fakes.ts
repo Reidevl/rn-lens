@@ -69,6 +69,12 @@ export class FakeMMKV implements MMKVLike {
     return this.data.has(key);
   }
   set(key: string, value: MMKVValue): void {
+    // Like react-native-mmkv 4 (Nitro): bytes must be an ArrayBuffer.
+    if (typeof value === "object" && !(value instanceof ArrayBuffer)) {
+      throw new Error(
+        "Object is not an ArrayBuffer! Are you maybe passing a TypedArray (e.g. Uint8Array)?",
+      );
+    }
     this.data.set(key, value);
     this.notify(key);
   }
