@@ -321,6 +321,53 @@ export interface NetworkBody {
   size: number;
 }
 
+export type StorageKind = "async-storage" | "mmkv" | "secure-store";
+export type StorageValueType = "string" | "number" | "boolean" | "bytes";
+
+/** A connected SDK that exposes storage. */
+export interface StorageDevice {
+  key: string;
+  sessionId: string;
+  app: { id: string; name?: string; platform: string; rnVersion?: string };
+  device: { id: string; name?: string };
+  sdkVersion: string;
+  connectedAt: string;
+}
+
+export interface StorageKeyInfo {
+  key: string;
+  /** Bytes of the value, when the SDK can tell cheaply. */
+  size?: number;
+}
+
+export interface StorageStore {
+  id: string;
+  kind: StorageKind;
+  name: string;
+  keys: StorageKeyInfo[] | null;
+  /** More keys exist than the snapshot carries. */
+  truncated?: boolean;
+  /** Changes arrive as they happen (MMKV). */
+  live?: boolean;
+  /** Only the keys the app declared are listed (SecureStore). */
+  declaredKeys?: boolean;
+}
+
+/** A value: strings as is, numbers and booleans in JSON form, bytes as base64. */
+export interface StorageValue {
+  type: StorageValueType;
+  value: string;
+  truncated?: boolean;
+  size?: number;
+}
+
+export interface StorageImportOutcome {
+  /** "" when the user canceled. */
+  path: string;
+  written: number;
+  skipped: Record<string, string> | null;
+}
+
 /** Change-notification topics emitted by Go. Payloads carry no data. */
 export const TOPICS = {
   targetsChanged: "targets:changed",
@@ -328,6 +375,7 @@ export const TOPICS = {
   consoleChanged: "console:changed",
   queriesChanged: "queries:changed",
   networkChanged: "network:changed",
+  storageChanged: "storage:changed",
 } as const;
 
 export type Unsubscribe = () => void;
@@ -384,6 +432,26 @@ export interface Backend {
     clear(): Promise<void>;
     /** Asks where to save and writes a HAR; resolves to the path, or "" if canceled. */
     saveHAR(): Promise<string>;
+  };
+
+  storage: {
+    devices(): Promise<StorageDevice[]>;
+    stores(deviceKey: string): Promise<StorageStore[]>;
+    get(deviceKey: string, storeId: string, key: string): Promise<StorageValue>;
+    set(
+      deviceKey: string,
+      storeId: string,
+      key: string,
+      type: StorageValueType,
+      value: string,
+    ): Promise<void>;
+    remove(deviceKey: string, storeId: string, key: string): Promise<void>;
+    clear(deviceKey: string, storeId: string): Promise<void>;
+    refresh(deviceKey: string, storeId: string): Promise<void>;
+    /** Asks where to save; resolves to the path, or "" if canceled. */
+    exportStore(deviceKey: string, storeId: string): Promise<string>;
+    /** Asks for an export file and writes it into the store. */
+    importStore(deviceKey: string, storeId: string): Promise<StorageImportOutcome>;
   };
 
   clipboard: {

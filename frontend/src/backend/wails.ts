@@ -3,6 +3,7 @@ import { Clipboard, Events } from "@wailsio/runtime";
 import * as AppService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/appservice";
 import * as ConsoleService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/consoleservice";
 import * as NetworkService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/networkservice";
+import * as StorageService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/storageservice";
 import * as QueriesService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/queriesservice";
 import * as TargetsService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/targetsservice";
 import type {
@@ -16,6 +17,10 @@ import type {
   QueryItem,
   SdkDevice,
   SessionSnapshot,
+  StorageDevice,
+  StorageImportOutcome,
+  StorageStore,
+  StorageValue,
 } from "./Backend";
 
 /** Backend backed by the Wails v3 bindings and event bus. */
@@ -75,6 +80,22 @@ export function createWailsBackend(): Backend {
       requestBody: (seq, epoch) => NetworkService.RequestBody(seq, epoch),
       clear: () => NetworkService.Clear(),
       saveHAR: () => NetworkService.SaveHAR(),
+    },
+    storage: {
+      devices: async () => ((await StorageService.Devices()) ?? []) as unknown as StorageDevice[],
+      // Generated enums are string unions structurally; narrow once here.
+      stores: async (deviceKey) =>
+        ((await StorageService.Stores(deviceKey)) ?? []) as unknown as StorageStore[],
+      get: async (deviceKey, storeId, key) =>
+        (await StorageService.Get(deviceKey, storeId, key)) as unknown as StorageValue,
+      set: (deviceKey, storeId, key, type, value) =>
+        StorageService.Set(deviceKey, storeId, key, type, value),
+      remove: (deviceKey, storeId, key) => StorageService.Remove(deviceKey, storeId, key),
+      clear: (deviceKey, storeId) => StorageService.Clear(deviceKey, storeId),
+      refresh: (deviceKey, storeId) => StorageService.Refresh(deviceKey, storeId),
+      exportStore: (deviceKey, storeId) => StorageService.Export(deviceKey, storeId),
+      importStore: async (deviceKey, storeId) =>
+        (await StorageService.Import(deviceKey, storeId)) as unknown as StorageImportOutcome,
     },
     clipboard: {
       // The webview's navigator.clipboard is not reliable under the Wails

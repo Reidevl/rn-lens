@@ -15,6 +15,9 @@ import {
   type RemoteObject,
   type SdkDevice,
   type SessionSnapshot,
+  type StorageDevice,
+  type StorageStore,
+  type StorageValue,
   type Target,
   type Unsubscribe,
 } from "./Backend";
@@ -55,6 +58,14 @@ export interface MockBackend extends Backend {
   setResponseBody(seq: number, body: NetworkBody | string): void;
   /** Starts a new network epoch (a re-attach) and notifies. */
   resetNetworkEpoch(): void;
+  /** Connects a fake SDK device with stores and their values, and notifies. */
+  connectStorage(
+    device: StorageDevice,
+    stores: StorageStore[],
+    values?: Record<string, StorageValue>,
+  ): void;
+  /** Current value of `<storeId>/<key>` on the fake device, for assertions. */
+  storageValue(deviceKey: string, storeId: string, key: string): StorageValue | undefined;
   /** Text last written through `clipboard.writeText`. */
   readonly clipboardText: string;
   /** Makes `clipboard.writeText` reject, to exercise the failure path. */
@@ -120,6 +131,22 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
   let netEpoch = 1;
   let netCleared = 0;
   const netDropped = 0;
+  const storageDevices = new Map<
+    string,
+    { device: StorageDevice; stores: StorageStore[]; values: Map<string, StorageValue> }
+  >();
+  const notifyStorage = () =>
+    emit(TOPICS.storageChanged, { topic: TOPICS.storageChanged, seq: Date.now() });
+  const storageOf = (deviceKey: string, storeId: string) => {
+    const d = storageDevices.get(deviceKey);
+    if (!d) throw new Error("storage: unknown device");
+    const store = d.stores.find((s) => s.id === storeId);
+    if (!store) throw new Error("storage: unknown store");
+    return { d, store };
+  };
+  const setKeys = (store: StorageStore, keys: string[]) => {
+    store.keys = [...new Set(keys)].sort().map((key) => ({ key }));
+  };
   const notifyNetwork = () =>
     emit(TOPICS.networkChanged, { topic: TOPICS.networkChanged, seq: Date.now() });
   const devices = new Map<
@@ -456,6 +483,75 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
       netVersion += 1;
       notifyNetwork();
     },
+    storage: {
+      devices: () => Promise.resolve([...storageDevices.values()].map((d) => d.device)),
+      stores: (deviceKey) => {
+        const d = storageDevices.get(deviceKey);
+        return d
+          ? Promise.resolve(d.stores.map((s) => ({ ...s, keys: [...(s.keys ?? [])] })))
+          : Promise.reject(new Error("storage: unknown device"));
+      },
+      get: async (deviceKey, storeId, key) => {
+        calls.push(`storage.get:${storeId}/${key}`);
+        const { d } = storageOf(deviceKey, storeId);
+        const v = d.values.get(`${storeId}/${key}`);
+        if (!v) throw new Error("not set");
+        return v;
+      },
+      set: async (deviceKey, storeId, key, type, value) => {
+        calls.push(`storage.set:${storeId}/${key}=${type}:${value}`);
+        const { d, store } = storageOf(deviceKey, storeId);
+        d.values.set(`${storeId}/${key}`, { type, value });
+        setKeys(store, [...(store.keys ?? []).map((k) => k.key), key]);
+        notifyStorage();
+      },
+      remove: async (deviceKey, storeId, key) => {
+        calls.push(`storage.remove:${storeId}/${key}`);
+        const { d, store } = storageOf(deviceKey, storeId);
+        d.values.delete(`${storeId}/${key}`);
+        setKeys(
+          store,
+          (store.keys ?? []).map((k) => k.key).filter((k) => k !== key),
+        );
+        notifyStorage();
+      },
+      clear: async (deviceKey, storeId) => {
+        calls.push(`storage.clear:${storeId}`);
+        const { d, store } = storageOf(deviceKey, storeId);
+        for (const k of store.keys ?? []) d.values.delete(`${storeId}/${k.key}`);
+        store.keys = [];
+        notifyStorage();
+      },
+      refresh: async (deviceKey, storeId) => {
+        calls.push(`storage.refresh:${storeId}`);
+        storageOf(deviceKey, storeId);
+        notifyStorage();
+      },
+      exportStore: async (deviceKey, storeId) => {
+        calls.push(`storage.export:${storeId}`);
+        storageOf(deviceKey, storeId);
+        return "/Users/me/lens-async-storage.json";
+      },
+      importStore: async (deviceKey, storeId) => {
+        calls.push(`storage.import:${storeId}`);
+        storageOf(deviceKey, storeId);
+        return {
+          path: "/Users/me/backup.json",
+          written: 2,
+          skipped: { big: "the export holds only the size of this value" },
+        };
+      },
+    },
+    connectStorage: (device, stores, values = {}) => {
+      storageDevices.set(device.key, {
+        device,
+        stores: stores.map((s) => ({ ...s, keys: [...(s.keys ?? [])] })),
+        values: new Map(Object.entries(values)),
+      });
+      notifyStorage();
+    },
+    storageValue: (deviceKey, storeId, key) =>
+      storageDevices.get(deviceKey)?.values.get(`${storeId}/${key}`),
     clipboard: {
       writeText: (text) => {
         calls.push("clipboard.writeText");
