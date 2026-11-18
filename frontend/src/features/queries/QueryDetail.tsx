@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useBackend, type QueryActionType, type QueryItem } from "@/backend";
 import { cn } from "@/shared/lib/cn";
+import { useNow } from "@/shared/lib/useNow";
 import { Button } from "@/shared/ui/atoms/Button";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
@@ -22,6 +23,7 @@ const ACTIONS: Array<{ type: QueryActionType; label: string; danger?: boolean }>
 export function QueryDetail({ query, deviceKey }: { query: QueryItem; deviceKey: string }) {
   const backend = useBackend();
   const busy = useQueriesStore((s) => s.busy);
+  const now = useNow();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -61,7 +63,9 @@ export function QueryDetail({ query, deviceKey }: { query: QueryItem; deviceKey:
           </span>
           <span className="text-muted-foreground">fetch: {query.state.fetchStatus}</span>
           <span className="text-muted-foreground">observers: {query.observersCount}</span>
-          <span className="text-muted-foreground">updated {ago(query.state.dataUpdatedAt)}</span>
+          <span className="text-muted-foreground">
+            updated {ago(query.state.dataUpdatedAt, now)}
+          </span>
           {query.state.isInvalidated ? <span className="text-warning">invalidated</span> : null}
           {query.dataTruncated ? (
             <span className="text-warning">data truncated at 1 MiB</span>

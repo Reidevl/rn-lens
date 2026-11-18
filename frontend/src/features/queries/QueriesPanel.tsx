@@ -3,6 +3,7 @@ import { useMemo } from "react";
 
 import { useBackend, type QueryLabel } from "@/backend";
 import { cn } from "@/shared/lib/cn";
+import { useNow } from "@/shared/lib/useNow";
 import { Button } from "@/shared/ui/atoms/Button";
 
 import { DevicePicker } from "./DevicePicker";
@@ -29,6 +30,7 @@ export function QueriesPanel() {
   const toggleLabel = useQueriesStore((s) => s.toggleLabel);
   const error = useQueriesStore((s) => s.error);
   const busy = useQueriesStore((s) => s.busy);
+  const now = useNow();
 
   const visible = useMemo(() => visibleQueries(queries, labels, filter), [queries, labels, filter]);
   const selected = queries.find((q) => q.queryHash === selectedHash) ?? null;
@@ -142,7 +144,7 @@ export function QueriesPanel() {
                         {q.observersCount}
                       </span>
                       <span className="shrink-0 text-xs text-muted-foreground">
-                        {ago(q.state.dataUpdatedAt)}
+                        {ago(q.state.dataUpdatedAt, now)}
                       </span>
                     </button>
                   </li>

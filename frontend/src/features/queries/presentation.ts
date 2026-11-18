@@ -25,9 +25,10 @@ export function keyText(key: unknown): string {
   }
 }
 
-export function ago(ms: number): string {
+/** Relative label for `ms` measured from `now`, so callers can drive it from a ticking clock. */
+export function ago(ms: number, now: number = Date.now()): string {
   if (!ms) return "never";
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  const s = Math.max(0, Math.round((now - ms) / 1000));
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   return `${Math.round(s / 3600)}h ago`;

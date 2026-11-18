@@ -1,5 +1,6 @@
 import { useBackend } from "@/backend";
 import { cn } from "@/shared/lib/cn";
+import { useNow } from "@/shared/lib/useNow";
 import { Button } from "@/shared/ui/atoms/Button";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
@@ -19,6 +20,7 @@ export function MutationsPanel() {
   const selectMutation = useQueriesStore((s) => s.selectMutation);
   const busy = useQueriesStore((s) => s.busy);
   const error = useQueriesStore((s) => s.error);
+  const now = useNow();
   const selected = mutations.find((m) => m.mutationId === selectedId) ?? null;
 
   return (
@@ -87,7 +89,7 @@ export function MutationsPanel() {
                       {m.mutationKey ? keyText(m.mutationKey) : `#${m.mutationId}`}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {ago(m.state.submittedAt)}
+                      {ago(m.state.submittedAt, now)}
                     </span>
                   </button>
                 </li>
