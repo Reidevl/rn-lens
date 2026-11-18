@@ -1,17 +1,35 @@
+import type { CSSProperties } from "react";
+
 import { cn } from "@/shared/lib/cn";
 
 import { PANELS } from "./panels";
 import { useShellStore } from "./shellStore";
+import { hasInsetTitleBar } from "./titleBar";
 
 export function LeftRail() {
   const activePanel = useShellStore((s) => s.activePanel);
   const setActivePanel = useShellStore((s) => s.setActivePanel);
+  const inset = hasInsetTitleBar();
 
   return (
     <nav aria-label="Panels" className="flex h-full flex-col border-r border-border bg-card">
-      <div className="flex h-12 items-center px-4 pt-1">
-        <span className="font-mono text-sm font-semibold tracking-wide text-foreground">Lens</span>
-      </div>
+      {inset ? (
+        // macOS: like Finder or Mail, the top of the sidebar belongs to the
+        // window buttons. It stays empty and drags the window; the panels
+        // start below it.
+        <div
+          data-titlebar="inset"
+          aria-hidden="true"
+          style={{ "--wails-draggable": "drag" } as CSSProperties}
+          className="h-[52px] shrink-0"
+        />
+      ) : (
+        <div className="flex h-12 shrink-0 items-center px-4 pt-1">
+          <span className="font-mono text-sm font-semibold tracking-wide text-foreground">
+            Lens
+          </span>
+        </div>
+      )}
       <ul className="flex flex-col gap-0.5 px-2">
         {PANELS.map(({ id, label, icon: Icon }) => {
           const active = id === activePanel;
