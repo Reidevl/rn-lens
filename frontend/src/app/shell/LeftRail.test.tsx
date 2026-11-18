@@ -4,15 +4,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LeftRail } from "./LeftRail";
 import { hasInsetTitleBar } from "./titleBar";
 
-const mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15";
-
 describe("hasInsetTitleBar", () => {
   it("is true only in the macOS desktop app", () => {
-    expect(hasInsetTitleBar({ _wails: {} }, mac)).toBe(true);
-    expect(hasInsetTitleBar({}, mac)).toBe(false); // browser mode
-    expect(hasInsetTitleBar({ _wails: {} }, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(
-      false,
-    );
+    expect(hasInsetTitleBar({ _wails: { environment: { OS: "darwin" } } })).toBe(true);
+    expect(hasInsetTitleBar({ _wails: { environment: { OS: "windows" } } })).toBe(false);
+    // Browser mode on a Mac: the runtime created _wails without environment.
+    expect(hasInsetTitleBar({ _wails: {} })).toBe(false);
+    expect(hasInsetTitleBar({})).toBe(false);
   });
 });
 
@@ -22,8 +20,7 @@ describe("LeftRail", () => {
   });
 
   it("leaves the macOS window buttons alone in a draggable title bar, like Finder", () => {
-    (window as { _wails?: unknown })._wails = {};
-    Object.defineProperty(navigator, "userAgent", { value: mac, configurable: true });
+    (window as { _wails?: unknown })._wails = { environment: { OS: "darwin" } };
     const { container } = render(<LeftRail />);
     const bar = container.querySelector('[data-titlebar="inset"]') as HTMLElement;
     expect(bar).not.toBeNull();
@@ -33,7 +30,8 @@ describe("LeftRail", () => {
     expect(screen.getByRole("navigation", { name: "Panels" })).toBeInTheDocument();
   });
 
-  it("keeps the plain header elsewhere", () => {
+  it("keeps the plain header elsewhere, including browser mode on a Mac", () => {
+    (window as { _wails?: unknown })._wails = {};
     render(<LeftRail />);
     const header = screen.getByText("Lens").parentElement!;
     expect(header).not.toHaveAttribute("data-titlebar");

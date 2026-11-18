@@ -1,11 +1,13 @@
+interface WailsWindow {
+  _wails?: { environment?: { OS?: string } };
+}
+
 /**
  * True in the macOS desktop app, where the window has no title bar and the
  * close, minimize and zoom buttons sit over the top-left of the page.
- * Browser mode and the other systems keep a normal title bar.
+ * Only the desktop webview's startup script sets `_wails.environment`; in
+ * browser mode the Wails runtime creates `_wails` without it.
  */
-export function hasInsetTitleBar(
-  win: { _wails?: unknown } = window as unknown as { _wails?: unknown },
-  platform: string = navigator.userAgent,
-): boolean {
-  return "_wails" in win && win._wails !== undefined && /Macintosh|Mac OS X/.test(platform);
+export function hasInsetTitleBar(win: WailsWindow = window as unknown as WailsWindow): boolean {
+  return win._wails?.environment?.OS === "darwin";
 }
