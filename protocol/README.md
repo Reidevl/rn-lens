@@ -54,18 +54,22 @@ reconnect with backoff.
 
 ## Messages
 
-| Direction               | `type`             | Purpose                                                                                  |
-| ----------------------- | ------------------ | ---------------------------------------------------------------------------------------- |
-| SDK → Lens              | `hello`            | identity, app, device, features; must be the first frame within 5 s                      |
-| Lens → SDK              | `welcome`          | accepted; carries the Lens version and a session id                                      |
-| Lens → SDK              | `snapshot.request` | ask for a full `queries.snapshot`                                                        |
-| SDK → Lens              | `queries.snapshot` | every query and mutation plus the online flag                                            |
-| SDK → Lens              | `query.event`      | one cache change: `added`, `updated` (with `action` and `delta`), `removed`, `observers` |
-| SDK → Lens              | `mutation.event`   | one mutation cache change                                                                |
-| SDK → Lens              | `online.status`    | `onlineManager` changed on the device                                                    |
-| Lens → SDK              | `query.action`     | run a devtools action; answered by `action.result` with the same `id`                    |
-| Lens → SDK              | `online.set`       | set `onlineManager` on the device                                                        |
-| Lens → SDK / SDK → Lens | `ping` / `pong`    | liveness                                                                                 |
+| Direction               | `type`             | Purpose                                                                                                                   |
+| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| SDK → Lens              | `hello`            | identity, app, device, features; must be the first frame within 5 s                                                       |
+| Lens → SDK              | `welcome`          | accepted; carries the Lens version and a session id                                                                       |
+| Lens → SDK              | `snapshot.request` | ask for a full `queries.snapshot`                                                                                         |
+| SDK → Lens              | `queries.snapshot` | every query and mutation plus the online flag                                                                             |
+| SDK → Lens              | `query.event`      | one cache change: `added`, `updated` (with `action` and `delta`), `removed`, `observers`                                  |
+| SDK → Lens              | `mutation.event`   | one mutation cache change                                                                                                 |
+| SDK → Lens              | `online.status`    | `onlineManager` changed on the device                                                                                     |
+| Lens → SDK              | `query.action`     | run a devtools action; answered by `action.result` with the same `id`                                                     |
+| Lens → SDK              | `online.set`       | set `onlineManager` on the device                                                                                         |
+| Lens → SDK / SDK → Lens | `ping` / `pong`    | liveness                                                                                                                  |
+| SDK → Lens              | `storage.snapshot` | every store (AsyncStorage, MMKV instances, SecureStore) with its keys and sizes; `storeId` set when it replaces one store |
+| SDK → Lens              | `storage.event`    | a key changed in a live store (MMKV): `set`, `removed`, `cleared`                                                         |
+| Lens → SDK              | `storage.action`   | `GET`, `SET`, `REMOVE`, `CLEAR` or `REFRESH` a store; answered by `storage.result` with the same `id`                     |
+| SDK → Lens              | `storage.result`   | outcome of a `storage.action`; carries the value for `GET`                                                                |
 
 ## Delta policy for `query.event` (`kind: updated`)
 
@@ -88,11 +92,23 @@ devtools recipes for `TRIGGER_LOADING`, `TRIGGER_ERROR` and `RESET` do), the
 SDK sends `null` and Lens clears the mirrored field (`dataTruncated` becomes
 false). A full `query` or `queries.snapshot` simply omits undefined fields.
 
+### Storage values
+
+A value travels as `{ "type", "value" }`: `string` as is, `number` and
+`boolean` in JSON form (`"42"`, `"true"`), `bytes` as base64. Snapshots carry
+keys only; Lens reads a value with `GET` when someone opens it. Storage
+answers use their own `storage.result`, so their ids never collide with
+`action.result` ids of the queries feature.
+
 ## Payload limits
 
 `data`, `error`, `variables` and `context` are serialized with a safe
 serializer (BigInt as string, Date as ISO string, circular references as
 `"[Circular]"`, depth 20) and cut at 1 MiB; a cut value sets `dataTruncated`.
+
+A storage value above 1 MiB is answered with `truncated: true`, its `size`
+and an empty `value`. A `storage.snapshot` lists at most 10,000 keys per store
+and sets `truncated` on a store that has more.
 
 Lens reads frames of at most 8 MiB (`SNAPSHOT_FRAME_MAX_BYTES` in
 `@rnlens/sdk`). A `queries.snapshot` is capped as a whole at 6 MiB

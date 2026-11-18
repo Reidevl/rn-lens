@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "storage.result",
+  "id": "s3",
+  "payload": {
+    "id": "s3",
+    "ok": false,
+    "error": "key is excluded by the app"
+  }
+}

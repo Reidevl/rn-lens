@@ -105,6 +105,7 @@ func TestFixturesConformOnBothSides(t *testing.T) {
 			protocol.TypeHello, protocol.TypeWelcome, protocol.TypeSnapshotRequest, protocol.TypeQueriesSnapshot,
 			protocol.TypeQueryEvent, protocol.TypeMutationEvent, protocol.TypeOnlineStatus, protocol.TypeQueryAction,
 			protocol.TypeActionResult, protocol.TypeOnlineSet, protocol.TypePing, protocol.TypePong,
+			protocol.TypeStorageSnapshot, protocol.TypeStorageEvent, protocol.TypeStorageAction, protocol.TypeStorageResult,
 		} {
 			if !seen[typ] {
 				t.Errorf("no fixture covers message type %q", typ)
@@ -178,6 +179,35 @@ func TestIsActionTypeAcceptsExactlyTheSchemaActions(t *testing.T) {
 		if protocol.IsActionType(typ) {
 			t.Fatalf("IsActionType(%q) = true, want false", typ)
 		}
+	}
+}
+
+func TestIsStorageActionTypeAcceptsExactlyTheSchemaActions(t *testing.T) {
+	t.Parallel()
+	for _, typ := range protocol.StorageActionTypes {
+		if !protocol.IsStorageActionType(typ) {
+			t.Fatalf("IsStorageActionType(%q) = false, want true", typ)
+		}
+	}
+	for _, typ := range []string{"", "get", "REFETCH", "DROP"} {
+		if protocol.IsStorageActionType(typ) {
+			t.Fatalf("IsStorageActionType(%q) = true, want false", typ)
+		}
+	}
+}
+
+func TestStorageValueRoundTripsBytesAsBase64(t *testing.T) {
+	t.Parallel()
+	msg, err := protocol.Decode([]byte(`{"v":1,"type":"storage.result","id":"s1","payload":{"id":"s1","ok":true,"value":{"type":"bytes","value":"AAH/","size":3}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res protocol.StorageResult
+	if err := msg.PayloadInto(&res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Value == nil || res.Value.Type != protocol.StorageValueBytes || res.Value.Value != "AAH/" || res.Value.Size != 3 {
+		t.Fatalf("value = %+v", res.Value)
 	}
 }
 

@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "storage.event",
+  "payload": {
+    "storeId": "mmkv:default",
+    "kind": "set",
+    "key": "launches",
+    "size": 8
+  }
+}

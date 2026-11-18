@@ -1,4 +1,4 @@
-import type { LensMessage, QueryActionType } from "./types";
+import type { LensMessage, QueryActionType, StorageActionType } from "./types";
 
 /** Protocol major this package describes. */
 export const PROTOCOL_VERSION = 1 as const;
@@ -17,6 +17,10 @@ export const MESSAGE_TYPES = [
   "query.action",
   "online.set",
   "ping",
+  "storage.snapshot",
+  "storage.event",
+  "storage.action",
+  "storage.result",
 ] as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[number];
@@ -34,6 +38,15 @@ export const QUERY_ACTION_TYPES: readonly QueryActionType[] = [
   "RESTORE_LOADING",
   "CLEAR_QUERY_CACHE",
   "CLEAR_MUTATION_CACHE",
+];
+
+/** Every storage action Lens can ask the device to run. */
+export const STORAGE_ACTION_TYPES: readonly StorageActionType[] = [
+  "GET",
+  "SET",
+  "REMOVE",
+  "CLEAR",
+  "REFRESH",
 ];
 
 /** Cheap structural check for the envelope; full validation is the schema's job. */

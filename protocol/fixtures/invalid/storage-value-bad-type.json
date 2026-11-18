@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "type": "storage.result",
+  "id": "s9",
+  "payload": {
+    "id": "s9",
+    "ok": true,
+    "value": {
+      "type": "date",
+      "value": "2026"
+    }
+  }
+}

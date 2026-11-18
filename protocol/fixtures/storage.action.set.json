@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "storage.action",
+  "id": "s1",
+  "payload": {
+    "id": "s1",
+    "type": "SET",
+    "storeId": "async-storage",
+    "key": "theme",
+    "value": {
+      "type": "string",
+      "value": "\"dark\""
+    }
+  }
+}

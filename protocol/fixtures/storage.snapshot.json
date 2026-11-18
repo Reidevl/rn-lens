@@ -1,0 +1,48 @@
+{
+  "v": 1,
+  "type": "storage.snapshot",
+  "payload": {
+    "stores": [
+      {
+        "id": "async-storage",
+        "kind": "async-storage",
+        "name": "AsyncStorage",
+        "keys": [
+          {
+            "key": "session",
+            "size": 42
+          },
+          {
+            "key": "theme",
+            "size": 6
+          }
+        ],
+        "live": false
+      },
+      {
+        "id": "mmkv:default",
+        "kind": "mmkv",
+        "name": "default",
+        "keys": [
+          {
+            "key": "launches",
+            "size": 8
+          }
+        ],
+        "live": true
+      },
+      {
+        "id": "secure-store",
+        "kind": "secure-store",
+        "name": "SecureStore",
+        "keys": [
+          {
+            "key": "token"
+          }
+        ],
+        "declaredKeys": true,
+        "live": false
+      }
+    ]
+  }
+}
