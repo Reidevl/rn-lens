@@ -188,9 +188,13 @@ export function NetworkTable({
       return;
     }
     e.preventDefault();
+    const seq = rows[target].seq;
     virtualizer.scrollToIndex(target);
-    parentRef.current?.querySelector<HTMLElement>(`[data-seq="${rows[target].seq}"]`)?.focus();
-    onSelect(rows[target].seq);
+    onSelect(seq);
+    // A far row (Home/End) renders only after the scroll; focus it next frame.
+    requestAnimationFrame(() => {
+      parentRef.current?.querySelector<HTMLElement>(`[data-seq="${seq}"]`)?.focus();
+    });
   };
 
   return (
