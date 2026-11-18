@@ -28,14 +28,25 @@ the old workflow file.
 
 ## npm publishing setup
 
-Each of the eight packages has a **Trusted Publisher** on npmjs.com:
-GitHub Actions, `Reidevl/rn-lens`, workflow `release.yml`, with
-"Allow npm publish" left unchecked, so it can only stage.
+Each of the eight packages has **two Trusted Publishers** on npmjs.com, both
+GitHub Actions on `Reidevl/rn-lens`:
 
-The `NPM_TOKEN` secret is a fallback until a release shows trusted
-publishing works. Then delete the secret, revoke the token, and set each
-package's publishing access to "Require two-factor authentication and
-disallow bypass 2fa tokens".
+| Workflow filename    | Covers                                                                                   |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `release-please.yml` | Normal releases. npm checks the calling workflow, and Release Please calls `release.yml` |
+| `release.yml`        | Runs started by hand with `gh workflow run release.yml`                                  |
+
+Leave "Allow npm publish" and "Allow npm dist-tag" unchecked on both. Staging
+is always allowed, so the publisher can stage versions but never put one live.
+
+The `NPM_TOKEN` secret is a fallback: npm 11 uses trusted publishing when it
+can and the token otherwise, and stays green either way, so a green run proves
+nothing. The test is a release without the token: delete the `NPM_TOKEN`
+secret before the next release. If the versions are staged, trusted
+publishing works; revoke the token and set each package's publishing access
+to "Require two-factor authentication and disallow bypass 2fa tokens". If the
+staging fails, nothing reached npm: fix the trusted publishers and run
+`gh workflow run release.yml -f tag=vX.Y.Z`.
 
 ## Secrets
 
