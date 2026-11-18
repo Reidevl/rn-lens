@@ -23,7 +23,8 @@ import (
 // the Debugger domain enabled. LENS_E2E_TRACE_OUT, when set, is where the
 // trace is written, to open it in Perfetto UI. LENS_E2E_FAST_REFRESH_FILE,
 // when set to a source file of the app, gets a comment appended (then
-// removed) and the test waits for the Fast Refresh it triggers.
+// removed) and the test waits for the Fast Refresh it triggers, then for the
+// bundling error of a syntax error and the refresh that fixes it.
 func TestE2E_PerformanceRecordings(t *testing.T) {
 	endpoint := os.Getenv("LENS_E2E_METRO")
 	if endpoint == "" || testing.Short() {
@@ -89,6 +90,22 @@ func TestE2E_PerformanceRecordings(t *testing.T) {
 		}
 		waitFor("a Fast Refresh", func() bool { return a.FastRefresh().Phase == fastrefresh.PhaseUpdated })
 		t.Logf("fast refresh: %+v", a.FastRefresh())
+
+		// A syntax error: Metro answers update-start, error, update-done.
+		broken := append(append([]byte(nil), original...), []byte("\nconst lensE2eBroken = ;\n")...)
+		if err := os.WriteFile(file, broken, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		waitFor("a bundling error", func() bool { return a.FastRefresh().Phase == fastrefresh.PhaseError })
+		time.Sleep(time.Second) // update-done must not replace the error
+		if st := a.FastRefresh(); st.Phase != fastrefresh.PhaseError {
+			t.Fatalf("bundling error replaced by %+v", st)
+		}
+		t.Logf("fast refresh error: %s", truncate(a.FastRefresh().Message, 120))
+		if err := os.WriteFile(file, original, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		waitFor("the fix to refresh", func() bool { return a.FastRefresh().Phase == fastrefresh.PhaseUpdated })
 	}
 	p := a.Performance()
 
