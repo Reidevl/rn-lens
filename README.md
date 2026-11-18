@@ -20,6 +20,7 @@ window.
 | Queries and Mutations (TanStack Query)                                                                                    | `@rnlens/sdk`                      | One hook        |
 | Storage (AsyncStorage, MMKV, SecureStore) — [guide](docs/guides/storage.md)                                               | `@rnlens/sdk`                      | One hook        |
 | Plugins: your own panels, drawn by Lens — [guide](docs/guides/plugins.md)                                                 | `@rnlens/sdk`                      | One panel       |
+| MCP: Claude and other AI clients read and manage the app — [guide](docs/guides/mcp.md)                                    | Lens                               | No              |
 | Performance: screenshot, trace (Perfetto), CPU profile, heap snapshot, Fast Refresh — [guide](docs/guides/performance.md) | CDP                                | No              |
 
 ## Install
