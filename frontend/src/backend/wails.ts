@@ -65,6 +65,7 @@ export function createWailsBackend({ browser = false }: WailsBackendOptions = {}
     kind: "wails",
     app: {
       info: () => AppService.Info(),
+      mcp: () => AppService.MCP(),
     },
     targets: {
       list: async () => (await TargetsService.List()) ?? [],
