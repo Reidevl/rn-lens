@@ -31,9 +31,13 @@ export function createPanelsAdapter(input: LensPanel[], host: AdapterHost): Pane
     panels.set(panel.id, panel);
   }
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** The latest render started per panel; an older one finishing later is dropped. */
+  const renders = new Map<string, number>();
   let unsubscribes: Array<() => void> = [];
 
   async function sendView(panel: LensPanel): Promise<void> {
+    const ticket = (renders.get(panel.id) ?? 0) + 1;
+    renders.set(panel.id, ticket);
     let blocks: PluginBlock[];
     try {
       blocks = toSafeJson(await panel.render()) as PluginBlock[];
@@ -42,6 +46,7 @@ export function createPanelsAdapter(input: LensPanel[], host: AdapterHost): Pane
         `The panel failed to render: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    if (renders.get(panel.id) !== ticket) return; // a newer render already ran
     let frame = JSON.stringify({
       v: 1,
       type: "plugin.view",

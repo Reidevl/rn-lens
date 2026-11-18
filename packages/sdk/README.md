@@ -156,7 +156,10 @@ const flagsPanel = createLensPanel({
   },
 });
 
-useLens({ panels: [flagsPanel] });
+export function App() {
+  useLens({ panels: [flagsPanel] });
+  // …your app
+}
 ```
 
 | Block      | Fields                                                              |
@@ -167,6 +170,10 @@ useLens({ panels: [flagsPanel] });
 | `json`     | `value` (any JSON value, shown as a tree)                           |
 | `log`      | `entries: [{ text, level?, time? }]`, newest last                   |
 | `actions`  | `actions: [{ id, label, destructive?, confirm? }]`                  |
+
+`useLens` reads its options once: create panels at module level and pass
+every panel on the first render. A panel needs a `name` of 1 to 64
+characters and an `id` of lowercase letters, digits, `.`, `_` or `-`.
 
 Every block has an `id` and an optional `title`. Actions call `onAction` with
 `{ blockId, actionId, rowId? }`: return a short message to show in Lens, or

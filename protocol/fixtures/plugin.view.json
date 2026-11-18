@@ -8,7 +8,8 @@
         "type": "text",
         "id": "intro",
         "text": "Flags override the remote config until the app restarts.",
-        "tone": "muted"
+        "tone": "muted",
+        "title": "About"
       },
       {
         "type": "table",

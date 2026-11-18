@@ -27,7 +27,10 @@ const queuePanel = createLensPanel({
   onAction: ({ rowId }) => retryUpload(rowId!),
 });
 
-useLens({ panels: [queuePanel] });
+export function App() {
+  useLens({ panels: [queuePanel] });
+  // …your app
+}
 ```
 
 Call `queuePanel.refresh()` when the queue changes. Everyone who attaches

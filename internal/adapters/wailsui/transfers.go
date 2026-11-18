@@ -9,14 +9,24 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
 
 // maxUploadBytes bounds one upload; it matches the storage import limit.
 const maxUploadBytes = maxImportBytes
+
+// maxPendingUploads bounds the uploads kept for an import; older ones are
+// removed, so a page cannot fill the disk.
+const maxPendingUploads = 4
+
+// maxPendingDownloads bounds the saves the browser has not fetched yet;
+// older ones are removed.
+const maxPendingDownloads = 16
 
 // errUnknownTransfer means a download or upload token is not (or no longer)
 // registered.
@@ -33,6 +43,8 @@ type transfers struct {
 	downloads map[string]string // token -> file path
 	byPath    map[string]string // file path -> token
 	uploads   map[string]string // token -> file path
+	upOrder   []string          // upload tokens, oldest first
+	downOrder []string          // download tokens, oldest first
 }
 
 func newTransfers() (*transfers, error) {
@@ -64,7 +76,21 @@ func (t *transfers) savePath(name string) (string, error) {
 	t.mu.Lock()
 	t.downloads[tok] = path
 	t.byPath[path] = tok
+	t.downOrder = append(t.downOrder, tok)
+	var evicted []string
+	for len(t.downOrder) > maxPendingDownloads {
+		old := t.downOrder[0]
+		t.downOrder = t.downOrder[1:]
+		if p, ok := t.downloads[old]; ok {
+			evicted = append(evicted, filepath.Dir(p))
+			delete(t.downloads, old)
+			delete(t.byPath, p)
+		}
+	}
 	t.mu.Unlock()
+	for _, dir := range evicted {
+		_ = os.RemoveAll(dir)
+	}
 	return path, nil
 }
 
@@ -96,6 +122,7 @@ func (t *transfers) forgetUpload(tok string) {
 	t.mu.Lock()
 	path, ok := t.uploads[tok]
 	delete(t.uploads, tok)
+	t.upOrder = slices.DeleteFunc(t.upOrder, func(s string) bool { return s == tok })
 	t.mu.Unlock()
 	if ok {
 		_ = os.RemoveAll(filepath.Dir(path))
@@ -110,6 +137,10 @@ func (t *transfers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/lens/downloads/"):
 		t.serveDownload(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/lens/uploads":
+		if !sameOrigin(r) {
+			http.Error(w, "uploads are only accepted from the Lens page", http.StatusForbidden)
+			return
+		}
 		t.receiveUpload(w, r)
 	default:
 		http.NotFound(w, r)
@@ -122,6 +153,7 @@ func (t *transfers) serveDownload(w http.ResponseWriter, r *http.Request) {
 	path, ok := t.downloads[tok]
 	delete(t.downloads, tok)
 	delete(t.byPath, path)
+	t.downOrder = slices.DeleteFunc(t.downOrder, func(s string) bool { return s == tok })
 	t.mu.Unlock()
 	if !ok {
 		http.NotFound(w, r)
@@ -164,7 +196,36 @@ func (t *transfers) receiveUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	t.mu.Lock()
 	t.uploads[tok] = path
+	t.upOrder = append(t.upOrder, tok)
+	var evicted []string
+	for len(t.upOrder) > maxPendingUploads {
+		old := t.upOrder[0]
+		t.upOrder = t.upOrder[1:]
+		if p, ok := t.uploads[old]; ok {
+			evicted = append(evicted, filepath.Dir(p))
+			delete(t.uploads, old)
+		}
+	}
 	t.mu.Unlock()
+	for _, dir := range evicted {
+		_ = os.RemoveAll(dir)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"token": tok})
+}
+
+// sameOrigin reports whether a request comes from the Lens page itself. A
+// page the user opened on another site can POST to localhost too: browsers
+// mark it with Sec-Fetch-Site and an Origin that is not Lens's host.
+func sameOrigin(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "cross-site", "same-site":
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // not a browser cross-origin request (curl, the tests)
+	}
+	u, err := url.Parse(origin)
+	return err == nil && strings.EqualFold(u.Host, r.Host)
 }

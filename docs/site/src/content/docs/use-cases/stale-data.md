@@ -11,7 +11,8 @@ description: Inspect TanStack Query caches and force the states you need to test
    - **Trigger loading** and **Trigger error** to check the screen's loading
      and error states without touching the server.
    - **Edit data** to try an edge case the API rarely returns.
-4. Toggle **offline** in the status bar to test how the app behaves when
+4. Click **Online** next to the device picker of the Queries panel to switch
+   the app to offline (it then reads **Offline**) and test how it behaves when
    `onlineManager` says the device is offline.
 
 Mutations get the same view in **Mutations**.

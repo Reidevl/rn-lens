@@ -6,7 +6,7 @@
 //
 //   node scripts/sync.mjs            (run by `pnpm build` and `pnpm dev`)
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, normalize, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const REPO = "https://github.com/Reidevl/rn-lens/blob/main";
@@ -30,14 +30,15 @@ export function convert(markdown, source, map) {
   if (h1 < 0) throw new Error(`${source}: no "# Title" line`);
   const title = lines[h1].slice(2).trim();
   lines.splice(h1, 1);
-  const from = dirname(source);
+  // Repository paths use "/" on every OS, so links resolve the same on Windows.
+  const from = posix.dirname(source);
   const body = lines
     .join("\n")
     .replace(/^\n+/, "")
     .replace(/\]\(([^)\s]+)\)/g, (match, href) => {
       if (/^[a-z]+:|^#|^\//i.test(href)) return match;
       const [path, hash = ""] = href.split("#");
-      const target = normalize(join(from, path));
+      const target = posix.normalize(posix.join(from, path));
       const slug = map.get(target);
       const anchor = hash ? `#${hash}` : "";
       if (slug) return `](/${slug}/${anchor})`;

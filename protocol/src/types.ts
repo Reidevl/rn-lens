@@ -584,6 +584,7 @@ export interface PluginViewPayload {
 export interface PluginTextBlock {
   type: "text";
   id: string;
+  title?: string;
   text: string;
   tone?: "default" | "muted" | "warning" | "error";
 }

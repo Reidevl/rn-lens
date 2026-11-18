@@ -66,9 +66,10 @@ tasks:
       - task: lint:frontend
 
   lint:go:
-    summary: Runs golangci-lint
+    summary: Runs golangci-lint on the desktop and server builds
     cmds:
       - golangci-lint run ./...
+      - golangci-lint run --build-tags server ./...
 
   lint:frontend:
     summary: Runs ESLint and Prettier across the pnpm workspace
@@ -99,6 +100,8 @@ tasks:
         else
           go test -race -count=1 ./...
         fi
+      # The server build (browser mode) has its own files in these packages.
+      - go test -race -count=1 -tags server ./cmd/... ./internal/adapters/wailsui/...
 
   test:frontend:
     summary: Runs Vitest across the pnpm workspace

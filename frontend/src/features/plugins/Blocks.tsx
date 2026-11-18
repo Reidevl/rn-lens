@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { PluginBlock, PluginButton } from "@/backend";
 import { cn } from "@/shared/lib/cn";
@@ -15,8 +15,45 @@ interface BlockProps {
   running: string | null;
 }
 
-/** Draws one block of a plugin panel with Lens's own components. */
-export function Block({ block, onAction, running }: BlockProps) {
+/** Draws one block; a malformed block shows an error instead of breaking the panel. */
+export function Block(props: BlockProps) {
+  return (
+    <BlockBoundary block={props.block}>
+      <BlockBody {...props} />
+    </BlockBoundary>
+  );
+}
+
+/** Contains a render error to its block; a new view of the block retries. */
+class BlockBoundary extends Component<
+  { block: PluginBlock; children: ReactNode },
+  { error: string | null; block: PluginBlock }
+> {
+  state = { error: null as string | null, block: this.props.block };
+
+  static getDerivedStateFromProps(
+    props: { block: PluginBlock },
+    state: { error: string | null; block: PluginBlock },
+  ) {
+    return props.block === state.block ? null : { error: null, block: props.block };
+  }
+
+  static getDerivedStateFromError(err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  render() {
+    if (this.state.error === null) return this.props.children;
+    const { id, type } = this.props.block as { id?: unknown; type?: unknown };
+    return (
+      <p role="alert" className="text-xs text-destructive">
+        This block could not be drawn ({String(type)} &quot;{String(id)}&quot;): {this.state.error}
+      </p>
+    );
+  }
+}
+
+function BlockBody({ block, onAction, running }: BlockProps) {
   const body = (() => {
     switch (block.type) {
       case "text":
@@ -221,6 +258,11 @@ function ActionButton({
   onRun: () => void;
 }) {
   const [asking, setAsking] = useState(false);
+  const cancel = useRef<HTMLButtonElement>(null);
+  // Focus Cancel when the prompt opens, so Escape and Enter act on it.
+  useEffect(() => {
+    if (asking) cancel.current?.focus();
+  }, [asking]);
   const name = context ? `${action.label} ${context}` : action.label;
   if (asking) {
     return (
@@ -240,7 +282,7 @@ function ActionButton({
         >
           Confirm
         </Button>
-        <Button size="sm" onClick={() => setAsking(false)}>
+        <Button ref={cancel} size="sm" onClick={() => setAsking(false)}>
           Cancel
         </Button>
       </span>
