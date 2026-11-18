@@ -16,10 +16,13 @@ export function CopyButton({
   label,
   copy,
   disabled,
+  text = "Copy",
 }: {
   label: string;
   copy: () => Promise<void>;
   disabled?: boolean;
+  /** Visible text while idle; defaults to "Copy". */
+  text?: string;
 }) {
   const [status, setStatus] = useState<Status>("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -55,7 +58,7 @@ export function CopyButton({
         <Copy aria-hidden="true" className="size-3.5" />
       )}
       <span className={status === "failed" ? "text-destructive" : undefined}>
-        {status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : "Copy"}
+        {status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : text}
       </span>
     </Button>
   );

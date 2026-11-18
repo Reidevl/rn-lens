@@ -162,13 +162,14 @@ describe("NetworkPanel", () => {
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.filter((r) => r.tabIndex === 0)).toHaveLength(1);
 
+    // Newest first by default: logo.png, then json.
     rows[0].focus();
     await user.keyboard("{ArrowDown}");
-    const second = within(table).getByRole("row", { name: /logo\.png/ });
+    const second = within(table).getByRole("row", { name: /json/ });
     expect(second).toHaveAttribute("aria-selected", "true");
     expect(second).toHaveFocus();
     await user.keyboard("{ArrowUp}");
-    expect(within(table).getByRole("row", { name: /json/ })).toHaveAttribute(
+    expect(within(table).getByRole("row", { name: /logo\.png/ })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -202,5 +203,48 @@ describe("NetworkPanel", () => {
     await user.click(await within(table).findByRole("row", { name: /todos/ }));
     await user.click(await screen.findByRole("button", { name: "Copy as cURL" }));
     await waitFor(() => expect(backend.clipboardText).toContain("--data-raw 'a=1'"));
+  });
+
+  it("lists the newest request first and sorts by any column", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(3));
+    const names = () =>
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((r) => r.textContent ?? "");
+    expect(names()[0]).toMatch(/logo\.png/);
+    expect(within(table).getByRole("columnheader", { name: /Waterfall/ })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+
+    await user.click(within(table).getByRole("button", { name: "Sort by Status" }));
+    expect(within(table).getByRole("columnheader", { name: /Status/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(names()[0]).toMatch(/json/); // 200 sorts before (failed)
+    await user.click(within(table).getByRole("button", { name: "Sort by Status" }));
+    expect(within(table).getByRole("columnheader", { name: /Status/ })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    expect(names()[0]).toMatch(/logo\.png/);
+  });
+
+  it("keeps only the essential columns while the details are open", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    expect(within(table).getAllByRole("columnheader")).toHaveLength(7);
+    await user.click(await within(table).findByRole("row", { name: /json/ }));
+    await screen.findByRole("region", { name: "Request details" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent),
+    ).toEqual(["Name", "Status", "Time"]);
+    expect(screen.getByRole("button", { name: "Copy as cURL" })).toHaveTextContent("Copy as cURL");
   });
 });

@@ -140,7 +140,9 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
             </button>
           ))}
         </div>
-        {request ? <CopyButton label="Copy as cURL" copy={() => curl(request)} /> : null}
+        {request ? (
+          <CopyButton label="Copy as cURL" text="Copy as cURL" copy={() => curl(request)} />
+        ) : null}
         <Button size="icon" aria-label="Close details" onClick={onClose}>
           <X aria-hidden="true" className="size-4" />
         </Button>

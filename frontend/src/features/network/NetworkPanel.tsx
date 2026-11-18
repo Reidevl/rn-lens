@@ -8,7 +8,7 @@ import { Button } from "@/shared/ui/atoms/Button";
 
 import { useNetworkStore, visibleRows } from "./networkStore";
 import { NetworkTable } from "./NetworkTable";
-import { CATEGORIES } from "./presentation";
+import { CATEGORIES, sortRows } from "./presentation";
 import { RequestDetail } from "./RequestDetail";
 import { useNetworkSync } from "./useNetworkSync";
 
@@ -32,9 +32,11 @@ export function NetworkPanel() {
   const error = useNetworkStore((s) => s.error);
   const notice = useNetworkStore((s) => s.notice);
 
+  const sort = useNetworkStore((s) => s.sort);
+  const setSort = useNetworkStore((s) => s.setSort);
   const visible = useMemo(
-    () => visibleRows(rows, { epoch, preserveLog, categories, filter }),
-    [rows, epoch, preserveLog, categories, filter],
+    () => sortRows(visibleRows(rows, { epoch, preserveLog, categories, filter }), sort),
+    [rows, epoch, preserveLog, categories, filter, sort],
   );
   const selected = visible.find((r) => r.seq === selectedSeq) ?? null;
 
@@ -136,11 +138,18 @@ export function NetworkPanel() {
         <div
           className={cn(
             "grid min-h-0 flex-1",
-            selected ? "grid-cols-[minmax(20rem,1fr)_minmax(22rem,1fr)]" : "grid-cols-1",
+            selected ? "grid-cols-[minmax(16rem,2fr)_minmax(22rem,3fr)]" : "grid-cols-1",
           )}
         >
-          <div className="flex min-h-0 flex-col">
-            <NetworkTable rows={visible} selectedSeq={selectedSeq} onSelect={select} />
+          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+            <NetworkTable
+              rows={visible}
+              selectedSeq={selectedSeq}
+              onSelect={select}
+              sort={sort}
+              onSort={setSort}
+              compact={selected !== null}
+            />
             <footer className="border-t border-border px-3 py-1 text-xs text-muted-foreground">
               {visible.length} of {rows.length} requests
               {dropped > 0 ? ` · ${dropped} older requests dropped` : ""}

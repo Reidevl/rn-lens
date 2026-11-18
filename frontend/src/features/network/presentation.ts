@@ -36,6 +36,44 @@ export function categoryOf(r: Pick<NetworkSummary, "resourceType" | "mimeType">)
   return "other";
 }
 
+export type SortKey = "name" | "method" | "status" | "type" | "size" | "time" | "start";
+export type SortDir = "asc" | "desc";
+export interface Sort {
+  key: SortKey;
+  dir: SortDir;
+}
+
+/** Newest request first, like a feed: what the app just did is on top. */
+export const DEFAULT_SORT: Sort = { key: "start", dir: "desc" };
+
+/** Failed and pending requests sort after every status code. */
+const statusRank = (r: NetworkSummary) =>
+  r.state === "failed" ? 1000 : r.status === 0 ? 999 : r.status;
+const duration = (r: NetworkSummary) =>
+  r.endTime > 0 ? r.endTime - r.startTime : Number.POSITIVE_INFINITY;
+
+const VALUE: Record<SortKey, (r: NetworkSummary) => number | string> = {
+  name: (r) => requestName(r.url).toLowerCase(),
+  method: (r) => r.method,
+  status: statusRank,
+  type: (r) => (r.resourceType || "Other").toLowerCase(),
+  size: (r) => sizeOf(r),
+  time: duration,
+  start: (r) => r.startTime,
+};
+
+/** Rows ordered by the sort; ties keep arrival order (seq). */
+export function sortRows(rows: NetworkSummary[], sort: Sort): NetworkSummary[] {
+  const value = VALUE[sort.key];
+  const sign = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return cmp !== 0 ? cmp * sign : (a.seq - b.seq) * sign;
+  });
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;

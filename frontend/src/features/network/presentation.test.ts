@@ -6,7 +6,9 @@ import {
   categoryOf,
   formatBytes,
   formatDuration,
+  DEFAULT_SORT,
   queryParams,
+  sortRows,
   requestName,
   statusLabel,
   toCurl,
@@ -130,5 +132,31 @@ describe("toCurl", () => {
     expect(toCurl(request({ method: "POST" }), "a=1")).toBe(
       "curl 'https://httpbin.org/json' \\\n  --data-raw 'a=1'",
     );
+  });
+});
+
+describe("sortRows", () => {
+  const rows = [
+    row({ seq: 1, url: "https://x/b", startTime: 1, endTime: 3, encodedSize: 10 }),
+    row({ seq: 2, url: "https://x/a", startTime: 2, endTime: 2.5, encodedSize: 30 }),
+    row({ seq: 3, url: "https://x/c", startTime: 3, endTime: 0, state: "pending", status: 0 }),
+  ];
+  const order = (key: Parameters<typeof sortRows>[1]["key"], dir: "asc" | "desc") =>
+    sortRows(rows, { key, dir }).map((r) => r.seq);
+
+  it("orders by start time, newest first by default", () => {
+    expect(order(DEFAULT_SORT.key, DEFAULT_SORT.dir)).toEqual([3, 2, 1]);
+    expect(order("start", "asc")).toEqual([1, 2, 3]);
+  });
+
+  it("orders by name, size and time, pending last when ascending", () => {
+    expect(order("name", "asc")).toEqual([2, 1, 3]);
+    expect(order("size", "desc")).toEqual([2, 1, 3]);
+    expect(order("time", "asc")).toEqual([2, 1, 3]);
+  });
+
+  it("does not reorder the input", () => {
+    sortRows(rows, { key: "name", dir: "asc" });
+    expect(rows.map((r) => r.seq)).toEqual([1, 2, 3]);
   });
 });

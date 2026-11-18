@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import type { Backend, NetworkAvailability, NetworkSummary } from "@/backend";
 
-import { categoryOf, type Category } from "./presentation";
+import { categoryOf, DEFAULT_SORT, type Category, type Sort, type SortKey } from "./presentation";
 
 const PAGE = 1_000;
 
@@ -18,6 +18,7 @@ interface NetworkState {
   /** Empty means every category. */
   categories: Category[];
   preserveLog: boolean;
+  sort: Sort;
   selectedSeq: number | null;
   busy: boolean;
   error: string | null;
@@ -26,6 +27,8 @@ interface NetworkState {
   toggleCategory: (category: Category) => void;
   clearCategories: () => void;
   setPreserveLog: (preserve: boolean) => void;
+  /** Sorts by key; the same key again flips the direction. */
+  setSort: (key: SortKey) => void;
   select: (seq: number | null) => void;
   setBusy: (busy: boolean) => void;
   setError: (error: string | null) => void;
@@ -43,6 +46,7 @@ const initial = {
   filter: "",
   categories: [] as Category[],
   preserveLog: false,
+  sort: DEFAULT_SORT,
   selectedSeq: null as number | null,
   busy: false,
   error: null as string | null,
@@ -60,6 +64,13 @@ export const useNetworkStore = create<NetworkState>((set) => ({
     })),
   clearCategories: () => set({ categories: [] }),
   setPreserveLog: (preserveLog) => set({ preserveLog }),
+  setSort: (key) =>
+    set((s) => ({
+      sort:
+        s.sort.key === key
+          ? { key, dir: s.sort.dir === "asc" ? "desc" : "asc" }
+          : { key, dir: key === "start" ? "desc" : "asc" },
+    })),
   select: (selectedSeq) => set({ selectedSeq }),
   setBusy: (busy) => set({ busy }),
   setError: (error) => set({ error }),

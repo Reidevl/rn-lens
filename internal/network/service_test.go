@@ -337,3 +337,43 @@ func TestRequestBodiesAboveTheLimitAreRefused(t *testing.T) {
 		t.Fatalf("err = %v, want ErrBodyTooLarge", err)
 	}
 }
+
+// React Native on iOS hands every response body to the inspector as base64,
+// JSON included. Text bodies are decoded so Preview and Response can show
+// them; binary ones stay base64.
+func TestTextBodiesSentAsBase64AreDecoded(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{})
+	h.srv.Handle(cdp.MethodNetworkGetResponseBody, func(r cdptest.Request) (any, *cdptest.Error) {
+		var p cdp.GetResponseBodyParams
+		_ = json.Unmarshal(r.Params, &p)
+		switch p.RequestID {
+		case "json":
+			return cdp.GetResponseBodyResult{Body: "eyJhIjoxfQ==", Base64Encoded: true}, nil // {"a":1}
+		case "latin1":
+			return cdp.GetResponseBodyResult{Body: "/w==", Base64Encoded: true}, nil // 0xff, not UTF-8
+		default:
+			return cdp.GetResponseBodyResult{Body: "iVBORw0KGgo=", Base64Encoded: true}, nil
+		}
+	})
+	withMime := func(id, mime string) uint64 {
+		seq := h.finished(t, id, nil)
+		h.svc.HandleEvent(event(t, cdp.EventNetworkResponseReceived, map[string]any{"requestId": id, "timestamp": 1.5, "response": map[string]any{"status": 200, "headers": map[string]any{}, "mimeType": mime}}))
+		return seq
+	}
+	epoch := h.svc.Store().Epoch()
+	ctx := context.Background()
+
+	jsonBody, err := h.svc.ResponseBody(ctx, withMime("json", "application/json"), epoch)
+	if err != nil || jsonBody.Base64 || jsonBody.Text != `{"a":1}` || jsonBody.Size != 7 {
+		t.Fatalf("json body = %+v, %v; want decoded text", jsonBody, err)
+	}
+	png, err := h.svc.ResponseBody(ctx, withMime("png", "image/png"), epoch)
+	if err != nil || !png.Base64 || png.Text != "iVBORw0KGgo=" {
+		t.Fatalf("png body = %+v, %v; want base64 kept", png, err)
+	}
+	bad, err := h.svc.ResponseBody(ctx, withMime("latin1", "text/plain"), epoch)
+	if err != nil || !bad.Base64 {
+		t.Fatalf("non-UTF-8 text body = %+v, %v; want base64 kept", bad, err)
+	}
+}
