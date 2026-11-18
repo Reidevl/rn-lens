@@ -8,15 +8,30 @@ needed.
 
 1. Run your app on React Native 0.83 or newer and start Metro.
 2. Attach to it from the Targets panel.
-3. Open **Network** and make a request, for example from the console:
-   `fetch('https://httpbin.org/json')`.
+3. Open **Network** and make a request in the app. Expo apps: read the Expo
+   notes below first.
 
 ## Requirements
 
 Native network inspection shipped in React Native 0.83. On older versions the
 panel shows "Network inspection needs RN 0.83+". When the app reports any
-other problem while enabling the domain (for example more than one React
-Native host registered in the process), the panel shows that message instead.
+other problem while enabling the domain (for example "The Network domain is
+unavailable when multiple React Native hosts are registered"), the panel
+shows that message instead.
+
+### Expo
+
+- **Use a development build** (`npx expo run:ios` or `npx expo run:android`).
+  Expo Go accepts the connection but reports no requests: React Native only
+  reports traffic when its networking code is compiled with the debugger
+  enabled, and the prebuilt Expo Go client is not.
+- **`fetch` in Expo SDK 58+** is `expo/fetch`, which does not report to any
+  debugger. `XMLHttpRequest` and libraries built on it (axios) are reported.
+  To see `fetch` calls too, start Metro with React Native's fetch:
+
+  ```sh
+  EXPO_PUBLIC_USE_RN_FETCH=1 npx expo start --dev-client
+  ```
 
 ## The table
 

@@ -17,10 +17,10 @@ waterfall, detail tabs, lazy bodies, copy as cURL and HAR export.
 ## Acceptance checks
 
 - [x] Attaching enables `Network`; an app older than 0.83 shows "Network inspection needs RN 0.83+"
-- [ ] `fetch('https://httpbin.org/json')` on RN 0.83+ shows a row with 200, the body is visible and "Copy as cURL" is valid
+- [x] A request to `https://httpbin.org/json` on RN 0.83+ (development build) shows a row with 200 and its body; e2e `TestE2E_NetworkCapturesARequest`. Expo Go reports no traffic, and Expo SDK 58+ `fetch` needs `EXPO_PUBLIC_USE_RN_FETCH=1` (see the guide)
 - [x] Rows update in place as the response, size and end arrive; only changed rows are pulled
 - [x] HAR export opens in Chrome DevTools and other HAR viewers (golden test pins the format)
-- [ ] Independent concurrency review of the store and service
+- [x] Independent concurrency review of the store and service (two blockers fixed with regression tests)
 
 ## Out of scope
 
