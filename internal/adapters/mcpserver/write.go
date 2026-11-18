@@ -124,7 +124,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 			if in.QueryHash == "" && in.Action != "CLEAR_QUERY_CACHE" && in.Action != "CLEAR_MUTATION_CACHE" {
 				return nil, nil, fmt.Errorf("%s needs queryHash (see list_queries)", in.Action)
 			}
-			dev, err := pickDevice(in.Device, queryKeys(lens))
+			dev, err := choose(lens, in.Device, queryKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -148,7 +148,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Switch TanStack Query's onlineManager on the device, to test offline behaviour.",
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in onlineArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, queryKeys(lens))
+			dev, err := choose(lens, in.Device, queryKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -167,7 +167,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Write one key of a store on the device (adds it or replaces its value).",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in storageSetArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, storageKeys(lens))
+			dev, err := choose(lens, in.Device, storageKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -190,7 +190,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Delete one key of a store on the device.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in storageKeyArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, storageKeys(lens))
+			dev, err := choose(lens, in.Device, storageKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -205,7 +205,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Delete every key of a store on the device.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in storageStoreArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, storageKeys(lens))
+			dev, err := choose(lens, in.Device, storageKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -220,7 +220,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Click a button of a plugin panel (see list_plugins). Returns the message the app answered with.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in pluginActionArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, pluginKeys(lens))
+			dev, err := choose(lens, in.Device, pluginKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}

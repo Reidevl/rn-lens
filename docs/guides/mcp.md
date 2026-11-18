@@ -70,8 +70,15 @@ Read tools carry MCP's read-only hint and the others the destructive hint
 when they can change or lose data; clients use these hints in their
 permission prompts (Claude Code asks before a tool runs unless you allowed
 it). Tools that take a `device` work without it when one device is
-connected; with several, pass the key `status` lists (or the app id when it
-is unique). Results above 256 KiB are cut: narrow them with `search` or
+connected. With several, they use the device running the app Lens is
+attached to (same platform and React Native version, and the same app name
+or device name), and otherwise ask you to pass the key `status` lists, or
+the app id when it is unique. `status` shows each device's connection time,
+its last message (`lastMessageAt`, `idleSeconds`) and which one is the
+attached app's. Lens pings every device and drops those that stop
+answering, so a listed device is connected even when it is idle. Error fields the app reported as `null` are left out, so a query or
+mutation without an error reads the same either way. Results above 256 KiB
+are cut: narrow them with `search` or
 `limit`.
 
 ## Options

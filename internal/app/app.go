@@ -178,6 +178,7 @@ func (h sdkHandler) OnConnect(s *sdkws.Session) {
 
 func (h sdkHandler) OnMessage(s *sdkws.Session, msg protocol.Message) {
 	key := queries.DeviceKey(s.Key.AppID, s.Key.DeviceID)
+	h.a.queries.Seen(key, s.ID) // every feature's frames count as activity
 	var err error
 	switch {
 	case strings.HasPrefix(msg.Type, "storage."):
