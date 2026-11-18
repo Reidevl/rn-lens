@@ -246,6 +246,8 @@ describe("NetworkPanel", () => {
         .map((h) => h.textContent),
     ).toEqual(["Name", "Status", "Time"]);
     expect(screen.getByRole("button", { name: "Copy as cURL" })).toHaveTextContent("Copy as cURL");
+    // The Waterfall header that shows the default sort is hidden; the footer says it.
+    expect(screen.getByText(/Newest first/)).toBeInTheDocument();
   });
 
   it("copies the response body from any tab", async () => {

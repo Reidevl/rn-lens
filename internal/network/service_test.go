@@ -348,8 +348,10 @@ func TestTextBodiesSentAsBase64AreDecoded(t *testing.T) {
 		var p cdp.GetResponseBodyParams
 		_ = json.Unmarshal(r.Params, &p)
 		switch p.RequestID {
-		case "json":
+		case "json", "ndjson":
 			return cdp.GetResponseBodyResult{Body: "eyJhIjoxfQ==", Base64Encoded: true}, nil // {"a":1}
+		case "svg":
+			return cdp.GetResponseBodyResult{Body: "PHN2Zy8+", Base64Encoded: true}, nil // <svg/>
 		case "latin1":
 			return cdp.GetResponseBodyResult{Body: "/w==", Base64Encoded: true}, nil // 0xff, not UTF-8
 		default:
@@ -375,5 +377,14 @@ func TestTextBodiesSentAsBase64AreDecoded(t *testing.T) {
 	bad, err := h.svc.ResponseBody(ctx, withMime("latin1", "text/plain"), epoch)
 	if err != nil || !bad.Base64 {
 		t.Fatalf("non-UTF-8 text body = %+v, %v; want base64 kept", bad, err)
+	}
+	// SVG is XML text but an image: the Preview tab renders it from base64.
+	svg, err := h.svc.ResponseBody(ctx, withMime("svg", "image/svg+xml"), epoch)
+	if err != nil || !svg.Base64 {
+		t.Fatalf("svg body = %+v, %v; want base64 kept for the image preview", svg, err)
+	}
+	ndjson, err := h.svc.ResponseBody(ctx, withMime("json", "application/x-ndjson"), epoch)
+	if err != nil || ndjson.Base64 {
+		t.Fatalf("ndjson body = %+v, %v; want decoded text", ndjson, err)
 	}
 }

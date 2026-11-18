@@ -8,6 +8,7 @@ import {
   formatDuration,
   DEFAULT_SORT,
   queryParams,
+  sortLabel,
   sortRows,
   requestName,
   statusLabel,
@@ -158,5 +159,13 @@ describe("sortRows", () => {
   it("does not reorder the input", () => {
     sortRows(rows, { key: "name", dir: "asc" });
     expect(rows.map((r) => r.seq)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("sortLabel", () => {
+  it("names the order in words", () => {
+    expect(sortLabel({ key: "start", dir: "desc" })).toBe("Newest first");
+    expect(sortLabel({ key: "start", dir: "asc" })).toBe("Oldest first");
+    expect(sortLabel({ key: "status", dir: "asc" })).toBe("Sorted by status, ascending");
   });
 });

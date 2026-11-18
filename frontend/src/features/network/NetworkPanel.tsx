@@ -8,7 +8,7 @@ import { Button } from "@/shared/ui/atoms/Button";
 
 import { useNetworkStore, visibleRows } from "./networkStore";
 import { NetworkTable } from "./NetworkTable";
-import { CATEGORIES, sortRows } from "./presentation";
+import { CATEGORIES, sortLabel, sortRows } from "./presentation";
 import { RequestDetail } from "./RequestDetail";
 import { useNetworkSync } from "./useNetworkSync";
 
@@ -151,7 +151,7 @@ export function NetworkPanel() {
               compact={selected !== null}
             />
             <footer className="border-t border-border px-3 py-1 text-xs text-muted-foreground">
-              {visible.length} of {rows.length} requests
+              {visible.length} of {rows.length} requests · {sortLabel(sort)}
               {dropped > 0 ? ` · ${dropped} older requests dropped` : ""}
               {rows.length === 0 ? " · Requests the app makes appear here." : ""}
             </footer>

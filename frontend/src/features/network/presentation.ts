@@ -62,7 +62,23 @@ const VALUE: Record<SortKey, (r: NetworkSummary) => number | string> = {
   start: (r) => r.startTime,
 };
 
-/** Rows ordered by the sort; ties keep arrival order (seq). */
+const SORT_NAMES: Record<SortKey, string> = {
+  name: "name",
+  method: "method",
+  status: "status",
+  type: "type",
+  size: "size",
+  time: "time",
+  start: "start time",
+};
+
+/** The order in words, for the footer (its column may be hidden). */
+export function sortLabel(sort: Sort): string {
+  if (sort.key === "start") return sort.dir === "desc" ? "Newest first" : "Oldest first";
+  return `Sorted by ${SORT_NAMES[sort.key]}, ${sort.dir === "asc" ? "ascending" : "descending"}`;
+}
+
+/** Rows ordered by the sort; ties fall back to arrival order (seq) in the same direction. */
 export function sortRows(rows: NetworkSummary[], sort: Sort): NetworkSummary[] {
   const value = VALUE[sort.key];
   const sign = sort.dir === "asc" ? 1 : -1;

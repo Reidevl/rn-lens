@@ -223,8 +223,11 @@ func (s *Service) ResponseBody(ctx context.Context, seq, epoch uint64) (Body, er
 	if body.Base64 {
 		body.Size = decodedLen(res.Body)
 		// React Native on iOS sends every body as base64, JSON included.
-		if text, ok := decodeText(res.Body, r.MimeType); ok {
-			body.Text, body.Base64 = text, false
+		// Bodies above the limit are dropped below, so skip decoding them.
+		if len(res.Body) <= s.opts.MaxBodyBytes {
+			if text, ok := decodeText(res.Body, r.MimeType); ok {
+				body.Text, body.Base64 = text, false
+			}
 		}
 	}
 	if len(res.Body) > s.opts.MaxBodyBytes {
@@ -283,10 +286,14 @@ func decodeText(b64, mime string) (string, bool) {
 func isTextMime(mime string) bool {
 	m := strings.ToLower(strings.TrimSpace(strings.SplitN(mime, ";", 2)[0]))
 	switch {
+	// Images stay base64 even when they are XML (SVG): Preview renders them.
+	case strings.HasPrefix(m, "image/"):
+		return false
 	case strings.HasPrefix(m, "text/"),
 		strings.HasSuffix(m, "+json"), strings.HasSuffix(m, "+xml"),
-		m == "application/json", m == "application/xml", m == "application/javascript",
-		m == "application/x-www-form-urlencoded", m == "application/graphql-response+json":
+		m == "application/json", m == "application/xml", m == "application/x-ndjson",
+		m == "application/javascript", m == "application/x-javascript", m == "application/ecmascript",
+		m == "application/x-www-form-urlencoded":
 		return true
 	}
 	return false
