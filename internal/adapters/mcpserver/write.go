@@ -34,7 +34,7 @@ type onlineArgs struct {
 type storageSetArgs struct {
 	deviceArg
 	Store string `json:"store" jsonschema:"store id from list_stores"`
-	Key   string `json:"key"`
+	Key   string `json:"key" jsonschema:"the key to write"`
 	Type  string `json:"type,omitempty" jsonschema:"string (default), number, boolean or bytes (value in base64)"`
 	Value string `json:"value" jsonschema:"the value as text: numbers and booleans in JSON form"`
 }
@@ -42,7 +42,7 @@ type storageSetArgs struct {
 type storageKeyArgs struct {
 	deviceArg
 	Store string `json:"store" jsonschema:"store id from list_stores"`
-	Key   string `json:"key"`
+	Key   string `json:"key" jsonschema:"the key to delete"`
 }
 
 type storageStoreArgs struct {
@@ -71,8 +71,8 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "reload_app", Annotations: changes,
-		Description: "Reload the attached app's JavaScript (like pressing r in Metro).",
+		Name: "reload_app", Annotations: destructive,
+		Description: "Reload the attached app's JavaScript (like pressing r in Metro); in-memory state is lost.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			if err := lens.Reload(ctx); err != nil {
