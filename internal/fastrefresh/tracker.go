@@ -183,46 +183,64 @@ func (t *Tracker) run(ctx context.Context, gen uint64, endpoint string) {
 		return
 	}
 	backoff := t.opts.BackoffMin
+	noGraph := false
 	for {
-		if t.session(ctx, gen, hot, bundle) {
+		registered, missing := t.session(ctx, gen, hot, bundle, noGraph)
+		noGraph = missing
+		if registered && !missing {
 			backoff = t.opts.BackoffMin
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		t.set(gen, State{Phase: PhaseConnecting})
+		wait := backoff
+		if noGraph {
+			// Keep the reload hint and ask again until the app reloads.
+			wait = t.opts.BackoffMax
+		} else {
+			t.set(gen, State{Phase: PhaseConnecting})
+			backoff = min(backoff*2, t.opts.BackoffMax)
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff):
+		case <-time.After(wait):
 		}
-		backoff = min(backoff*2, t.opts.BackoffMax)
 	}
 }
 
+// noGraphMessage replaces Metro's GraphNotFoundError: after Metro restarts
+// it only knows the app's bundle once the app downloads it again.
+const noGraphMessage = "Reload the app to resume Fast Refresh: Metro has not built its bundle since it restarted."
+
 // session registers once and follows the socket until it fails. It reports
-// whether the registration succeeded.
-func (t *Tracker) session(ctx context.Context, gen uint64, hot, bundle string) bool {
+// whether the registration was sent and whether Metro did not know the
+// bundle (GraphNotFoundError). While noGraph, PhaseReady waits for Metro's
+// first message.
+func (t *Tracker) session(ctx context.Context, gen uint64, hot, bundle string, noGraph bool) (registered, missing bool) {
 	s, err := t.dialer.DialHMR(ctx, hot)
 	if err != nil {
 		t.opts.Logger.Debug("fast refresh: dial failed", "url", hot, "err", err)
-		return false
+		return false, noGraph
 	}
 	defer func() { _ = s.Close() }()
 	if err := s.Send(ctx, map[string]any{"type": "register-entrypoints", "entryPoints": []string{bundle}}); err != nil {
-		return false
+		return false, noGraph
 	}
-	t.set(gen, State{Phase: PhaseReady})
+	if !noGraph {
+		t.set(gen, State{Phase: PhaseReady})
+	}
 
 	initial, modules := false, 0
 	for {
 		raw, err := s.Recv(ctx)
 		if err != nil {
-			return true
+			return true, noGraph
 		}
 		var msg struct {
 			Type string `json:"type"`
 			Body struct {
+				Type            string            `json:"type"`
 				IsInitialUpdate bool              `json:"isInitialUpdate"`
 				Added           []json.RawMessage `json:"added"`
 				Modified        []json.RawMessage `json:"modified"`
@@ -232,6 +250,14 @@ func (t *Tracker) session(ctx context.Context, gen uint64, hot, bundle string) b
 		}
 		if json.Unmarshal(raw, &msg) != nil {
 			continue
+		}
+		if msg.Type == "error" && msg.Body.Type == "GraphNotFoundError" {
+			t.set(gen, State{Phase: PhaseUnavailable, Message: noGraphMessage})
+			return true, true
+		}
+		if noGraph {
+			noGraph = false
+			t.set(gen, State{Phase: PhaseReady})
 		}
 		switch msg.Type {
 		case "update-start":

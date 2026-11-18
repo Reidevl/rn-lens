@@ -12,5 +12,5 @@ checks, so contributors can see what is in flight and what is done.
 | M3  | [SDK + Queries](m3-sdk-queries.md) | `@rnlens/sdk`, TanStack Query and Mutations panels            | Delivered |
 | M4  | [Network](m4-network.md)           | Requests, bodies, timing, cURL, HAR                           | Delivered |
 | M5  | [Storage](m5-storage.md)           | AsyncStorage, MMKV, SecureStore                               | Delivered |
-| M6  | Performance                        | Traces, profiles, screenshots                                 | Planned   |
+| M6  | [Performance](m6-performance.md)   | Traces, profiles, screenshots, Fast Refresh                   | Delivered |
 | M7  | Plugins and distribution           | Plugin API, docs site, releases                               | Planned   |
