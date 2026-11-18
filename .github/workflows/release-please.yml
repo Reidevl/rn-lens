@@ -3,6 +3,8 @@ name: Release Please
 on:
   push:
     branches: [main]
+  # Run it by hand from the Actions tab, without pushing to main.
+  workflow_dispatch:
 
 permissions:
   contents: write
