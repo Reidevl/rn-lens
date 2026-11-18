@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { TOPICS, useBackend } from "@/backend";
 import { errorMessage } from "@/shared/lib/errorMessage";
 
-import { pullStorage, useStorageStore } from "./storageStore";
+import { loadValue, pullStorage, useStorageStore } from "./storageStore";
 
 /**
  * One initial pull, then one pull per storage:changed notice and per device change, serialized so
@@ -26,6 +26,8 @@ export function useStorageSync(): void {
         return;
       }
       inFlight = pullStorage(backend)
+        // The open value may be what changed (a live MMKV write, a refresh).
+        .then(() => loadValue(backend, { quiet: true }))
         .then(() => {
           if (active && syncFailed) {
             syncFailed = false;

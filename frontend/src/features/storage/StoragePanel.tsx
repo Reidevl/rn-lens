@@ -38,9 +38,12 @@ export function StoragePanel() {
   const notice = useStorageStore((s) => s.notice);
   const { selectDevice, selectStore, selectKey, setFilter } = useStorageStore.getState();
   const [adding, setAdding] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
+  // Armed for one device and store only: switching disarms it.
+  const [clearArmedFor, setClearArmedFor] = useState<string | null>(null);
 
   const store = stores.find((s) => s.id === storeId) ?? null;
+  const clearTarget = deviceKey && store ? `${deviceKey}\n${store.id}` : null;
+  const confirmClear = clearArmedFor !== null && clearArmedFor === clearTarget;
   const keys = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const all = store?.keys ?? [];
@@ -115,14 +118,14 @@ export function StoragePanel() {
                 variant="destructive"
                 disabled={busy}
                 onClick={() => {
-                  setConfirmClear(false);
+                  setClearArmedFor(null);
                   act(() => backend.storage.clear(deviceKey, store.id));
                 }}
               >
                 Confirm clear
               </Button>
             ) : (
-              <Button size="sm" disabled={busy} onClick={() => setConfirmClear(true)}>
+              <Button size="sm" disabled={busy} onClick={() => setClearArmedFor(clearTarget)}>
                 <Trash2 aria-hidden="true" className="size-3.5" />
                 Clear store
               </Button>
@@ -130,12 +133,19 @@ export function StoragePanel() {
           </>
         ) : null
       }
+      onKeyDown={(e) => {
+        // Escape disarms a pending confirmation.
+        if (e.key === "Escape") setClearArmedFor(null);
+      }}
       device={
         devices.length > 1 ? (
           <select
             aria-label="Device"
             value={deviceKey}
-            onChange={(e) => selectDevice(e.target.value)}
+            onChange={(e) => {
+              setClearArmedFor(null);
+              selectDevice(e.target.value);
+            }}
             className="h-7 rounded-md border border-border bg-background px-1 text-xs"
           >
             {devices.map((d) => (
@@ -160,7 +170,9 @@ export function StoragePanel() {
         </p>
       ) : null}
       {notice ? (
-        <p className="border-b border-border bg-muted/40 px-3 py-1 text-xs">{notice}</p>
+        <p role="status" className="border-b border-border bg-muted/40 px-3 py-1 text-xs">
+          {notice}
+        </p>
       ) : null}
 
       {stores.length === 0 ? (
@@ -173,16 +185,34 @@ export function StoragePanel() {
             role="tablist"
             aria-label="Stores"
             className="flex flex-wrap gap-1 border-b border-border px-3 py-1.5"
+            onKeyDown={(e) => {
+              const i = stores.findIndex((s) => s.id === storeId);
+              const next =
+                e.key === "ArrowRight"
+                  ? (i + 1) % stores.length
+                  : e.key === "ArrowLeft"
+                    ? (i - 1 + stores.length) % stores.length
+                    : -1;
+              if (next < 0) return;
+              e.preventDefault();
+              setAdding(false);
+              setClearArmedFor(null);
+              selectStore(stores[next].id);
+              document.getElementById(`storage-store-${stores[next].id}`)?.focus();
+            }}
           >
             {stores.map((s) => (
               <button
                 key={s.id}
+                id={`storage-store-${s.id}`}
                 type="button"
                 role="tab"
                 aria-selected={s.id === storeId}
+                aria-controls="storage-store-panel"
+                tabIndex={s.id === storeId ? 0 : -1}
                 onClick={() => {
-                  setConfirmClear(false);
                   setAdding(false);
+                  setClearArmedFor(null);
                   selectStore(s.id);
                 }}
                 className={cn(
@@ -227,6 +257,9 @@ export function StoragePanel() {
             />
           ) : null}
           <div
+            id="storage-store-panel"
+            role="tabpanel"
+            aria-labelledby={store ? `storage-store-${store.id}` : undefined}
             className={cn(
               "grid min-h-0 flex-1",
               selectedKey ? "grid-cols-[minmax(14rem,2fr)_minmax(20rem,3fr)]" : "grid-cols-1",
@@ -273,13 +306,19 @@ function Shell({
   children,
   actions,
   device,
+  onKeyDown,
 }: {
   children: React.ReactNode;
   actions?: React.ReactNode;
   device?: React.ReactNode;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
 }) {
   return (
-    <section aria-labelledby="panel-storage-title" className="flex h-full flex-col">
+    <section
+      aria-labelledby="panel-storage-title"
+      className="flex h-full flex-col"
+      onKeyDown={onKeyDown}
+    >
       <header className="flex h-12 items-center gap-2 border-b border-border px-3">
         <h1 id="panel-storage-title" className="text-sm font-semibold">
           Storage
@@ -420,6 +459,8 @@ function AddKey({
     >
       <input
         aria-label="Key"
+        // The form opens on request, so its first field takes focus.
+        autoFocus
         placeholder="key"
         value={key}
         onChange={(e) => setKey(e.target.value)}

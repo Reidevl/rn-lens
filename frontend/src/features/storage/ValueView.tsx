@@ -8,7 +8,7 @@ import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
 import { hexDump, jsonOf, toBase64, valueSize } from "./presentation";
-import { loadValue, runStorageAction, useStorageStore } from "./storageStore";
+import { loadValue, runStorageAction, useStorageStore, valueId } from "./storageStore";
 
 type View = "Text" | "JSON" | "Hex" | "Base64";
 
@@ -31,7 +31,9 @@ export function ValueView({
   const [confirming, setConfirming] = useState(false);
 
   const loaded =
-    value?.id === `${storeId}/${valueKey}` ? value.loaded : { state: "loading" as const };
+    value?.id === valueId(deviceKey, storeId, valueKey)
+      ? value.loaded
+      : { state: "loading" as const };
 
   const save = async (v: StorageValue) => {
     if (!editing) return;
@@ -59,7 +61,13 @@ export function ValueView({
   };
 
   return (
-    <section aria-label="Value" className="flex min-h-0 flex-col border-l border-border">
+    <section
+      aria-label="Value"
+      className="flex min-h-0 flex-col border-l border-border"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setConfirming(false);
+      }}
+    >
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <h2 className="min-w-0 flex-1 truncate font-mono text-sm select-text">{valueKey}</h2>
         {loaded.state === "ready" && !loaded.value.truncated && !editing ? (
@@ -134,13 +142,33 @@ function Views({
   return (
     <>
       <div className="mb-2 flex items-center gap-2">
-        <div role="tablist" aria-label="Value views" className="flex gap-1">
+        <div
+          role="tablist"
+          aria-label="Value views"
+          className="flex gap-1"
+          onKeyDown={(e) => {
+            const i = views.indexOf(current);
+            const next =
+              e.key === "ArrowRight"
+                ? (i + 1) % views.length
+                : e.key === "ArrowLeft"
+                  ? (i - 1 + views.length) % views.length
+                  : -1;
+            if (next < 0) return;
+            e.preventDefault();
+            onView(views[next]);
+            document.getElementById(`storage-view-${views[next]}`)?.focus();
+          }}
+        >
           {views.map((v) => (
             <button
               key={v}
+              id={`storage-view-${v}`}
               type="button"
               role="tab"
               aria-selected={current === v}
+              aria-controls="storage-view-panel"
+              tabIndex={current === v ? 0 : -1}
               onClick={() => onView(v)}
               className={cn(
                 "h-6 cursor-pointer rounded-md px-2 text-xs transition-colors duration-150",
@@ -157,7 +185,7 @@ function Views({
           {formatBytes(valueSize(value))} · {value.type}
         </span>
       </div>
-      <div role="tabpanel" aria-label={current}>
+      <div id="storage-view-panel" role="tabpanel" aria-labelledby={`storage-view-${current}`}>
         {current === "JSON" && json.ok ? (
           <JsonTree value={json.value} label="Stored JSON" />
         ) : (

@@ -10,12 +10,16 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { seedStorage, storage } from "./storage";
+
 /**
  * Lens example app.
  *
  * It produces the signals Lens inspects: console output on a timer, a fetch
  * on demand, an uncaught error on demand, and TanStack Query traffic (two
- * queries and one mutation) streamed to Lens through @rnlens/sdk.
+ * queries and one mutation) streamed to Lens through @rnlens/sdk, and three
+ * key-value stores (AsyncStorage, MMKV in a development build, SecureStore)
+ * for the Storage panel.
  */
 const queryClient = new QueryClient();
 
@@ -122,7 +126,10 @@ function Demo() {
 export default function App() {
   // EXPO_PUBLIC_LENS_URL points the SDK at a Lens that is not on the default
   // port (the e2e suite uses it); unset, the host comes from the Metro bundle.
-  useLens({ queryClient, appName: "Lens Example", url: process.env.EXPO_PUBLIC_LENS_URL });
+  useLens({ queryClient, storage, appName: "Lens Example", url: process.env.EXPO_PUBLIC_LENS_URL });
+  useEffect(() => {
+    seedStorage().catch((err: unknown) => console.warn("seeding storage failed", err));
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <Demo />

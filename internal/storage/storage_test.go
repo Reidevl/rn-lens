@@ -223,7 +223,7 @@ func TestActionsAreValidatedLocally(t *testing.T) {
 
 func TestPendingActionsEndWhenTheDeviceLeavesOrTimesOut(t *testing.T) {
 	t.Parallel()
-	svc, _, _ := connected(t)
+	svc, dev, _ := connected(t)
 	key := "dev.rnlens.example|d1"
 	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", snapshot))
 
@@ -238,7 +238,17 @@ func TestPendingActionsEndWhenTheDeviceLeavesOrTimesOut(t *testing.T) {
 		_, err := svc.Get(context.Background(), key, "async-storage", "theme")
 		done <- err
 	}()
-	time.Sleep(20 * time.Millisecond)
+	// Disconnect only once the second action is on the wire.
+	deadline := time.Now().Add(2 * time.Second)
+	for sent := 0; sent < 2; {
+		if time.Now().After(deadline) {
+			t.Fatal("the second action never reached the device")
+		}
+		dev.mu.Lock()
+		sent = len(dev.sent)
+		dev.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
 	svc.Disconnect(key, "s1")
 	select {
 	case err := <-done:
@@ -250,5 +260,39 @@ func TestPendingActionsEndWhenTheDeviceLeavesOrTimesOut(t *testing.T) {
 	}
 	if len(svc.Devices()) != 0 {
 		t.Fatal("device still listed after disconnect")
+	}
+}
+
+func TestAOneStoreSnapshotWithoutTheStoreRemovesIt(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := connected(t)
+	key := "dev.rnlens.example|d1"
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", snapshot))
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", protocol.StorageSnapshot{StoreID: "mmkv:default", Stores: []protocol.StorageStore{}}))
+	stores, _ := svc.Stores(key)
+	if len(stores) != 1 || stores[0].ID != "async-storage" {
+		t.Fatalf("stores = %+v, want only async-storage", stores)
+	}
+	// A one-store snapshot ignores stores with another id.
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", protocol.StorageSnapshot{StoreID: "async-storage", Stores: []protocol.StorageStore{
+		{ID: "async-storage", Kind: protocol.StorageKindAsyncStorage, Name: "AsyncStorage"},
+		{ID: "intruder", Kind: protocol.StorageKindMMKV, Name: "intruder"},
+	}}))
+	if stores, _ := svc.Stores(key); len(stores) != 1 {
+		t.Fatalf("stores = %+v, want the other id ignored", stores)
+	}
+}
+
+func TestAOneStoreSnapshotKeepsTheStoreInPlace(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := connected(t)
+	key := "dev.rnlens.example|d1"
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", snapshot))
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", protocol.StorageSnapshot{StoreID: "async-storage", Stores: []protocol.StorageStore{
+		{ID: "async-storage", Kind: protocol.StorageKindAsyncStorage, Name: "AsyncStorage", Keys: []protocol.StorageKey{{Key: "fresh"}}},
+	}}))
+	stores, _ := svc.Stores(key)
+	if len(stores) != 2 || stores[0].ID != "async-storage" || stores[1].ID != "mmkv:default" {
+		t.Fatalf("store order = %v, want the refreshed store to keep its place", []string{stores[0].ID, stores[1].ID})
 	}
 }

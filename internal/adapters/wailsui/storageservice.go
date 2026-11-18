@@ -2,12 +2,11 @@ package wailsui
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,8 +20,8 @@ const (
 	storageTransferTimeout = 2 * time.Minute
 )
 
-// errInvalidValue rejects a value whose text does not match its type.
-var errInvalidValue = errors.New("value does not match its type")
+// maxImportBytes bounds the export file Import reads.
+const maxImportBytes = 64 << 20
 
 // StorageService exposes the app's stores to the frontend. State is pulled
 // after each app.TopicStorageChanged notice (ADR-0003); values are read on
@@ -73,40 +72,13 @@ func (s *StorageService) Get(deviceKey, storeID, key string) (protocol.StorageVa
 // Set writes one value. valueType is string, number, boolean or bytes; value
 // is its text (numbers and booleans as typed, bytes as base64).
 func (s *StorageService) Set(deviceKey, storeID, key, valueType, value string) error {
-	v, err := parseValue(valueType, value)
+	v, err := storage.NormalizeValue(protocol.StorageValue{Type: valueType, Value: value})
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), storageActionTimeout)
 	defer cancel()
 	return s.core.Storage().Set(ctx, deviceKey, storeID, key, v)
-}
-
-func parseValue(valueType, value string) (protocol.StorageValue, error) {
-	v := protocol.StorageValue{Type: valueType, Value: value}
-	switch valueType {
-	case protocol.StorageValueString:
-	case protocol.StorageValueNumber:
-		f, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-		if err != nil {
-			return v, fmt.Errorf("%w: %q is not a number", errInvalidValue, value)
-		}
-		v.Value = strconv.FormatFloat(f, 'g', -1, 64)
-	case protocol.StorageValueBoolean:
-		b, err := strconv.ParseBool(strings.TrimSpace(value))
-		if err != nil {
-			return v, fmt.Errorf("%w: %q is not true or false", errInvalidValue, value)
-		}
-		v.Value = strconv.FormatBool(b)
-	case protocol.StorageValueBytes:
-		if _, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value)); err != nil {
-			return v, fmt.Errorf("%w: bytes must be base64", errInvalidValue)
-		}
-		v.Value = strings.TrimSpace(value)
-	default:
-		return v, fmt.Errorf("%w: unknown value type %q", storage.ErrInvalidAction, valueType)
-	}
-	return v, nil
 }
 
 // Remove deletes one key.
@@ -133,7 +105,7 @@ func (s *StorageService) Refresh(deviceKey, storeID string) error {
 // Export asks where to save, then writes every value of a store as JSON. It
 // returns the path, or "" when the user canceled.
 func (s *StorageService) Export(deviceKey, storeID string) (string, error) {
-	if _, err := s.core.Storage().Stores(deviceKey); err != nil {
+	if err := s.checkStore(deviceKey, storeID); err != nil {
 		return "", err
 	}
 	if s.savePath == nil {
@@ -161,6 +133,9 @@ func (s *StorageService) Export(deviceKey, storeID string) (string, error) {
 
 // Import asks for an export file and writes its entries into a store.
 func (s *StorageService) Import(deviceKey, storeID string) (ImportOutcome, error) {
+	if err := s.checkStore(deviceKey, storeID); err != nil {
+		return ImportOutcome{}, err
+	}
 	if s.openPath == nil {
 		return ImportOutcome{}, errors.New("storage: no open dialog available")
 	}
@@ -168,9 +143,9 @@ func (s *StorageService) Import(deviceKey, storeID string) (ImportOutcome, error
 	if err != nil || path == "" {
 		return ImportOutcome{}, err
 	}
-	raw, err := os.ReadFile(path) //nolint:gosec // the user picked this file in the open dialog
+	raw, err := readLimited(path, maxImportBytes)
 	if err != nil {
-		return ImportOutcome{}, fmt.Errorf("storage: read import: %w", err)
+		return ImportOutcome{}, err
 	}
 	var file storage.ExportFile
 	if err := json.Unmarshal(raw, &file); err != nil {
@@ -180,4 +155,35 @@ func (s *StorageService) Import(deviceKey, storeID string) (ImportOutcome, error
 	defer cancel()
 	res, err := storage.Import(ctx, s.core.Storage(), deviceKey, storeID, file)
 	return ImportOutcome{Path: path, ImportResult: res}, err
+}
+
+// checkStore fails before any dialog opens when the device or store is gone.
+func (s *StorageService) checkStore(deviceKey, storeID string) error {
+	stores, err := s.core.Storage().Stores(deviceKey)
+	if err != nil {
+		return err
+	}
+	for _, st := range stores {
+		if st.ID == storeID {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s", storage.ErrUnknownStore, storeID)
+}
+
+// readLimited reads a file the user picked, refusing ones above limit bytes.
+func readLimited(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path) //nolint:gosec // the user picked this file in the open dialog
+	if err != nil {
+		return nil, fmt.Errorf("storage: read import: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("storage: read import: %w", err)
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("%w: the file is larger than %d MiB", storage.ErrInvalidExport, limit>>20)
+	}
+	return raw, nil
 }

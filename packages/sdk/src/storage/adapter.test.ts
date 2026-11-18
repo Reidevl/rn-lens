@@ -5,7 +5,7 @@ import { createLensClient, type LensClient } from "../client";
 import { FakeLens, waitFor } from "../testing/fake-lens";
 import { STORAGE_SNAPSHOT_MAX_KEYS, STORAGE_VALUE_MAX_BYTES } from "./adapter";
 import { FakeAsyncStorage, FakeMMKV, FakeSecureStore } from "./fakes";
-import type { LensStorageOptions } from "./types";
+import type { LensStorageOptions, MMKVLike } from "./types";
 
 let lens: FakeLens;
 let client: LensClient | undefined;
@@ -357,7 +357,8 @@ describe("MMKV", () => {
     expect((await set("b", "boolean", "true")).ok).toBe(true);
     expect(mmkv.data.get("b")).toBe(true);
     expect((await set("raw", "bytes", "AP8Q")).ok).toBe(true);
-    expect(mmkv.data.get("raw")).toEqual(bytes(0, 255, 16));
+    expect(mmkv.data.get("raw")).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(mmkv.data.get("raw") as ArrayBuffer)).toEqual(bytes(0, 255, 16));
     await lens.sync();
     const events = lens.drain("storage.event").map((e) => e.type === "storage.event" && e.payload);
     expect(events).toEqual([
@@ -426,5 +427,92 @@ describe("MMKV", () => {
     client?.disconnect();
     await waitFor(() => client?.state === "idle");
     expect(mmkv.listeners.size).toBe(0);
+  });
+});
+
+describe("MMKV v4", () => {
+  // react-native-mmkv v4 renamed delete(key) to remove(key).
+  class FakeMMKVv4 extends FakeMMKV {
+    declare delete: never;
+    remove(key: string): boolean {
+      const had = this.data.has(key);
+      FakeMMKV.prototype.delete.call(this, key);
+      return had;
+    }
+  }
+
+  it("REMOVE uses remove() when the instance has no delete()", async () => {
+    const mmkv = new FakeMMKVv4({ gone: "x" });
+    Object.defineProperty(mmkv, "delete", { value: undefined });
+    await connect({ mmkv: { m: mmkv } });
+    expect((await act({ type: "REMOVE", storeId: "mmkv:m", key: "gone" })).ok).toBe(true);
+    expect(mmkv.data.has("gone")).toBe(false);
+  });
+});
+
+describe("MMKV v4 value types (observed on a device)", () => {
+  // Each key answers every getter the way react-native-mmkv 4.3 did on an
+  // iOS simulator: MMKV keeps no type, so getString returns "" for numbers and
+  // for bytes that are not UTF-8, and undefined for booleans.
+  const observed: Record<string, { s?: string; n?: number; b?: boolean; buf?: number[] }> = {
+    num: { s: "", n: 7, b: false, buf: [] },
+    bool: { b: true },
+    str: { s: "hi", b: true, buf: [104, 105] },
+    empty: { s: "", b: false, buf: [] },
+    ctrl: { s: "\u0001\u0002\u0003", b: true, buf: [1, 2, 3] },
+    png: { s: "", n: 3.0655721352393715e-183, b: true, buf: [137, 80, 78, 71, 13, 10, 26, 10] },
+  };
+  const device: MMKVLike = {
+    getAllKeys: () => Object.keys(observed),
+    getString: (k) => observed[k]?.s,
+    getNumber: (k) => observed[k]?.n,
+    getBoolean: (k) => observed[k]?.b,
+    getBuffer: (k) => (observed[k]?.buf ? new Uint8Array(observed[k].buf).buffer : undefined),
+    contains: (k) => k in observed,
+    set: () => {},
+    remove: () => true,
+    clearAll: () => {},
+    addOnValueChangedListener: () => ({ remove: () => {} }),
+  };
+
+  it.each([
+    ["num", { type: "number", value: "7" }],
+    ["bool", { type: "boolean", value: "true" }],
+    ["str", { type: "string", value: "hi" }],
+    ["empty", { type: "string", value: "" }],
+    ["ctrl", { type: "bytes", value: "AQID" }],
+    ["png", { type: "bytes", value: "iVBORw0KGgo=" }],
+  ])("reads %s with its type", async (key, want) => {
+    await connect({ mmkv: { m: device } });
+    const res = await act({ type: "GET", storeId: "mmkv:m", key });
+    expect(res.ok).toBe(true);
+    expect(res.value).toMatchObject(want);
+  });
+});
+
+describe("snapshot size", () => {
+  it("keeps a storage.snapshot under Lens's 8 MiB frame limit", async () => {
+    const seed: Record<string, string> = {};
+    for (let i = 0; i < STORAGE_SNAPSHOT_MAX_KEYS; i++) seed[`${"k".repeat(900)}${i}`] = "v";
+    const stores = await connect({ asyncStorage: new FakeAsyncStorage(seed) });
+    const frame = JSON.stringify({ v: 1, type: "storage.snapshot", payload: { stores } });
+    expect(new TextEncoder().encode(frame).length).toBeLessThanOrEqual(8 * 1024 * 1024);
+    expect(stores[0].truncated).toBe(true);
+    expect(stores[0].keys.length).toBeGreaterThan(5_000);
+  });
+});
+
+describe("storage.result", () => {
+  it("carries the action id on the envelope and in the payload", async () => {
+    await connect({ asyncStorage: new FakeAsyncStorage({ theme: "dark" }) });
+    lens.send({
+      v: 1,
+      type: "storage.action",
+      id: "s42",
+      payload: { id: "s42", type: "GET", storeId: "async-storage", key: "theme" },
+    });
+    const frame = await lens.next("storage.result");
+    expect(frame.id).toBe("s42");
+    expect(frame.type === "storage.result" && frame.payload.id).toBe("s42");
   });
 });

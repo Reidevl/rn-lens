@@ -14,7 +14,7 @@ interface StorageState {
   stores: StorageStore[];
   storeId: string | null;
   selectedKey: string | null;
-  /** The opened value, keyed "<storeId>/<key>". */
+  /** The opened value, keyed by valueId(device, store, key). */
   value: { id: string; loaded: Loaded } | null;
   filter: string;
   busy: boolean;
@@ -87,12 +87,22 @@ export async function pullStorage(backend: Backend): Promise<void> {
   });
 }
 
-/** Reads the selected key's value from the device. */
-export async function loadValue(backend: Backend): Promise<void> {
-  const { deviceKey, storeId, selectedKey } = useStorageStore.getState();
+/** Identifies an opened value; the device is part of it. */
+export const valueId = (deviceKey: string, storeId: string, key: string) =>
+  JSON.stringify([deviceKey, storeId, key]);
+
+/**
+ * Reads the selected key's value from the device. A quiet reload (after a
+ * storage:changed notice) keeps showing the current value until the new one
+ * arrives.
+ */
+export async function loadValue(backend: Backend, opts: { quiet?: boolean } = {}): Promise<void> {
+  const { deviceKey, storeId, selectedKey, value } = useStorageStore.getState();
   if (!deviceKey || !storeId || !selectedKey) return;
-  const id = `${storeId}/${selectedKey}`;
-  useStorageStore.setState({ value: { id, loaded: { state: "loading" } } });
+  const id = valueId(deviceKey, storeId, selectedKey);
+  if (!opts.quiet || value?.id !== id) {
+    useStorageStore.setState({ value: { id, loaded: { state: "loading" } } });
+  }
   let loaded: Loaded;
   try {
     loaded = { state: "ready", value: await backend.storage.get(deviceKey, storeId, selectedKey) };

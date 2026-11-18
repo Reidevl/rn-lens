@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/Reidevl/rn-lens/internal/protocol"
@@ -63,6 +64,9 @@ func Export(ctx context.Context, svc *Service, deviceKey, storeID string) (Expor
 			return ExportFile{}, fmt.Errorf("storage: export: %w", err)
 		}
 		v, err := svc.Get(ctx, deviceKey, storeID, k.Key)
+		if errors.Is(err, ErrDisconnected) || errors.Is(err, ErrUnknownDevice) {
+			return ExportFile{}, fmt.Errorf("storage: export: %w", err)
+		}
 		if err != nil {
 			if file.Failed == nil {
 				file.Failed = make(map[string]string)
@@ -82,6 +86,13 @@ func Import(ctx context.Context, svc *Service, deviceKey, storeID string, file E
 	if file.Format != ExportFormat || file.Version != exportVersion {
 		return ImportResult{}, fmt.Errorf("%w (format %q, version %d)", ErrInvalidExport, file.Format, file.Version)
 	}
+	stores, err := svc.Stores(deviceKey)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	if !slices.ContainsFunc(stores, func(st protocol.StorageStore) bool { return st.ID == storeID }) {
+		return ImportResult{}, fmt.Errorf("%w: %s", ErrUnknownStore, storeID)
+	}
 	res := ImportResult{Skipped: map[string]string{}}
 	for k, v := range file.Entries {
 		if err := ctx.Err(); err != nil {
@@ -91,7 +102,16 @@ func Import(ctx context.Context, svc *Service, deviceKey, storeID string, file E
 			res.Skipped[k] = "the export holds only the size of this value"
 			continue
 		}
+		v, err := NormalizeValue(v)
+		if err != nil {
+			res.Skipped[k] = err.Error()
+			continue
+		}
 		if err := svc.Set(ctx, deviceKey, storeID, k, v); err != nil {
+			// The device going away ends the import; a refused key does not.
+			if errors.Is(err, ErrDisconnected) || errors.Is(err, ErrUnknownDevice) || errors.Is(err, ErrUnknownStore) {
+				return res, fmt.Errorf("storage: import: %w", err)
+			}
 			res.Skipped[k] = err.Error()
 			continue
 		}

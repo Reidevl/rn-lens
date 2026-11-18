@@ -233,4 +233,58 @@ describe("StoragePanel", () => {
     expect(await screen.findByRole("tab", { name: /MMKV · cache/ })).toBeInTheDocument();
     expect(await screen.findByRole("option", { name: /^etag/ })).toBeInTheDocument();
   });
+  it("refreshes the open value when the app changes it", async () => {
+    const user = userEvent.setup();
+    const backend = withStorage();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("tab", { name: /MMKV/ }));
+    const value = await openKey(user, "launches");
+    expect(await within(value).findByText("12")).toBeInTheDocument();
+
+    // A live MMKV write by the app arrives as storage:changed.
+    await backend.storage.set(device.key, "mmkv:default", "launches", "number", "13");
+    expect(await within(value).findByText("13")).toBeInTheDocument();
+  });
+  it("disarms Clear store when the device or store changes", async () => {
+    const user = userEvent.setup();
+    const backend = withStorage();
+    backend.connectStorage(
+      {
+        ...device,
+        key: "other|d2",
+        sessionId: "s2",
+        app: { id: "other", name: "Other", platform: "android" },
+      },
+      [{ id: "async-storage", kind: "async-storage", name: "AsyncStorage", keys: [{ key: "x" }] }],
+    );
+    render(<App backend={backend} />);
+    await screen.findByRole("listbox", { name: "Keys" });
+
+    await user.click(screen.getByRole("button", { name: "Clear store" }));
+    await user.click(screen.getByRole("tab", { name: /MMKV/ }));
+    expect(screen.queryByRole("button", { name: "Confirm clear" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /AsyncStorage/ }));
+    expect(screen.queryByRole("button", { name: "Confirm clear" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear store" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Device" }), "other|d2");
+    await screen.findByRole("option", { name: /^x/ });
+    expect(screen.queryByRole("button", { name: "Confirm clear" })).not.toBeInTheDocument();
+    expect(backend.calls.some((c) => c.startsWith("storage.clear:"))).toBe(false);
+  });
+
+  it("cancels an armed confirmation with Escape and announces results", async () => {
+    const user = userEvent.setup();
+    const backend = withStorage();
+    render(<App backend={backend} />);
+    await screen.findByRole("listbox", { name: "Keys" });
+    await user.click(screen.getByRole("button", { name: "Clear store" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Confirm clear" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Export" }));
+    expect(
+      await screen.findByText("Exported to /Users/me/lens-async-storage.json"),
+    ).toHaveAttribute("role", "status");
+  });
 });

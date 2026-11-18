@@ -18,7 +18,7 @@ window.
 | Network (requests, bodies, timing, cURL, HAR) — [guide](docs/guides/network.md)   | CDP (React Native 0.83+)           | No              |
 | App and device metadata, reload, screenshot                                       | CDP                                | No              |
 | Queries and Mutations (TanStack Query)                                            | `@rnlens/sdk`                      | One hook        |
-| Storage (AsyncStorage, MMKV, SecureStore)                                         | `@rnlens/sdk`                      | One hook        |
+| Storage (AsyncStorage, MMKV, SecureStore) — [guide](docs/guides/storage.md)       | `@rnlens/sdk`                      | One hook        |
 | Performance traces (Perfetto export)                                              | CDP                                | No              |
 
 ## How it connects
