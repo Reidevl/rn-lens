@@ -18,6 +18,7 @@ import (
 
 	"github.com/Reidevl/rn-lens/build"
 	"github.com/Reidevl/rn-lens/frontend"
+	"github.com/Reidevl/rn-lens/internal/adapters/mcpserver"
 	"github.com/Reidevl/rn-lens/internal/adapters/metro"
 	"github.com/Reidevl/rn-lens/internal/adapters/wailsui"
 	"github.com/Reidevl/rn-lens/internal/app"
@@ -62,6 +63,8 @@ func run(args []string) int {
 	sdkPort := fs.Int("sdk-port", 7420, "port the @rnlens/sdk WebSocket server listens on (0 disables it)")
 	sdkToken := fs.String("sdk-token", "", "pairing token the SDK must present (optional)")
 	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro base URLs to poll")
+	mcpPort := fs.Int("mcp-port", mcpserver.DefaultPort, "port of the MCP endpoint for AI clients (0 disables it)")
+	mcpToken := fs.String("mcp-token", "", "bearer token AI clients must send to the MCP endpoint (optional)")
 	mode := registerModeFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -87,7 +90,19 @@ func run(args []string) int {
 	core.Start()
 	defer core.Stop()
 
-	if err := wailsui.Run(core, frontend.Dist, mode.options()); err != nil {
+	opts := mode.options()
+	if *mcpPort != 0 {
+		// Lens works without MCP: a busy port (another Lens) only disables it.
+		ep, err := mcpserver.Start(mcpserver.AppLens{App: core}, *mcpPort, mcpserver.Options{Token: *mcpToken, Version: buildVersion()})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rnlens: MCP is off: %v\n", err)
+		} else {
+			defer func() { _ = ep.Close() }()
+			opts.MCP = wailsui.MCPInfo{URL: ep.URL, Token: *mcpToken}
+			fmt.Fprintf(os.Stderr, "MCP for AI clients at %s\n", ep.URL)
+		}
+	}
+	if err := wailsui.Run(core, frontend.Dist, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "rnlens: %v\n", err)
 		return 1
 	}
@@ -102,6 +117,9 @@ Usage:
                          localhost:8081, 8082 and 19000)
     --sdk-port N         Port for the @rnlens/sdk server (default 7420; 0 disables it)
     --sdk-token T        Pairing token the SDK must present (optional)
+    --mcp-port N         Port of the MCP endpoint for AI clients (default 7431;
+                         0 disables it)
+    --mcp-token T        Bearer token AI clients must send (optional)
   rnlens targets         Print discovered targets as JSON and exit
   rnlens record          Record a target's CDP traffic to a JSONL file
   rnlens --version       Print the build version
