@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLensClient, type LensClient, type LensClientState } from "./client";
+import { FakeAsyncStorage, FakeMMKV } from "./storage/fakes";
 import { FakeLens, waitFor } from "./testing/fake-lens";
 
 let lens: FakeLens;
@@ -60,6 +61,55 @@ describe("createLensClient", () => {
     client.connect();
     const hello = await lens.next("hello");
     expect(hello.payload.features).toEqual(["queries"]);
+  });
+
+  it("lists the storage feature only with storage options", async () => {
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      storage: { asyncStorage: new FakeAsyncStorage({ a: "1" }) },
+      backoff: fastBackoff,
+    });
+    client.connect();
+    const hello = await lens.welcome();
+    expect(hello.payload.features).toEqual(["storage"]);
+    const snapshot = await lens.next("storage.snapshot");
+    expect(snapshot.payload.stores.map((s) => s.id)).toEqual(["async-storage"]);
+    await lens.sync();
+    expect(lens.drain("queries.snapshot")).toEqual([]);
+    expect(lens.invalid).toEqual([]);
+  });
+
+  it("lists both features and sends both snapshots with a queryClient and storage", async () => {
+    const { QueryClient } = await import("@tanstack/react-query");
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      queryClient: new QueryClient(),
+      storage: { mmkv: { default: new FakeMMKV({ k: "v" }) } },
+      backoff: fastBackoff,
+    });
+    client.connect();
+    const hello = await lens.welcome();
+    expect(hello.payload.features).toEqual(["queries", "storage"]);
+    await lens.next("queries.snapshot");
+    await lens.next("storage.snapshot");
+    // Inbound frames reach both adapters.
+    lens.send({ v: 1, type: "snapshot.request", payload: {} });
+    await lens.next("queries.snapshot");
+    lens.send({
+      v: 1,
+      type: "storage.action",
+      id: "s1",
+      payload: { id: "s1", type: "GET", storeId: "mmkv:default", key: "k" },
+    });
+    const result = await lens.next("storage.result");
+    expect(result.payload).toEqual({
+      id: "s1",
+      ok: true,
+      value: { type: "string", value: "v", size: 1 },
+    });
+    expect(lens.invalid).toEqual([]);
   });
 
   it("answers ping with pong carrying the same id", async () => {

@@ -11,6 +11,8 @@ import { getDeviceId } from "./device-id";
 import { defaultEnabled, readRuntimeEnv, resolveLensUrl } from "./env";
 import { makeLog, type LensLogger, type Log } from "./logger";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_DEPTH } from "./serialize";
+import { createStorageAdapter, type StorageAdapter } from "./storage/adapter";
+import type { LensStorageOptions } from "./storage/types";
 import { createQueryAdapter, type OnlineManagerLike, type QueryAdapter } from "./tanstack/adapter";
 import { SDK_VERSION } from "./version";
 
@@ -43,6 +45,8 @@ export interface LensPlugin {
 export interface LensClientOptions {
   /** TanStack `QueryClient` to mirror; without it the Queries feature is off. */
   queryClient?: QueryClient;
+  /** Storage instances to mirror; without it the Storage feature is off. */
+  storage?: LensStorageOptions;
   /** Full WebSocket URL; derived from the Metro bundle host when omitted. */
   url?: string;
   /** Pairing token when Lens runs with `--sdk-token`. */
@@ -171,13 +175,26 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
     return sendRaw(JSON.stringify(message));
   }
 
-  const adapter: QueryAdapter | undefined = options.queryClient
-    ? createQueryAdapter(
-        options.queryClient,
-        { send, sendRaw, isReady: () => ready, log },
-        { limits, onlineManager: options.onlineManager },
-      )
+  const host = { send, sendRaw, isReady: () => ready, log };
+  const queryAdapter: QueryAdapter | undefined = options.queryClient
+    ? createQueryAdapter(options.queryClient, host, {
+        limits,
+        onlineManager: options.onlineManager,
+      })
     : undefined;
+  const storageAdapter: StorageAdapter | undefined = options.storage
+    ? createStorageAdapter(options.storage, host)
+    : undefined;
+  const features: HelloPayload["features"] = [];
+  const adapters: Array<QueryAdapter | StorageAdapter> = [];
+  if (queryAdapter) {
+    features.push("queries");
+    adapters.push(queryAdapter);
+  }
+  if (storageAdapter) {
+    features.push("storage");
+    adapters.push(storageAdapter);
+  }
 
   async function buildHello(): Promise<HelloMessage> {
     const env = readRuntimeEnv();
@@ -188,7 +205,7 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
       protocolVersion: PROTOCOL_VERSION,
       app: { id: appId, platform: env.platform },
       device: { id: deviceId },
-      features: adapter ? ["queries"] : [],
+      features: [...features],
     };
     const appName = options.appName ?? options.appId;
     if (appName) payload.app.name = appName;
@@ -212,13 +229,15 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
         helloTimeouts = 0;
         setState("connected");
         log.info(`connected to Lens ${message.payload.lensVersion}`);
-        adapter?.sendSnapshot();
+        for (const adapter of adapters) adapter.sendSnapshot();
         break;
       case "ping":
         send({ v: 1, type: "pong", id: message.id, payload: {} });
         break;
       default:
-        if (!adapter?.handle(message)) log.debug(`unhandled message ${message.type}`);
+        // The first adapter that handles a frame consumes it.
+        if (!adapters.some((adapter) => adapter.handle(message)))
+          log.debug(`unhandled message ${message.type}`);
     }
     for (const plugin of plugins.values()) {
       try {
@@ -303,7 +322,7 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
       if (fatal !== undefined) {
         log.warn(`Lens closed the connection with code ${code}: ${fatal}; not reconnecting`);
         closedByUser = true;
-        adapter?.detach();
+        for (const adapter of adapters) adapter.detach();
         setState("disabled");
         return;
       }
@@ -332,7 +351,7 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
     closedByUser = false;
     attempt = 0;
     helloTimeouts = 0;
-    adapter?.attach();
+    for (const adapter of adapters) adapter.attach();
     open();
   }
 
@@ -342,7 +361,7 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
       clearTimeout(reconnectTimer);
       reconnectTimer = undefined;
     }
-    adapter?.detach();
+    for (const adapter of adapters) adapter.detach();
     teardownSocket();
     attempt = 0;
     setState("idle");
