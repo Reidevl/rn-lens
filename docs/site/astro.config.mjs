@@ -20,6 +20,7 @@ export default defineConfig({
             "guides/storage",
             "guides/performance",
             "guides/plugins",
+            "guides/mcp",
           ],
         },
         { label: "Use cases", items: [{ autogenerate: { directory: "use-cases" } }] },
