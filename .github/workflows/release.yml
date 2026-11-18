@@ -206,7 +206,9 @@ jobs:
         run: |
           task windows:package
           mkdir -p out
-          installer=$(find build/windows/nsis -maxdepth 1 -name '*-installer.exe' | head -1)
+          # build/windows/nsis/project.nsi writes bin/<name>-<arch>-installer.exe.
+          installer=$(find bin -maxdepth 1 -name '*-installer.exe' | head -1)
+          test -n "$installer" || { echo "no installer in bin/" >&2; exit 1; }
           cp "$installer" "out/Lens_${TAG}_windows_amd64_setup.exe"
 
       - name: Package (Linux)
@@ -214,7 +216,9 @@ jobs:
         run: |
           task linux:create:appimage
           mkdir -p out
-          cp bin/*.AppImage "out/Lens_${TAG}_linux_x86_64.AppImage"
+          appimage=$(find bin -maxdepth 1 -name '*.AppImage' | head -1)
+          test -n "$appimage" || { echo "no AppImage in bin/" >&2; exit 1; }
+          cp "$appimage" "out/Lens_${TAG}_linux_x86_64.AppImage"
 
       - name: Upload to the release
         shell: bash

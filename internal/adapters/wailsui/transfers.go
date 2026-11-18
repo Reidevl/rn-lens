@@ -24,6 +24,10 @@ const maxUploadBytes = maxImportBytes
 // removed, so a page cannot fill the disk.
 const maxPendingUploads = 4
 
+// maxPendingDownloads bounds the saves the browser has not fetched yet;
+// older ones are removed.
+const maxPendingDownloads = 16
+
 // errUnknownTransfer means a download or upload token is not (or no longer)
 // registered.
 var errUnknownTransfer = errors.New("lens: unknown or expired transfer")
@@ -40,6 +44,7 @@ type transfers struct {
 	byPath    map[string]string // file path -> token
 	uploads   map[string]string // token -> file path
 	upOrder   []string          // upload tokens, oldest first
+	downOrder []string          // download tokens, oldest first
 }
 
 func newTransfers() (*transfers, error) {
@@ -71,7 +76,21 @@ func (t *transfers) savePath(name string) (string, error) {
 	t.mu.Lock()
 	t.downloads[tok] = path
 	t.byPath[path] = tok
+	t.downOrder = append(t.downOrder, tok)
+	var evicted []string
+	for len(t.downOrder) > maxPendingDownloads {
+		old := t.downOrder[0]
+		t.downOrder = t.downOrder[1:]
+		if p, ok := t.downloads[old]; ok {
+			evicted = append(evicted, filepath.Dir(p))
+			delete(t.downloads, old)
+			delete(t.byPath, p)
+		}
+	}
 	t.mu.Unlock()
+	for _, dir := range evicted {
+		_ = os.RemoveAll(dir)
+	}
 	return path, nil
 }
 
@@ -134,6 +153,7 @@ func (t *transfers) serveDownload(w http.ResponseWriter, r *http.Request) {
 	path, ok := t.downloads[tok]
 	delete(t.downloads, tok)
 	delete(t.byPath, path)
+	t.downOrder = slices.DeleteFunc(t.downOrder, func(s string) bool { return s == tok })
 	t.mu.Unlock()
 	if !ok {
 		http.NotFound(w, r)

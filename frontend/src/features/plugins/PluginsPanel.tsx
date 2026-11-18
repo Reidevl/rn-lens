@@ -147,7 +147,10 @@ const panel = createLensPanel({
   render: () => [{ type: "text", id: "hello", text: "Hello from the app" }],
 });
 
-useLens({ panels: [panel] });`;
+export function App() {
+  useLens({ panels: [panel] });
+  // …your app
+}`;
 
 function NoPlugins() {
   return (

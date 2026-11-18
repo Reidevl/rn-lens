@@ -156,7 +156,10 @@ const flagsPanel = createLensPanel({
   },
 });
 
-useLens({ panels: [flagsPanel] });
+export function App() {
+  useLens({ panels: [flagsPanel] });
+  // …your app
+}
 ```
 
 | Block      | Fields                                                              |

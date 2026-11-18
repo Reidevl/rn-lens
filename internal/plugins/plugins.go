@@ -23,6 +23,8 @@ import (
 const (
 	MaxViewBytes = 1 << 20
 	MaxBlocks    = 100
+	// MaxPlugins bounds the plugins one device registers.
+	MaxPlugins = 50
 )
 
 // Sender delivers frames to one connected device.
@@ -169,10 +171,14 @@ func (d *deviceState) apply(msg protocol.Message) (bool, error) {
 		if err := msg.PayloadInto(&reg); err != nil {
 			return false, fmt.Errorf("plugins: register: %w", err)
 		}
-		if !pluginID.MatchString(reg.ID) || reg.Name == "" {
-			return false, fmt.Errorf("%w: id %q, name %q", ErrInvalidPlugin, reg.ID, reg.Name)
+		if !pluginID.MatchString(reg.ID) || reg.Name == "" || len(reg.Name) > 64 ||
+			len(reg.Description) > 280 || len(reg.Version) > 32 {
+			return false, fmt.Errorf("%w: id %q: needs a valid id, a name of 1-64 characters, a description of at most 280 and a version of at most 32", ErrInvalidPlugin, reg.ID)
 		}
 		p, known := d.plugins[reg.ID]
+		if !known && len(d.order) >= MaxPlugins {
+			return false, fmt.Errorf("%w: more than %d plugins", ErrInvalidPlugin, MaxPlugins)
+		}
 		if !known {
 			p = &Plugin{ID: reg.ID, Blocks: json.RawMessage(`[]`)}
 			d.plugins[reg.ID] = p

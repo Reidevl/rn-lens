@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -247,5 +248,29 @@ func TestAReconnectReplacesThePlugins(t *testing.T) {
 	svc.Disconnect(key, "s1") // the old session ending later changes nothing
 	if devs := svc.Devices(); len(devs) != 1 || devs[0].SessionID != "s2" {
 		t.Fatalf("Devices = %+v", devs)
+	}
+}
+
+func TestRegistrationsAreBounded(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := connected(t)
+	for _, reg := range []protocol.PluginRegister{
+		{ID: "long-name", Name: strings.Repeat("n", 65)},
+		{ID: "long-desc", Name: "x", Description: strings.Repeat("d", 281)},
+		{ID: "long-version", Name: "x", Version: strings.Repeat("1", 33)},
+	} {
+		if err := svc.Message(key, "s1", frame(protocol.TypePluginRegister, "", reg)); !errors.Is(err, plugins.ErrInvalidPlugin) {
+			t.Fatalf("register %s err = %v", reg.ID, err)
+		}
+	}
+	for i := range plugins.MaxPlugins {
+		register(t, svc, fmt.Sprintf("p%d", i), "P")
+	}
+	if err := svc.Message(key, "s1", frame(protocol.TypePluginRegister, "", protocol.PluginRegister{ID: "one-too-many", Name: "X"})); !errors.Is(err, plugins.ErrInvalidPlugin) {
+		t.Fatalf("register past the limit err = %v", err)
+	}
+	register(t, svc, "p0", "Renamed") // re-registering a known plugin still works
+	if list, _ := svc.Plugins(key); len(list) != plugins.MaxPlugins || list[0].Name != "Renamed" {
+		t.Fatalf("plugins = %d, first %q", len(list), list[0].Name)
 	}
 }

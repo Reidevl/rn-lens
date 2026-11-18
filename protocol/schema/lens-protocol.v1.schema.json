@@ -1214,6 +1214,10 @@
           "minLength": 1,
           "maxLength": 128
         },
+        "title": {
+          "type": "string",
+          "maxLength": 128
+        },
         "text": {
           "type": "string",
           "maxLength": 4096

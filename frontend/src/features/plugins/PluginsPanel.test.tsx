@@ -177,3 +177,36 @@ describe("PluginsPanel", () => {
     expect(screen.getByRole("tab", { name: "Other" })).toHaveAttribute("aria-selected", "true");
   });
 });
+
+describe("PluginsPanel robustness", () => {
+  beforeEach(() => {
+    useShellStore.setState({ activePanel: "plugins" });
+    usePluginsStore.getState().reset();
+  });
+
+  it("keeps the panel when one block is malformed", async () => {
+    const broken: PluginInfo = {
+      id: "broken",
+      name: "Broken",
+      blocks: [
+        { type: "table", id: "t", title: "Bad table" } as never, // no columns or rows
+        { type: "text", id: "ok", text: "Still here" },
+      ],
+    };
+    render(<App backend={withPlugins(broken)} />);
+    expect(await screen.findByText("Still here")).toBeInTheDocument();
+    expect(screen.getByText(/This block could not be drawn/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Broken" })).toBeInTheDocument();
+  });
+
+  it("cancels a confirmation with Escape", async () => {
+    const user = userEvent.setup();
+    const backend = withPlugins(flags);
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("button", { name: "Reset overrides" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText("Reset every override?")).not.toBeInTheDocument();
+    expect(backend.calls.some((c) => c.startsWith("plugins.action"))).toBe(false);
+  });
+});

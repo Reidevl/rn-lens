@@ -182,3 +182,25 @@ func TestOnlyTheLatestUploadsAreKept(t *testing.T) {
 		t.Fatalf("%d uploads on disk, want %d", len(entries), maxPendingUploads)
 	}
 }
+
+func TestOnlyTheLatestDownloadsAreKept(t *testing.T) {
+	t.Parallel()
+	tr := newTestTransfers(t)
+	paths := make([]string, 0, maxPendingDownloads+2)
+	for range maxPendingDownloads + 2 {
+		path, err := tr.savePath("lens.har")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	for i, path := range paths {
+		_, statErr := os.Stat(path)
+		if kept := i >= 2; kept != (tr.downloadURL(path) != "") || kept != (statErr == nil) {
+			t.Fatalf("download %d: kept=%v url=%q stat=%v", i, kept, tr.downloadURL(path), statErr)
+		}
+	}
+}
