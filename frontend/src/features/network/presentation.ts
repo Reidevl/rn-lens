@@ -107,7 +107,7 @@ export function toCurl(r: NetworkRequest, body = ""): string {
   const parts = [`curl ${shellQuote(r.url)}`];
   const method = r.method.toUpperCase();
   const implicit = body ? method === "POST" : method === "GET";
-  if (!implicit) parts.push(`-X ${method}`);
+  if (!implicit) parts.push(`-X ${shellQuote(method)}`);
   for (const [name, value] of Object.entries(r.requestHeaders ?? {})) {
     // HTTP/2 pseudo headers and the length are recomputed by curl.
     if (name.startsWith(":") || name.toLowerCase() === "content-length") continue;

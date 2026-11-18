@@ -116,7 +116,13 @@ describe("toCurl", () => {
       `{"a":"b'c"}`,
     );
     expect(curl).toBe(
-      "curl 'https://x/it'\\''s' \\\n  -X PUT \\\n  -H 'Content-Type: application/json' \\\n  --data-raw '{\"a\":\"b'\\''c\"}'",
+      "curl 'https://x/it'\\''s' \\\n  -X 'PUT' \\\n  -H 'Content-Type: application/json' \\\n  --data-raw '{\"a\":\"b'\\''c\"}'",
+    );
+  });
+
+  it("quotes the method so a hostile one cannot run a second command", () => {
+    expect(toCurl(request({ method: "GET;touch /tmp/pwned" }))).toContain(
+      "-X 'GET;TOUCH /TMP/PWNED'",
     );
   });
 

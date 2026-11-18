@@ -42,6 +42,24 @@ describe("pullNetwork", () => {
     expect(state.selectedSeq).toBeNull();
   });
 
+  it("keeps a request that arrives between the stats and the rows", async () => {
+    const backend = createMockBackend();
+    const stats = backend.network.stats.bind(backend.network);
+    let injected = false;
+    backend.network.stats = async () => {
+      const s = await stats();
+      if (!injected) {
+        injected = true;
+        const r = backend.addRequest({ url: "https://x/fast" });
+        backend.updateRequest(r.seq, { state: "complete", status: 200 });
+      }
+      return s;
+    };
+    await pullNetwork(backend);
+    await pullNetwork(backend);
+    expect(useNetworkStore.getState().rows.map((r) => r.url)).toEqual(["https://x/fast"]);
+  });
+
   it("reports availability with the rows", async () => {
     const backend = createMockBackend();
     backend.setNetworkAvailability({

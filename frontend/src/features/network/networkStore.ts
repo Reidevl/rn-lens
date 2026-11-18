@@ -95,8 +95,10 @@ export async function pullNetwork(backend: Backend): Promise<void> {
     for (const r of state.rows) bySeq.set(r.seq, r);
   }
   for (const r of changed) bySeq.set(r.seq, r);
+  // Stats were read before the rows: anything newer than its lastSeq arrived
+  // in between and is kept; only older rows are checked against eviction.
   const rows = [...bySeq.values()]
-    .filter((r) => stats.len > 0 && r.seq >= stats.oldestSeq)
+    .filter((r) => r.seq > stats.lastSeq || (stats.len > 0 && r.seq >= stats.oldestSeq))
     .sort((a, b) => a.seq - b.seq);
 
   useNetworkStore.setState({
