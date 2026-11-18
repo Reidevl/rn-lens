@@ -284,6 +284,11 @@ export interface Backend {
     setOnline(deviceKey: string, online: boolean): Promise<void>;
   };
 
+  clipboard: {
+    /** Puts plain text on the system clipboard. Rejects when the text did not land there. */
+    writeText(text: string): Promise<void>;
+  };
+
   events: {
     /** Subscribes to a named Go event. Returns an unsubscribe function. */
     on<T = unknown>(name: string, handler: (data: T) => void): Unsubscribe;

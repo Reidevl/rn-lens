@@ -2,11 +2,12 @@ import { useBackend } from "@/backend";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/atoms/Button";
 import { RelativeTime } from "@/shared/ui/atoms/RelativeTime";
+import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
 import { DevicePicker } from "./DevicePicker";
 import { NoSdk } from "./NoSdk";
-import { keyText, statusBadge } from "./presentation";
+import { jsonText, keyText, statusBadge } from "./presentation";
 import { runQueriesAction, useQueriesStore } from "./queriesStore";
 import { useQueriesSync } from "./useQueriesSync";
 
@@ -20,6 +21,7 @@ export function MutationsPanel() {
   const selectMutation = useQueriesStore((s) => s.selectMutation);
   const busy = useQueriesStore((s) => s.busy);
   const error = useQueriesStore((s) => s.error);
+  const copy = (value: unknown) => () => backend.clipboard.writeText(jsonText(value));
   const selected = mutations.find((m) => m.mutationId === selectedId) ?? null;
 
   return (
@@ -98,25 +100,29 @@ export function MutationsPanel() {
           <div className="min-h-0 overflow-auto p-3">
             {selected ? (
               <div className="flex flex-col gap-4">
-                <div>
-                  <h2 className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    Variables
-                  </h2>
-                  <JsonTree value={selected.state.variables ?? null} label="Mutation variables" />
+                <div className="flex justify-end">
+                  <CopyButton label="Copy mutation" copy={copy(selected)} />
                 </div>
-                <div>
-                  <h2 className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    Data
-                  </h2>
-                  <JsonTree value={selected.state.data ?? null} label="Mutation data" />
-                </div>
+                <JsonSection
+                  title="Variables"
+                  label="Mutation variables"
+                  value={selected.state.variables}
+                  copy={copy(selected.state.variables)}
+                />
+                <JsonSection
+                  title="Data"
+                  label="Mutation data"
+                  value={selected.state.data}
+                  copy={copy(selected.state.data)}
+                />
                 {selected.state.error != null ? (
-                  <div>
-                    <h2 className="mb-1 text-xs font-medium tracking-wide text-destructive uppercase">
-                      Error
-                    </h2>
-                    <JsonTree value={selected.state.error} label="Mutation error" />
-                  </div>
+                  <JsonSection
+                    title="Error"
+                    label="Mutation error"
+                    value={selected.state.error}
+                    copy={copy(selected.state.error)}
+                    danger
+                  />
                 ) : null}
               </div>
             ) : (
@@ -128,5 +134,36 @@ export function MutationsPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+function JsonSection({
+  title,
+  label,
+  value,
+  copy,
+  danger,
+}: {
+  title: string;
+  label: string;
+  value: unknown;
+  copy: () => Promise<void>;
+  danger?: boolean;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <h2
+          className={cn(
+            "text-xs font-medium tracking-wide uppercase",
+            danger ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {title}
+        </h2>
+        <CopyButton label={`Copy ${title.toLowerCase()}`} copy={copy} />
+      </div>
+      <JsonTree value={value ?? null} label={label} />
+    </div>
   );
 }

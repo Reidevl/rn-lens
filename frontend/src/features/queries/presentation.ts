@@ -1,5 +1,10 @@
 import type { QueryLabel } from "@/backend";
 
+/** Pretty JSON for the clipboard; `undefined` becomes `null` so the text always parses. */
+export function jsonText(value: unknown): string {
+  return JSON.stringify(value ?? null, null, 2);
+}
+
 export const labelText: Record<QueryLabel, string> = {
   fetching: "Fetching",
   fresh: "Fresh",

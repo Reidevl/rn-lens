@@ -4,9 +4,10 @@ import { useBackend, type QueryActionType, type QueryItem } from "@/backend";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/atoms/Button";
 import { RelativeTime } from "@/shared/ui/atoms/RelativeTime";
+import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
-import { keyText, labelDot, labelText, statusBadge } from "./presentation";
+import { jsonText, keyText, labelDot, labelText, statusBadge } from "./presentation";
 import { runQueriesAction, useQueriesStore } from "./queriesStore";
 
 const ACTIONS: Array<{ type: QueryActionType; label: string; danger?: boolean }> = [
@@ -26,6 +27,8 @@ export function QueryDetail({ query, deviceKey }: { query: QueryItem; deviceKey:
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
+
+  const copy = (value: unknown) => () => backend.clipboard.writeText(jsonText(value));
 
   const run = (type: QueryActionType, dataJSON = "") =>
     void runQueriesAction(backend, () =>
@@ -51,7 +54,10 @@ export function QueryDetail({ query, deviceKey }: { query: QueryItem; deviceKey:
   return (
     <div className="flex h-full flex-col overflow-auto">
       <div className="border-b border-border p-3">
-        <p className="font-mono text-sm break-all select-text">{keyText(query.queryKey)}</p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-mono text-sm break-all select-text">{keyText(query.queryKey)}</p>
+          <CopyButton label="Copy query" copy={copy(query)} />
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="flex items-center gap-1.5">
             <span aria-hidden="true" className={cn("size-2 rounded-full", labelDot[query.label])} />
@@ -103,9 +109,12 @@ export function QueryDetail({ query, deviceKey }: { query: QueryItem; deviceKey:
               </Button>
             </div>
           ) : (
-            <Button size="sm" disabled={busy} onClick={startEdit}>
-              Edit data
-            </Button>
+            <div className="flex gap-1">
+              <CopyButton label="Copy data" copy={copy(query.state.data)} />
+              <Button size="sm" disabled={busy} onClick={startEdit}>
+                Edit data
+              </Button>
+            </div>
           )}
         </div>
         {editing ? (
@@ -129,9 +138,12 @@ export function QueryDetail({ query, deviceKey }: { query: QueryItem; deviceKey:
         )}
         {query.state.error != null ? (
           <div className="mt-4">
-            <h3 className="mb-1 text-xs font-medium tracking-wide text-destructive uppercase">
-              Error
-            </h3>
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-xs font-medium tracking-wide text-destructive uppercase">
+                Error
+              </h3>
+              <CopyButton label="Copy error" copy={copy(query.state.error)} />
+            </div>
             <JsonTree value={query.state.error} label="Query error" />
           </div>
         ) : null}
