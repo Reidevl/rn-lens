@@ -54,22 +54,26 @@ reconnect with backoff.
 
 ## Messages
 
-| Direction               | `type`             | Purpose                                                                                                                   |
-| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| SDK → Lens              | `hello`            | identity, app, device, features; must be the first frame within 5 s                                                       |
-| Lens → SDK              | `welcome`          | accepted; carries the Lens version and a session id                                                                       |
-| Lens → SDK              | `snapshot.request` | ask for a full `queries.snapshot`                                                                                         |
-| SDK → Lens              | `queries.snapshot` | every query and mutation plus the online flag                                                                             |
-| SDK → Lens              | `query.event`      | one cache change: `added`, `updated` (with `action` and `delta`), `removed`, `observers`                                  |
-| SDK → Lens              | `mutation.event`   | one mutation cache change                                                                                                 |
-| SDK → Lens              | `online.status`    | `onlineManager` changed on the device                                                                                     |
-| Lens → SDK              | `query.action`     | run a devtools action; answered by `action.result` with the same `id`                                                     |
-| Lens → SDK              | `online.set`       | set `onlineManager` on the device                                                                                         |
-| Lens → SDK / SDK → Lens | `ping` / `pong`    | liveness                                                                                                                  |
-| SDK → Lens              | `storage.snapshot` | every store (AsyncStorage, MMKV instances, SecureStore) with its keys and sizes; `storeId` set when it replaces one store |
-| SDK → Lens              | `storage.event`    | a key changed in a live store (MMKV): `set`, `removed`, `cleared`                                                         |
-| Lens → SDK              | `storage.action`   | `GET`, `SET`, `REMOVE`, `CLEAR` or `REFRESH` a store; answered by `storage.result` with the same `id`                     |
-| SDK → Lens              | `storage.result`   | outcome of a `storage.action`; carries the value for `GET`                                                                |
+| Direction               | `type`             | Purpose                                                                                                                     |
+| ----------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| SDK → Lens              | `hello`            | identity, app, device, features; must be the first frame within 5 s                                                         |
+| Lens → SDK              | `welcome`          | accepted; carries the Lens version and a session id                                                                         |
+| Lens → SDK              | `snapshot.request` | ask for a full `queries.snapshot`                                                                                           |
+| SDK → Lens              | `queries.snapshot` | every query and mutation plus the online flag                                                                               |
+| SDK → Lens              | `query.event`      | one cache change: `added`, `updated` (with `action` and `delta`), `removed`, `observers`                                    |
+| SDK → Lens              | `mutation.event`   | one mutation cache change                                                                                                   |
+| SDK → Lens              | `online.status`    | `onlineManager` changed on the device                                                                                       |
+| Lens → SDK              | `query.action`     | run a devtools action; answered by `action.result` with the same `id`                                                       |
+| Lens → SDK              | `online.set`       | set `onlineManager` on the device                                                                                           |
+| Lens → SDK / SDK → Lens | `ping` / `pong`    | liveness                                                                                                                    |
+| SDK → Lens              | `storage.snapshot` | every store (AsyncStorage, MMKV instances, SecureStore) with its keys and sizes; `storeId` set when it replaces one store   |
+| SDK → Lens              | `storage.event`    | a key changed in a live store (MMKV): `set`, `removed`, `cleared`                                                           |
+| Lens → SDK              | `storage.action`   | `GET`, `SET`, `REMOVE`, `CLEAR` or `REFRESH` a store; answered by `storage.result` with the same `id`                       |
+| SDK → Lens              | `storage.result`   | outcome of a `storage.action`; carries the value for `GET`                                                                  |
+| SDK → Lens              | `plugin.register`  | a plugin of the app: `id`, `name`, `description`, `version`; shown as a tab of the Plugins panel                            |
+| SDK → Lens              | `plugin.view`      | the plugin's whole panel as `blocks`, replacing the previous view                                                           |
+| Lens → SDK              | `plugin.action`    | the user clicked an action (`blockId`, `actionId`, `rowId` for a table row); answered by `plugin.result` with the same `id` |
+| SDK → Lens              | `plugin.result`    | outcome of a `plugin.action`, with an optional `message` for the user                                                       |
 
 ## Delta policy for `query.event` (`kind: updated`)
 
@@ -100,11 +104,33 @@ keys only; Lens reads a value with `GET` when someone opens it. Storage
 answers use their own `storage.result`, so their ids never collide with
 `action.result` ids of the queries feature.
 
+### Plugin panels
+
+A plugin never ships UI code: `plugin.view` describes its panel with blocks
+that Lens draws with its own components, in desktop and browser mode alike.
+
+| Block      | Shows                                                    |
+| ---------- | -------------------------------------------------------- |
+| `text`     | a paragraph, with an optional `tone`                     |
+| `keyValue` | labelled values (any JSON value)                         |
+| `table`    | `columns` and `rows`, with optional `rowActions` per row |
+| `json`     | a collapsible JSON tree                                  |
+| `log`      | entries with `time` and `level`, newest last             |
+| `actions`  | buttons; `destructive` and `confirm` ask before sending  |
+
+Every block has an `id`, unique in its view, which `plugin.action` carries
+back. Plugin ids are lowercase (`^[a-z0-9][a-z0-9._-]{0,63}$`). Plugin results
+use their own `plugin.result`, so their ids never collide with the other
+features'.
+
 ## Payload limits
 
 `data`, `error`, `variables` and `context` are serialized with a safe
 serializer (BigInt as string, Date as ISO string, circular references as
 `"[Circular]"`, depth 20) and cut at 1 MiB; a cut value sets `dataTruncated`.
+
+A `plugin.view` is at most 1 MiB and 100 blocks; the schema also caps rows,
+entries and actions per block. Lens shows an error instead of a larger view.
 
 A storage value above 1 MiB is answered with `truncated: true`, its `size`
 and an empty `value`. A `storage.snapshot` lists at most 10,000 keys per store

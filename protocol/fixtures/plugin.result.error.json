@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "plugin.result",
+  "id": "p2",
+  "payload": {
+    "id": "p2",
+    "ok": false,
+    "error": "no handler for action reset"
+  }
+}

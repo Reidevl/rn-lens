@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "plugin.register",
+  "payload": {
+    "id": "Feature Flags",
+    "name": "Feature flags"
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "v": 1,
+  "type": "plugin.view",
+  "payload": {
+    "pluginId": "feature-flags",
+    "blocks": [
+      {
+        "type": "text",
+        "id": "intro",
+        "text": "Flags override the remote config until the app restarts.",
+        "tone": "muted"
+      },
+      {
+        "type": "table",
+        "id": "flags",
+        "title": "Flags",
+        "columns": [
+          {
+            "key": "name",
+            "label": "Flag"
+          },
+          {
+            "key": "enabled",
+            "label": "Enabled"
+          }
+        ],
+        "rows": [
+          {
+            "id": "newCheckout",
+            "cells": {
+              "name": "newCheckout",
+              "enabled": true
+            }
+          },
+          {
+            "id": "darkMode",
+            "cells": {
+              "name": "darkMode",
+              "enabled": false
+            }
+          }
+        ],
+        "rowActions": [
+          {
+            "id": "toggle",
+            "label": "Toggle"
+          }
+        ]
+      },
+      {
+        "type": "keyValue",
+        "id": "config",
+        "title": "Config",
+        "items": [
+          {
+            "key": "env",
+            "label": "Environment",
+            "value": "staging"
+          },
+          {
+            "key": "fetchedAt",
+            "value": "2026-11-18T12:00:00Z"
+          }
+        ]
+      },
+      {
+        "type": "json",
+        "id": "raw",
+        "title": "Raw config",
+        "value": {
+          "flags": {
+            "newCheckout": true
+          },
+          "ttl": 300
+        }
+      },
+      {
+        "type": "log",
+        "id": "events",
+        "title": "Events",
+        "entries": [
+          {
+            "time": "2026-11-18T12:00:00Z",
+            "level": "info",
+            "text": "Config fetched"
+          },
+          {
+            "level": "warn",
+            "text": "darkMode overridden"
+          }
+        ]
+      },
+      {
+        "type": "actions",
+        "id": "tools",
+        "actions": [
+          {
+            "id": "refetch",
+            "label": "Refetch config"
+          },
+          {
+            "id": "reset",
+            "label": "Reset overrides",
+            "destructive": true,
+            "confirm": "Reset every flag override?"
+          }
+        ]
+      }
+    ]
+  }
+}

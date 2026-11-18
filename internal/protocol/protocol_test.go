@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -106,6 +108,7 @@ func TestFixturesConformOnBothSides(t *testing.T) {
 			protocol.TypeQueryEvent, protocol.TypeMutationEvent, protocol.TypeOnlineStatus, protocol.TypeQueryAction,
 			protocol.TypeActionResult, protocol.TypeOnlineSet, protocol.TypePing, protocol.TypePong,
 			protocol.TypeStorageSnapshot, protocol.TypeStorageEvent, protocol.TypeStorageAction, protocol.TypeStorageResult,
+			protocol.TypePluginRegister, protocol.TypePluginView, protocol.TypePluginAction, protocol.TypePluginResult,
 		} {
 			if !seen[typ] {
 				t.Errorf("no fixture covers message type %q", typ)
@@ -193,6 +196,34 @@ func TestIsStorageActionTypeAcceptsExactlyTheSchemaActions(t *testing.T) {
 		if protocol.IsStorageActionType(typ) {
 			t.Fatalf("IsStorageActionType(%q) = true, want false", typ)
 		}
+	}
+}
+
+func TestPluginBlockTypesMatchTheSchema(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]struct {
+			OneOf []struct {
+				Ref string `json:"$ref"`
+			} `json:"oneOf"`
+			Properties struct {
+				Type struct{ Const string } `json:"type"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	kinds := make([]string, 0, len(protocol.PluginBlockTypes))
+	for _, ref := range schema.Defs["PluginBlock"].OneOf {
+		kinds = append(kinds, schema.Defs[path.Base(ref.Ref)].Properties.Type.Const)
+	}
+	if !slices.Equal(kinds, protocol.PluginBlockTypes) {
+		t.Fatalf("PluginBlockTypes = %v, schema has %v", protocol.PluginBlockTypes, kinds)
 	}
 }
 
