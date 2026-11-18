@@ -218,6 +218,42 @@ func TestAttachEnablesConsoleDomainsAndIngestsEvents(t *testing.T) {
 	}
 }
 
+func TestAttachEnablesNetworkAndIngestsRequests(t *testing.T) {
+	t.Parallel()
+	debugger := cdptest.New(t)
+	debugger.Handle("Runtime.enable", func(cdptest.Request) (any, *cdptest.Error) { return nil, nil })
+	debugger.Handle("Network.enable", func(cdptest.Request) (any, *cdptest.Error) { return nil, nil })
+	m := newFakeMetro(t, debugger)
+	a := app.New(app.Config{MetroEndpoints: []string{m.srv.URL}, PollInterval: 10 * time.Millisecond, NetworkCapacity: 5})
+	targetsCh, cancelTargets := a.Bus().Subscribe(app.TopicTargetsChanged, 8)
+	defer cancelTargets()
+	networkCh, cancelNetwork := a.Bus().Subscribe(app.TopicNetworkChanged, 64)
+	defer cancelNetwork()
+	a.Start()
+	t.Cleanup(a.Stop)
+
+	waitTopic(t, targetsCh, "targets:changed")
+	if err := a.Attach(a.Targets()[0].ID); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	for !a.Network().Availability().Checked {
+		waitTopic(t, networkCh, "network availability")
+	}
+	if got := a.Network().Availability(); !got.Supported {
+		t.Fatalf("Availability = %+v", got)
+	}
+
+	debugger.Emit("Network.requestWillBeSent", map[string]any{
+		"requestId": "1", "timestamp": 1, "request": map[string]any{"url": "https://httpbin.org/json", "method": "GET", "headers": map[string]any{}},
+	})
+	for a.Network().Store().Stats().Len == 0 {
+		waitTopic(t, networkCh, "network:changed")
+	}
+	if rows := a.Network().Store().Since(0, 0); rows[0].URL != "https://httpbin.org/json" {
+		t.Fatalf("rows = %+v", rows)
+	}
+}
+
 func TestSessionFollowsTheAppToANewPageId(t *testing.T) {
 	t.Parallel()
 	first := cdptest.New(t)

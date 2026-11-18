@@ -19,6 +19,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/adapters/metro"
 	"github.com/Reidevl/rn-lens/internal/adapters/sdkws"
 	"github.com/Reidevl/rn-lens/internal/console"
+	"github.com/Reidevl/rn-lens/internal/network"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 	"github.com/Reidevl/rn-lens/internal/protocol"
@@ -33,6 +34,7 @@ const (
 	TopicSessionChanged = "session:changed"
 	TopicConsoleChanged = "console:changed"
 	TopicQueriesChanged = "queries:changed"
+	TopicNetworkChanged = "network:changed"
 )
 
 // Config holds the values the composition root needs from its caller.
@@ -49,6 +51,8 @@ type Config struct {
 	FrameObserver func(dir cdp.Direction, raw []byte)
 	// ConsoleCapacity bounds the console log. Zero means console.DefaultCapacity.
 	ConsoleCapacity int
+	// NetworkCapacity bounds the captured requests. Zero means network.DefaultCapacity.
+	NetworkCapacity int
 	// SDKAddr is where the @rnlens/sdk server listens. Empty means ":7420";
 	// "off" disables it.
 	SDKAddr string
@@ -74,6 +78,7 @@ type App struct {
 	discovery *metro.Discovery
 	session   *targets.Session
 	console   *console.Service
+	network   *network.Service
 	queries   *queries.Service
 	sdk       *sdkws.Server
 
@@ -86,7 +91,7 @@ type App struct {
 	// re-emits snapshots (metadata updates) whose state did not change.
 	stateMu   sync.Mutex
 	lastState targets.State
-	// attachMu serializes console domain enabling across fast re-attaches.
+	// attachMu serializes domain enabling across fast re-attaches.
 	attachMu sync.Mutex
 }
 
@@ -120,6 +125,11 @@ func New(cfg Config) *App {
 		Logger: cfg.Logger,
 	})
 	a.session.OnEvent(a.console.HandleEvent)
+	a.network = network.NewService(network.NewStore(cfg.NetworkCapacity, nil), a.session, network.ServiceOptions{
+		Notify: func() { a.bus.Publish(TopicNetworkChanged, nil) },
+		Logger: cfg.Logger,
+	})
+	a.session.OnEvent(a.network.HandleEvent)
 	a.queries = queries.NewService(func() { a.bus.Publish(TopicQueriesChanged, nil) })
 	if cfg.SDKAddr != "off" {
 		a.sdk = sdkws.New(sdkws.Options{
@@ -187,11 +197,16 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 		if err := a.console.OnAttached(ctx, name); err != nil {
 			a.cfg.Logger.Warn("console domains not enabled", "err", err)
 		}
+		// Network reports an unsupported target through Availability.
+		_ = a.network.OnAttached(ctx)
 	}()
 }
 
 // Console exposes the console feature to UI adapters.
 func (a *App) Console() *console.Service { return a.console }
+
+// Network exposes the network feature to UI adapters.
+func (a *App) Network() *network.Service { return a.network }
 
 // Info returns static information about this Lens build.
 func (a *App) Info() Info {
