@@ -25,6 +25,7 @@ func init() {
 	application.RegisterEvent[ChangeNotice](app.TopicConsoleChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicQueriesChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicNetworkChanged)
+	application.RegisterEvent[ChangeNotice](app.TopicStorageChanged)
 }
 
 const (
@@ -47,6 +48,19 @@ func Run(core *app.App, assets fs.FS) error {
 			CanCreateDirectories(true).
 			PromptForSingleSelection()
 	}
+	saveJSON := func(name string) (string, error) {
+		return desktop.Dialog.SaveFile().
+			SetFilename(name).
+			AddFilter("JSON", "*.json").
+			CanCreateDirectories(true).
+			PromptForSingleSelection()
+	}
+	openJSON := func(string) (string, error) {
+		return desktop.Dialog.OpenFile().
+			CanChooseFiles(true).
+			AddFilter("Lens storage export", "*.json").
+			PromptForSingleSelection()
+	}
 	desktop = application.New(application.Options{
 		Name:        windowTitle,
 		Description: "React Native DevTools written in Go",
@@ -56,6 +70,7 @@ func Run(core *app.App, assets fs.FS) error {
 			application.NewService(NewConsoleService(core)),
 			application.NewService(NewQueriesService(core)),
 			application.NewService(NewNetworkService(core, saveHAR)),
+			application.NewService(NewStorageService(core, saveJSON, openJSON)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -83,7 +98,7 @@ func Run(core *app.App, assets fs.FS) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged}
+	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged, app.TopicStorageChanged}
 	coalescer := NewCoalescer(core.Bus(), topics, notifyTick,
 		func(topic string, notice ChangeNotice) { desktop.Event.Emit(topic, notice) })
 	go coalescer.Run(ctx)
