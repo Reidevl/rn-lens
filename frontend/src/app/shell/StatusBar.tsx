@@ -2,6 +2,7 @@ import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useBackend, type AppInfo } from "@/backend";
+import { FastRefreshIndicator } from "@/features/performance/FastRefreshIndicator";
 import { describeApp, presentSession, type Tone } from "@/features/targets/sessionPresentation";
 import { useTargetsStore } from "@/features/targets/targetsStore";
 import { cn } from "@/shared/lib/cn";
@@ -50,6 +51,7 @@ export function StatusBar() {
           <span aria-hidden="true" className={cn("size-2 rounded-full", toneDot[view.tone])} />
           {session.state === "attached" && app ? app : view.label}
         </span>
+        <FastRefreshIndicator />
       </div>
       <div className="flex items-center gap-2">
         <span className="font-mono">{info ? `${info.name} v${info.version}` : "Lens"}</span>

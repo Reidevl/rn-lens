@@ -2,6 +2,7 @@ import { Clipboard, Events } from "@wailsio/runtime";
 
 import * as AppService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/appservice";
 import * as ConsoleService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/consoleservice";
+import * as PerformanceService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/performanceservice";
 import * as NetworkService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/networkservice";
 import * as StorageService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/storageservice";
 import * as QueriesService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/queriesservice";
@@ -13,6 +14,8 @@ import type {
   NetworkRequest,
   NetworkSummary,
   MutationItem,
+  PerformanceStatus,
+  Screenshot,
   QueryCounts,
   QueryItem,
   SdkDevice,
@@ -103,6 +106,21 @@ export function createWailsBackend(): Backend {
       exportStore: (deviceKey, storeId) => StorageService.Export(deviceKey, storeId),
       importStore: async (deviceKey, storeId) =>
         (await StorageService.Import(deviceKey, storeId)) as unknown as StorageImportOutcome,
+    },
+    performance: {
+      // time.Time and the phase enum arrive structurally typed; narrow once here.
+      status: async () => (await PerformanceService.Status()) as unknown as PerformanceStatus,
+      traceCategories: async () => (await PerformanceService.TraceCategories()) ?? [],
+      screenshot: async (format, quality) =>
+        (await PerformanceService.Screenshot(format, quality)) as unknown as Screenshot,
+      saveScreenshot: () => PerformanceService.SaveScreenshot(),
+      startTrace: (categories) => done(PerformanceService.StartTrace(categories)),
+      stopTrace: () => PerformanceService.StopTrace(),
+      saveTrace: () => PerformanceService.SaveTrace(),
+      startProfile: () => done(PerformanceService.StartProfile()),
+      stopProfile: () => PerformanceService.StopProfile(),
+      saveProfile: () => PerformanceService.SaveProfile(),
+      saveHeapSnapshot: () => PerformanceService.SaveHeapSnapshot(),
     },
     clipboard: {
       // The webview's navigator.clipboard is not reliable under the Wails
