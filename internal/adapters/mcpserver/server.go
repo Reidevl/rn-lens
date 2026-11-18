@@ -28,18 +28,26 @@ type Options struct {
 	Token string
 	// Version is reported to clients as the server version.
 	Version string
+	// ReadOnly starts with the tools that change the app refused.
+	ReadOnly bool
+	// OnChange runs after the activity log or the read-only switch
+	// changed. It must not block.
+	OnChange func()
 }
 
-// NewServer returns the MCP server with every Lens tool.
-func NewServer(lens Lens, opts Options) *mcp.Server {
+// NewServer returns the MCP server with every Lens tool, and the Control
+// that records its calls and switches read-only mode.
+func NewServer(lens Lens, opts Options) (*mcp.Server, *Control) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "lens", Title: "Lens — React Native DevTools", Version: opts.Version}, &mcp.ServerOptions{
 		Instructions: "Lens is attached to a React Native app. Start with `status` to see the attached app " +
 			"and the devices running @rnlens/sdk, and `list_targets` for the apps Metro lists. Device " +
 			"arguments are optional when one device is connected. Tools that change the app are marked destructive.",
 	})
-	addReadTools(s, lens)
-	addWriteTools(s, lens)
-	return s
+	ctl := newControl(opts)
+	addReadTools(s, ctl, lens)
+	addWriteTools(s, ctl, lens)
+	s.AddReceivingMiddleware(ctl.middleware)
+	return s, ctl
 }
 
 // Handler serves MCP over streamable HTTP at any path. It refuses
@@ -70,7 +78,9 @@ func Handler(server *mcp.Server, opts Options) http.Handler {
 // Endpoint is a running MCP endpoint.
 type Endpoint struct {
 	URL string
-	srv *http.Server
+	// Control is the endpoint's activity log, read-only switch and tools.
+	Control *Control
+	srv     *http.Server
 }
 
 // Start listens on 127.0.0.1:port (0 picks a free port) and serves MCP at
@@ -80,11 +90,12 @@ func Start(lens Lens, port int, opts Options) (*Endpoint, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mcp: listen on port %d: %w", port, err)
 	}
+	server, ctl := NewServer(lens, opts)
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", Handler(NewServer(lens, opts), opts))
+	mux.Handle("/mcp", Handler(server, opts))
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
-	return &Endpoint{URL: fmt.Sprintf("http://%s/mcp", ln.Addr()), srv: srv}, nil
+	return &Endpoint{URL: fmt.Sprintf("http://%s/mcp", ln.Addr()), Control: ctl, srv: srv}, nil
 }
 
 // Close stops the endpoint, ending open sessions. A connected client keeps a

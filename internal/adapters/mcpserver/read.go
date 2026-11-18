@@ -64,8 +64,8 @@ func clamp(n, def, most int) int {
 	return min(n, most)
 }
 
-func addReadTools(s *mcp.Server, lens Lens) {
-	mcp.AddTool(s, &mcp.Tool{
+func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
+	addTool(s, ctl, &mcp.Tool{
 		Name: "status", Annotations: readOnly,
 		Description: "Lens version, the attached app (Metro target, session state, React Native metadata) and the devices running @rnlens/sdk with their features (queries, storage, plugins).",
 	},
@@ -78,7 +78,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			})
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "list_targets", Annotations: readOnly,
 		Description: "Debuggable React Native apps Metro lists; attach_target attaches Lens to one.",
 	},
@@ -90,7 +90,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(list)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "console_logs", Annotations: readOnly,
 		Description: "The attached app's console: logs, warnings, errors and exceptions, newest last.",
 	},
@@ -125,7 +125,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(out)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "network_requests", Annotations: readOnly,
 		Description: "HTTP requests the attached app made (React Native 0.83+), newest first: method, URL, status, type, size and time.",
 	},
@@ -144,7 +144,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(out)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "network_request", Annotations: readOnly,
 		Description: "One request with its headers, timing, and request and response bodies (each cut at 64 KiB).",
 	},
@@ -166,7 +166,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(out)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "list_queries", Annotations: readOnly,
 		Description: "TanStack queries of a device: key, hash, status (fresh, stale, fetching, paused, inactive), observers and update times, without their data (use get_query).",
 	},
@@ -207,7 +207,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(map[string]any{"device": dev, "queries": out})
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "get_query", Annotations: readOnly,
 		Description: "One query with its full state and data.",
 	},
@@ -223,7 +223,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(q)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "list_mutations", Annotations: readOnly,
 		Description: "TanStack mutations of a device with their state, variables and result.",
 	},
@@ -239,7 +239,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(map[string]any{"device": dev, "mutations": list})
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "list_stores", Annotations: readOnly,
 		Description: "Storage of a device (AsyncStorage, MMKV instances, SecureStore): each store with its keys and sizes. Read a value with get_storage_value.",
 	},
@@ -255,7 +255,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(map[string]any{"device": dev, "stores": stores})
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "get_storage_value", Annotations: readOnly,
 		Description: "One stored value as {type, value}: strings as is, numbers and booleans in JSON form, bytes as base64.",
 	},
@@ -271,7 +271,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(v)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "list_plugins", Annotations: readOnly,
 		Description: "Panels the app added to Lens with createLensPanel, with their current blocks (tables, key/value lists, logs, buttons). plugin_action clicks a button.",
 	},
@@ -287,7 +287,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			return result(map[string]any{"device": dev, "plugins": list})
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "take_screenshot", Annotations: readOnly,
 		Description: "A screenshot of what the attached app shows right now.",
 	},

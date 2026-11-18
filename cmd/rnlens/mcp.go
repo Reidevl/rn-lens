@@ -25,11 +25,14 @@ func mcpToken(flagValue, envValue string) (token, warning string) {
 
 // startMCP starts the MCP endpoint, or reports why it is off. Lens runs
 // either way: port 0 turns MCP off, a busy port (another Lens) disables it.
-func startMCP(core *app.App, port int, token string) (*mcpserver.Endpoint, string) {
+func startMCP(core *app.App, port int, token string, readOnly bool) (*mcpserver.Endpoint, string) {
 	if port == 0 {
 		return nil, ""
 	}
-	ep, err := mcpserver.Start(mcpserver.AppLens{App: core}, port, mcpserver.Options{Token: token, Version: buildVersion()})
+	ep, err := mcpserver.Start(mcpserver.AppLens{App: core}, port, mcpserver.Options{
+		Token: token, Version: buildVersion(), ReadOnly: readOnly,
+		OnChange: func() { core.Bus().Publish(app.TopicMCPChanged, nil) },
+	})
 	if err != nil {
 		return nil, fmt.Sprintf("rnlens: MCP is off: %v", err)
 	}

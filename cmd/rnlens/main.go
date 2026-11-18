@@ -65,6 +65,7 @@ func run(args []string) int {
 	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro base URLs to poll")
 	mcpPort := fs.Int("mcp-port", mcpserver.DefaultPort, "port of the MCP endpoint for AI clients (0 disables it)")
 	mcpTokenFlag := fs.String("mcp-token", "", "bearer token AI clients must send to the MCP endpoint (prefer "+mcpTokenEnv+")")
+	mcpReadOnly := fs.Bool("mcp-read-only", false, "refuse the MCP tools that change the app (switch it in the MCP panel)")
 	mode := registerModeFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -95,13 +96,14 @@ func run(args []string) int {
 	if warning != "" {
 		fmt.Fprintln(os.Stderr, warning)
 	}
-	ep, msg := startMCP(core, *mcpPort, token)
+	ep, msg := startMCP(core, *mcpPort, token, *mcpReadOnly)
 	if msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
 	if ep != nil {
 		defer func() { _ = ep.Close() }()
 		opts.MCP = wailsui.MCPInfo{URL: ep.URL, Token: token}
+		opts.MCPControl = ep.Control
 		fmt.Fprintf(os.Stderr, "MCP for AI clients at %s\n", ep.URL)
 	}
 	if err := wailsui.Run(core, frontend.Dist, opts); err != nil {
@@ -124,6 +126,7 @@ Usage:
     --mcp-token T        Bearer token AI clients must send (optional; prefer
                          the RNLENS_MCP_TOKEN environment variable, which
                          other users cannot read)
+    --mcp-read-only      Refuse the MCP tools that change the app
   rnlens targets         Print discovered targets as JSON and exit
   rnlens record          Record a target's CDP traffic to a JSONL file
   rnlens --version       Print the build version

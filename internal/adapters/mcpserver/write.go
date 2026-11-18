@@ -63,8 +63,8 @@ type pluginActionArgs struct {
 	Row    string `json:"row,omitempty" jsonschema:"row id, for a table row button"`
 }
 
-func addWriteTools(s *mcp.Server, lens Lens) {
-	mcp.AddTool(s, &mcp.Tool{
+func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
+	addTool(s, ctl, &mcp.Tool{
 		Name: "attach_target", Annotations: changes,
 		Description: "Attach Lens to one of the apps list_targets shows.",
 	},
@@ -75,7 +75,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return message("Attaching to %s; check status.", in.TargetID)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "reload_app", Annotations: destructive,
 		Description: "Reload the attached app's JavaScript (like pressing r in Metro); in-memory state is lost.",
 	},
@@ -86,7 +86,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return message("The app is reloading.")
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "evaluate_js", Annotations: destructive,
 		Description: "Run JavaScript inside the attached app, like the console's input line. It can read and change anything in the app.",
 	},
@@ -113,7 +113,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return result(out)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "query_action", Annotations: destructive,
 		Description: "Run a TanStack Query devtools action on the device: refetch, invalidate, reset, remove, set data, trigger or restore the error and loading states, or clear a cache.",
 	},
@@ -143,7 +143,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return message("%s done on %s.", in.Action, dev)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "set_online", Annotations: changes,
 		Description: "Switch TanStack Query's onlineManager on the device, to test offline behaviour.",
 	},
@@ -162,7 +162,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return message("%s is now %s.", dev, state)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "set_storage_value", Annotations: destructive,
 		Description: "Write one key of a store on the device (adds it or replaces its value).",
 	},
@@ -185,7 +185,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return message("Wrote %s in %s.", in.Key, in.Store)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "remove_storage_key", Annotations: destructive,
 		Description: "Delete one key of a store on the device.",
 	},
@@ -200,7 +200,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return message("Removed %s from %s.", in.Key, in.Store)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "clear_storage", Annotations: destructive,
 		Description: "Delete every key of a store on the device.",
 	},
@@ -215,7 +215,7 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			return message("Cleared %s.", in.Store)
 		})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ctl, &mcp.Tool{
 		Name: "plugin_action", Annotations: destructive,
 		Description: "Click a button of a plugin panel (see list_plugins). Returns the message the app answered with.",
 	},
