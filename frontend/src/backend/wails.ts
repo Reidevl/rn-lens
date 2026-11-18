@@ -23,6 +23,13 @@ import type {
   StorageValue,
 } from "./Backend";
 
+/**
+ * Resolves a call that returns nothing to undefined, as the Backend contract
+ * says: over the Wails bridge a Go method without a result resolves to {},
+ * which React cannot render if it ever reaches the UI.
+ */
+const done = (call: Promise<unknown>): Promise<void> => call.then(() => undefined);
+
 /** Backend backed by the Wails v3 bindings and event bus. */
 export function createWailsBackend(): Backend {
   return {
@@ -32,20 +39,20 @@ export function createWailsBackend(): Backend {
     },
     targets: {
       list: async () => (await TargetsService.List()) ?? [],
-      refresh: () => TargetsService.Refresh(),
+      refresh: () => done(TargetsService.Refresh()),
       // The generated enum is structurally a string union; narrow it once here.
       session: async () => (await TargetsService.Session()) as unknown as SessionSnapshot,
-      attach: (id) => TargetsService.Attach(id),
-      detach: () => TargetsService.Detach(),
-      reload: () => TargetsService.Reload(),
-      openInReactNativeDevTools: (id) => TargetsService.OpenInReactNativeDevTools(id),
+      attach: (id) => done(TargetsService.Attach(id)),
+      detach: () => done(TargetsService.Detach()),
+      reload: () => done(TargetsService.Reload()),
+      openInReactNativeDevTools: (id) => done(TargetsService.OpenInReactNativeDevTools(id)),
     },
     console: {
       stats: () => ConsoleService.Stats(),
       // Generated enums are string unions structurally; narrow once here.
       range: async (fromSeq, limit) =>
         ((await ConsoleService.Range(fromSeq, limit)) ?? []) as unknown as ConsoleEntry[],
-      clear: () => ConsoleService.Clear(),
+      clear: () => done(ConsoleService.Clear()),
       evaluate: async (expression) =>
         (await ConsoleService.Evaluate(expression)) as unknown as ConsoleEntry,
       properties: async (objectId, epoch) =>
@@ -66,8 +73,8 @@ export function createWailsBackend(): Backend {
       mutations: async (deviceKey) =>
         ((await QueriesService.Mutations(deviceKey)) ?? []) as unknown as MutationItem[],
       action: (deviceKey, type, queryHash, dataJSON) =>
-        QueriesService.Action(deviceKey, type, queryHash, dataJSON),
-      setOnline: (deviceKey, online) => QueriesService.SetOnline(deviceKey, online),
+        done(QueriesService.Action(deviceKey, type, queryHash, dataJSON)),
+      setOnline: (deviceKey, online) => done(QueriesService.SetOnline(deviceKey, online)),
     },
     network: {
       availability: () => NetworkService.Availability(),
@@ -78,7 +85,7 @@ export function createWailsBackend(): Backend {
       request: async (seq) => (await NetworkService.Request(seq)) as unknown as NetworkRequest,
       responseBody: (seq, epoch) => NetworkService.ResponseBody(seq, epoch),
       requestBody: (seq, epoch) => NetworkService.RequestBody(seq, epoch),
-      clear: () => NetworkService.Clear(),
+      clear: () => done(NetworkService.Clear()),
       saveHAR: () => NetworkService.SaveHAR(),
     },
     storage: {
@@ -89,10 +96,10 @@ export function createWailsBackend(): Backend {
       get: async (deviceKey, storeId, key) =>
         (await StorageService.Get(deviceKey, storeId, key)) as unknown as StorageValue,
       set: (deviceKey, storeId, key, type, value) =>
-        StorageService.Set(deviceKey, storeId, key, type, value),
-      remove: (deviceKey, storeId, key) => StorageService.Remove(deviceKey, storeId, key),
-      clear: (deviceKey, storeId) => StorageService.Clear(deviceKey, storeId),
-      refresh: (deviceKey, storeId) => StorageService.Refresh(deviceKey, storeId),
+        done(StorageService.Set(deviceKey, storeId, key, type, value)),
+      remove: (deviceKey, storeId, key) => done(StorageService.Remove(deviceKey, storeId, key)),
+      clear: (deviceKey, storeId) => done(StorageService.Clear(deviceKey, storeId)),
+      refresh: (deviceKey, storeId) => done(StorageService.Refresh(deviceKey, storeId)),
       exportStore: (deviceKey, storeId) => StorageService.Export(deviceKey, storeId),
       importStore: async (deviceKey, storeId) =>
         (await StorageService.Import(deviceKey, storeId)) as unknown as StorageImportOutcome,

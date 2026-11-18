@@ -287,4 +287,32 @@ describe("StoragePanel", () => {
       await screen.findByText("Exported to /Users/me/lens-async-storage.json"),
     ).toHaveAttribute("role", "status");
   });
+  it("survives writes whose Wails call resolves to an empty object", async () => {
+    // Over the Wails bridge a Go method without a return value resolves to {}.
+    const user = userEvent.setup();
+    const backend = withStorage();
+    for (const op of ["set", "remove", "clear", "refresh"] as const) {
+      const original = backend.storage[op].bind(backend.storage) as (
+        ...a: unknown[]
+      ) => Promise<void>;
+      (backend.storage as Record<string, unknown>)[op] = async (...args: unknown[]) => {
+        await original(...args);
+        return {};
+      };
+    }
+    render(<App backend={backend} />);
+    const value = await openKey(user, "theme");
+    await user.click(within(value).getByRole("button", { name: "Delete" }));
+    await user.click(within(value).getByRole("button", { name: "Confirm delete" }));
+    await waitFor(() => expect(backend.calls).toContain("storage.remove:async-storage/theme"));
+    expect(screen.getByRole("heading", { name: "Storage" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add key" }));
+    const form = screen.getByRole("form", { name: "Add key" });
+    await user.type(within(form).getByRole("textbox", { name: "Key" }), "again");
+    await user.type(within(form).getByRole("textbox", { name: "Value" }), "x");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    expect(await screen.findByRole("option", { name: /^again/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Storage" })).toBeInTheDocument();
+  });
 });
