@@ -15,7 +15,7 @@ window.
 | Panel                                                                             | Source                             | Needs app code? |
 | --------------------------------------------------------------------------------- | ---------------------------------- | --------------- |
 | Console (logs, errors, object trees, eval REPL) — [guide](docs/guides/console.md) | Chrome DevTools Protocol via Metro | No              |
-| Network (requests, bodies, timing, cURL, HAR)                                     | CDP (React Native 0.83+)           | No              |
+| Network (requests, bodies, timing, cURL, HAR) — [guide](docs/guides/network.md)   | CDP (React Native 0.83+)           | No              |
 | App and device metadata, reload, screenshot                                       | CDP                                | No              |
 | Queries and Mutations (TanStack Query)                                            | `@rnlens/sdk`                      | One hook        |
 | Storage (AsyncStorage, MMKV, SecureStore)                                         | `@rnlens/sdk`                      | One hook        |
