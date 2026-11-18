@@ -368,6 +368,60 @@ export interface StorageImportOutcome {
   skipped: Record<string, string> | null;
 }
 
+/** A device whose app registered plugin panels. */
+export type PluginDevice = StorageDevice;
+
+/** A button of a plugin panel; clicking it sends the action to the app. */
+export interface PluginButton {
+  id: string;
+  label: string;
+  destructive?: boolean;
+  /** Lens asks the user to confirm this text first. */
+  confirm?: string;
+}
+
+interface PluginBlockBase {
+  id: string;
+  title?: string;
+}
+
+/** One building block of a plugin panel (see protocol/README.md). */
+export type PluginBlock =
+  | (PluginBlockBase & {
+      type: "text";
+      text: string;
+      tone?: "default" | "muted" | "warning" | "error";
+    })
+  | (PluginBlockBase & {
+      type: "keyValue";
+      items: { key: string; label?: string; value: unknown }[];
+    })
+  | (PluginBlockBase & {
+      type: "table";
+      columns: { key: string; label: string }[];
+      rows: { id: string; cells: Record<string, unknown> }[];
+      rowActions?: PluginButton[];
+    })
+  | (PluginBlockBase & { type: "json"; value: unknown })
+  | (PluginBlockBase & {
+      type: "log";
+      entries: { text: string; level?: "debug" | "info" | "warn" | "error"; time?: string }[];
+    })
+  | (PluginBlockBase & { type: "actions"; actions: PluginButton[] });
+
+/** A plugin of the app and its current panel. */
+export interface PluginInfo {
+  id: string;
+  name: string;
+  description?: string;
+  version?: string;
+  /** The last view; a block of a kind this Lens does not know is kept as is. */
+  blocks: PluginBlock[];
+  /** Why the last view is not shown (too large, too many blocks). */
+  error?: string;
+  updatedAt?: string;
+}
+
 /** Where the last Fast Refresh stands. */
 export type FastRefreshPhase =
   "off" | "unavailable" | "connecting" | "ready" | "updating" | "updated" | "error";
@@ -428,6 +482,7 @@ export const TOPICS = {
   networkChanged: "network:changed",
   storageChanged: "storage:changed",
   performanceChanged: "performance:changed",
+  pluginsChanged: "plugins:changed",
 } as const;
 
 export type Unsubscribe = () => void;
@@ -524,6 +579,19 @@ export interface Backend {
     saveProfile(): Promise<string>;
     /** Asks where to save, then streams a heap snapshot there. */
     saveHeapSnapshot(): Promise<HeapSnapshotResult>;
+  };
+
+  plugins: {
+    devices(): Promise<PluginDevice[]>;
+    plugins(deviceKey: string): Promise<PluginInfo[]>;
+    /** Sends a click to the app; resolves to the app's message ("" when none). */
+    action(
+      deviceKey: string,
+      pluginId: string,
+      blockId: string,
+      actionId: string,
+      rowId?: string,
+    ): Promise<string>;
   };
 
   clipboard: {

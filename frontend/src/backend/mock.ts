@@ -10,6 +10,8 @@ import {
   type NetworkBody,
   type NetworkRequest,
   type PerformanceStatus,
+  type PluginDevice,
+  type PluginInfo,
   type QueryCounts,
   type QueryItem,
   type QueryLabel,
@@ -71,6 +73,23 @@ export interface MockBackend extends Backend {
   setPerformance(patch: Partial<PerformanceStatus>): void;
   /** Makes every `performance` call reject with `message`; null restores them. */
   failPerformance(message: string | null): void;
+  /** Connects a fake device with plugins (or replaces them) and notifies. */
+  setPlugins(device: PluginDevice, plugins: PluginInfo[]): void;
+  /** Disconnects a plugin device and notifies. */
+  removePluginDevice(deviceKey: string): void;
+  /**
+   * Answers `plugins.action`: return the app's message or throw its error.
+   * Defaults to answering "".
+   */
+  onPluginAction(
+    handler: (action: {
+      deviceKey: string;
+      pluginId: string;
+      blockId: string;
+      actionId: string;
+      rowId?: string;
+    }) => string | Promise<string>,
+  ): void;
   /** Text last written through `clipboard.writeText`. */
   readonly clipboardText: string;
   /** Makes `clipboard.writeText` reject, to exercise the failure path. */
@@ -147,6 +166,10 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     fastRefresh: { phase: "off" },
   };
   let perfFailure: string | null = null;
+  const pluginDevices = new Map<string, { device: PluginDevice; plugins: PluginInfo[] }>();
+  let pluginActionHandler: Parameters<MockBackend["onPluginAction"]>[0] = () => "";
+  const notifyPlugins = () =>
+    emit(TOPICS.pluginsChanged, { topic: TOPICS.pluginsChanged, seq: Date.now() });
   const notifyPerformance = () =>
     emit(TOPICS.performanceChanged, { topic: TOPICS.performanceChanged, seq: Date.now() });
   /** Records the call and fails it when failPerformance is set. */
@@ -623,6 +646,36 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
         perfCall("saveHeapSnapshot");
         return { path: "/Users/me/lens.heapsnapshot", bytes: 6_500_000 };
       },
+    },
+    plugins: {
+      devices: async () => [...pluginDevices.values()].map((d) => d.device),
+      plugins: async (deviceKey) => {
+        const d = pluginDevices.get(deviceKey);
+        if (!d) throw new Error("plugins: unknown device");
+        return d.plugins.map((p) => ({ ...p, blocks: [...p.blocks] }));
+      },
+      action: async (deviceKey, pluginId, blockId, actionId, rowId) => {
+        calls.push(`plugins.action:${pluginId}/${blockId}/${actionId}${rowId ? `/${rowId}` : ""}`);
+        if (!pluginDevices.has(deviceKey)) throw new Error("plugins: unknown device");
+        return pluginActionHandler({
+          deviceKey,
+          pluginId,
+          blockId,
+          actionId,
+          ...(rowId ? { rowId } : {}),
+        });
+      },
+    },
+    setPlugins: (device, plugins) => {
+      pluginDevices.set(device.key, { device, plugins });
+      notifyPlugins();
+    },
+    removePluginDevice: (deviceKey) => {
+      pluginDevices.delete(deviceKey);
+      notifyPlugins();
+    },
+    onPluginAction: (handler) => {
+      pluginActionHandler = handler;
     },
     setPerformance: setPerf,
     failPerformance: (message) => {

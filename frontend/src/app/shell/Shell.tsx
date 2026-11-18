@@ -1,6 +1,7 @@
 import { ConsolePanel } from "@/features/console/ConsolePanel";
 import { NetworkPanel } from "@/features/network/NetworkPanel";
 import { PerformancePanel } from "@/features/performance/PerformancePanel";
+import { PluginsPanel } from "@/features/plugins/PluginsPanel";
 import { MutationsPanel } from "@/features/queries/MutationsPanel";
 import { QueriesPanel } from "@/features/queries/QueriesPanel";
 import { StoragePanel } from "@/features/storage/StoragePanel";
@@ -40,6 +41,8 @@ export function Shell() {
             <MutationsPanel />
           ) : panel.id === "performance" ? (
             <PerformancePanel />
+          ) : panel.id === "plugins" ? (
+            <PluginsPanel />
           ) : (
             <PlaceholderPanel panel={panel} />
           )}

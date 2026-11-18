@@ -2,6 +2,7 @@ import { Clipboard, Events } from "@wailsio/runtime";
 
 import * as AppService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/appservice";
 import * as ConsoleService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/consoleservice";
+import * as PluginsService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/pluginsservice";
 import * as PerformanceService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/performanceservice";
 import * as NetworkService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/networkservice";
 import * as StorageService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/storageservice";
@@ -15,6 +16,8 @@ import type {
   NetworkSummary,
   MutationItem,
   PerformanceStatus,
+  PluginDevice,
+  PluginInfo,
   Screenshot,
   QueryCounts,
   QueryItem,
@@ -163,6 +166,14 @@ export function createWailsBackend({ browser = false }: WailsBackendOptions = {}
         const result = await PerformanceService.SaveHeapSnapshot();
         return { ...result, path: await delivered(result.path) };
       },
+    },
+    plugins: {
+      devices: async () => ((await PluginsService.Devices()) ?? []) as unknown as PluginDevice[],
+      // Blocks arrive as raw JSON from Go; narrow once here.
+      plugins: async (deviceKey) =>
+        ((await PluginsService.Plugins(deviceKey)) ?? []) as unknown as PluginInfo[],
+      action: (deviceKey, pluginId, blockId, actionId, rowId = "") =>
+        PluginsService.Action(deviceKey, pluginId, blockId, actionId, rowId),
     },
     clipboard: {
       // The webview's navigator.clipboard is not reliable under the Wails
