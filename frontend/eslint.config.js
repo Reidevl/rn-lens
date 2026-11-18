@@ -9,6 +9,12 @@ export default tseslint.config(
   { ignores: ["dist", "bindings", "node_modules"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    // Editors run one ESLint process for the whole workspace; without an
+    // explicit root, typescript-eslint sees both packages and refuses to
+    // parse. No `files`: the TypeScript parser also reads .js/.mjs/.cjs.
+    languageOptions: { parserOptions: { tsconfigRootDir: import.meta.dirname } },
+  },
   reactHooks.configs.flat.recommended,
   reactRefresh.configs.vite,
   prettier,
@@ -17,9 +23,6 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2022,
       globals: { ...globals.browser },
-      // Editors run one ESLint process for the whole workspace; without an
-      // explicit root, typescript-eslint sees both packages and refuses to parse.
-      parserOptions: { tsconfigRootDir: import.meta.dirname },
     },
     rules: {
       "@typescript-eslint/consistent-type-imports": "error",
