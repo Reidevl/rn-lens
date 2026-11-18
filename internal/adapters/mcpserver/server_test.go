@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -282,7 +281,7 @@ func TestLargeResultsAreCut(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := res.Content[0].(*mcp.TextContent).Text
-	if len(text) > maxResultBytes+200 || !strings.HasSuffix(text, "narrow the request with search or limit)") {
+	if len(text) > maxResultBytes+200 || !strings.HasSuffix(text, "search or limit where the tool has them)") {
 		t.Fatalf("cut text is %d bytes", len(text))
 	}
 }
@@ -331,18 +330,6 @@ func TestEndpointOverHTTP(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 	if out := mustCall(t, cs, "status", nil); !strings.Contains(out, "dev.rnlens.example|d1") {
 		t.Fatalf("status over HTTP = %s", out)
-	}
-}
-
-func TestEndpointRefusesForeignHosts(t *testing.T) {
-	t.Parallel()
-	h := Handler(NewServer(oneDevice(), Options{}), Options{})
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://evil.example/mcp", strings.NewReader("{}"))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code < 400 {
-		t.Fatalf("a request for host evil.example got %d", rec.Code)
 	}
 }
 

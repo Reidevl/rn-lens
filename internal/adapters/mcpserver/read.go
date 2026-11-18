@@ -23,7 +23,7 @@ type deviceArg struct {
 }
 
 type consoleArgs struct {
-	Level  string `json:"level,omitempty" jsonschema:"only entries of this level: verbose (console.debug), info (console.log and console.info), warning, error or system (Lens's own notes); debug, log and warn are accepted too"`
+	Level  string `json:"level,omitempty" jsonschema:"only entries of this level: verbose (console.debug), info (console.log and console.info), warning, error or system (Lens's own notes and evaluate_js commands and results); debug, log and warn are accepted too"`
 	Search string `json:"search,omitempty" jsonschema:"only entries whose text contains this (case-insensitive)"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"how many of the newest matching entries to return (default 100, at most 1000)"`
 }

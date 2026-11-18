@@ -3,13 +3,18 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Reidevl/rn-lens/internal/protocol"
 	"github.com/Reidevl/rn-lens/internal/storage"
 )
+
+// evaluateTimeout bounds evaluate_js; a variable so tests can shorten it.
+var evaluateTimeout = 30 * time.Second
 
 type targetArg struct {
 	TargetID string `json:"targetId" jsonschema:"the target's id from list_targets"`
@@ -89,7 +94,12 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 			if in.Expression == "" {
 				return nil, nil, fmt.Errorf("expression is empty")
 			}
+			ctx, cancel := context.WithTimeout(ctx, evaluateTimeout)
+			defer cancel()
 			e, err := lens.Evaluate(ctx, in.Expression)
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil, nil, fmt.Errorf("the expression did not finish within %v (a promise that never settles?)", evaluateTimeout)
+			}
 			if err != nil {
 				return nil, nil, err
 			}
@@ -110,6 +120,9 @@ func addWriteTools(s *mcp.Server, lens Lens) {
 		func(ctx context.Context, _ *mcp.CallToolRequest, in queryActionArgs) (*mcp.CallToolResult, any, error) {
 			if !protocol.IsActionType(in.Action) {
 				return nil, nil, fmt.Errorf("unknown action %q", in.Action)
+			}
+			if in.QueryHash == "" && in.Action != "CLEAR_QUERY_CACHE" && in.Action != "CLEAR_MUTATION_CACHE" {
+				return nil, nil, fmt.Errorf("%s needs queryHash (see list_queries)", in.Action)
 			}
 			dev, err := pickDevice(in.Device, queryKeys(lens))
 			if err != nil {

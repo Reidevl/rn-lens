@@ -117,3 +117,65 @@ func TestHints(t *testing.T) {
 		}
 	}
 }
+
+// The DNS-rebinding check needs a real listener: the SDK only applies it to
+// requests that arrived on a local address.
+func TestARealListenerRefusesForeignHosts(t *testing.T) {
+	t.Parallel()
+	ep, err := Start(oneDevice(), 0, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ep.Close() })
+	post := func(host string) int {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, ep.URL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`))
+		req.Host = host
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := post("evil.example"); code != http.StatusForbidden {
+		t.Fatalf("Host evil.example: %d, want 403", code)
+	}
+	if code := post("localhost"); code != http.StatusOK {
+		t.Fatalf("Host localhost: %d, want 200", code)
+	}
+}
+
+func TestQueryActionsNeedAQuery(t *testing.T) {
+	t.Parallel()
+	lens := oneDevice()
+	cs := connect(t, lens)
+	if out, isErr := call(t, cs, "query_action", map[string]any{"action": "REFETCH"}); !isErr || !strings.Contains(out, "needs queryHash") {
+		t.Fatalf("REFETCH without a query = %s", out)
+	}
+	mustCall(t, cs, "query_action", map[string]any{"action": "CLEAR_QUERY_CACHE"})
+	if got := lens.Calls(); len(got) != 1 || !strings.Contains(got[0], "CLEAR_QUERY_CACHE") {
+		t.Fatalf("calls = %v", got)
+	}
+}
+
+// Not parallel: it shortens evaluateTimeout for its duration.
+func TestEvaluateGivesUp(t *testing.T) {
+	lens := &slowLens{fakeLens: oneDevice()}
+	old := evaluateTimeout
+	t.Cleanup(func() { evaluateTimeout = old })
+	evaluateTimeout = 50 * time.Millisecond
+	out, isErr := call(t, connect(t, lens), "evaluate_js", map[string]any{"expression": "new Promise(() => {})"})
+	if !isErr || !strings.Contains(out, "did not finish") {
+		t.Fatalf("hanging evaluate = %s", out)
+	}
+}
+
+// slowLens never finishes an evaluation until its context ends.
+type slowLens struct{ *fakeLens }
+
+func (s *slowLens) Evaluate(ctx context.Context, _ string) (console.Entry, error) {
+	<-ctx.Done()
+	return console.Entry{}, ctx.Err()
+}

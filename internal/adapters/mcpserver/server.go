@@ -33,9 +33,9 @@ type Options struct {
 // NewServer returns the MCP server with every Lens tool.
 func NewServer(lens Lens, opts Options) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "lens", Title: "Lens — React Native DevTools", Version: opts.Version}, &mcp.ServerOptions{
-		Instructions: "Lens is attached to a React Native app. Start with `status` to see the app, " +
-			"its Metro targets and the devices running @rnlens/sdk. Device arguments are optional " +
-			"when one device is connected. Tools that change the app are marked destructive.",
+		Instructions: "Lens is attached to a React Native app. Start with `status` to see the attached app " +
+			"and the devices running @rnlens/sdk, and `list_targets` for the apps Metro lists. Device " +
+			"arguments are optional when one device is connected. Tools that change the app are marked destructive.",
 	})
 	addReadTools(s, lens)
 	addWriteTools(s, lens)
@@ -106,7 +106,7 @@ func result(v any) (*mcp.CallToolResult, any, error) {
 	}
 	text := string(raw)
 	if len(text) > maxResultBytes {
-		text = truncateUTF8(text, maxResultBytes) + "\n… (cut at 256 KiB; narrow the request with search or limit)"
+		text = truncateUTF8(text, maxResultBytes) + "\n… (cut at 256 KiB, so this is not valid JSON; ask for less: search or limit where the tool has them)"
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }

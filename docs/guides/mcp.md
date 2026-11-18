@@ -58,10 +58,18 @@ is unique). Results above 256 KiB are cut: narrow them with `search` or
 
 ## Options
 
-| Flag            | Default | Meaning                                     |
-| --------------- | ------- | ------------------------------------------- |
-| `--mcp-port N`  | `7431`  | Port of the MCP endpoint; `0` turns MCP off |
-| `--mcp-token T` | none    | Clients must send `Authorization: Bearer T` |
+| Flag            | Default | Meaning                                                                |
+| --------------- | ------- | ---------------------------------------------------------------------- |
+| `--mcp-port N`  | `7431`  | Port of the MCP endpoint; `0` turns MCP off                            |
+| `--mcp-token T` | none    | Clients must send `Authorization: Bearer T`; prefer `RNLENS_MCP_TOKEN` |
+
+Set the token in the environment rather than on the command line: other
+users of the machine can read a process's arguments (`ps`), but not its
+environment. Lens warns when the token comes from `--mcp-token`.
+
+```sh
+RNLENS_MCP_TOKEN="$(openssl rand -hex 16)" rnlens
+```
 
 With a token, add the header to the client:
 
@@ -78,6 +86,6 @@ its log.
 The endpoint listens on `127.0.0.1` only. It refuses requests whose `Host`
 is not localhost (DNS rebinding) and cross-origin requests from web pages,
 so a site open in your browser cannot drive it. Anything on this machine can
-still reach it: use `--mcp-token` on a shared machine, or `--mcp-port 0` to
-turn it off. The tools can change the app and run JavaScript in it; keep
+still reach it: set `RNLENS_MCP_TOKEN` on a shared machine, or use
+`--mcp-port 0` to turn it off. The tools can change the app and run JavaScript in it; keep
 your AI client's confirmation prompts on for destructive tools.
