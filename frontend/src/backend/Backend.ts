@@ -233,12 +233,101 @@ export type QueryActionType =
   | "CLEAR_QUERY_CACHE"
   | "CLEAR_MUTATION_CACHE";
 
+export type NetworkState = "pending" | "complete" | "failed";
+
+/** Whether the attached app supports network inspection (React Native 0.83+). */
+export interface NetworkAvailability {
+  /** False until the first attach finished enabling the Network domain. */
+  checked: boolean;
+  supported: boolean;
+  reason?: string;
+}
+
+/** Position of Go's request store; pull rows changed after `version`. */
+export interface NetworkStats {
+  version: number;
+  len: number;
+  oldestSeq: number;
+  lastSeq: number;
+  dropped: number;
+  epoch: number;
+  cleared: number;
+}
+
+/** One table row. Times are CDP monotonic seconds; startedAt is epoch ms. */
+export interface NetworkSummary {
+  seq: number;
+  epoch: number;
+  version: number;
+  requestId: string;
+  url: string;
+  method: string;
+  resourceType: string;
+  state: NetworkState;
+  status: number;
+  statusText: string;
+  mimeType: string;
+  startedAt: number;
+  startTime: number;
+  responseTime: number;
+  endTime: number;
+  encodedSize: number;
+  decodedSize: number;
+  errorText?: string;
+  canceled?: boolean;
+  redirected?: boolean;
+  fromCache?: boolean;
+}
+
+/** CDP ResourceTiming: phases in ms after requestTime (seconds); -1 = none. */
+export interface NetworkTiming {
+  requestTime: number;
+  proxyStart: number;
+  proxyEnd: number;
+  dnsStart: number;
+  dnsEnd: number;
+  connectStart: number;
+  connectEnd: number;
+  sslStart: number;
+  sslEnd: number;
+  sendStart: number;
+  sendEnd: number;
+  receiveHeadersEnd: number;
+}
+
+export interface NetworkInitiator {
+  type: string;
+  url?: string;
+  lineNumber?: number;
+  stack?: unknown;
+}
+
+export interface NetworkRequest extends NetworkSummary {
+  requestHeaders: Record<string, string> | null;
+  responseHeaders: Record<string, string> | null;
+  hasPostData: boolean;
+  postData?: string;
+  protocol?: string;
+  remoteAddress?: string;
+  timing?: NetworkTiming | null;
+  initiator?: NetworkInitiator | null;
+}
+
+/** A response body; `text` is base64 when `base64` is set. */
+export interface NetworkBody {
+  text: string;
+  base64: boolean;
+  truncated: boolean;
+  size: number;
+}
+
 /** Change-notification topics emitted by Go. Payloads carry no data. */
 export const TOPICS = {
   targetsChanged: "targets:changed",
   sessionChanged: "session:changed",
   consoleChanged: "console:changed",
   queriesChanged: "queries:changed",
+  networkChanged: "network:changed",
 } as const;
 
 export type Unsubscribe = () => void;
@@ -282,6 +371,19 @@ export interface Backend {
       dataJSON: string,
     ): Promise<void>;
     setOnline(deviceKey: string, online: boolean): Promise<void>;
+  };
+
+  network: {
+    availability(): Promise<NetworkAvailability>;
+    stats(): Promise<NetworkStats>;
+    /** Rows changed after `version`, oldest change first; `limit` 0 = all. */
+    since(version: number, limit: number): Promise<NetworkSummary[]>;
+    request(seq: number): Promise<NetworkRequest>;
+    responseBody(seq: number, epoch: number): Promise<NetworkBody>;
+    requestBody(seq: number, epoch: number): Promise<string>;
+    clear(): Promise<void>;
+    /** Asks where to save and writes a HAR; resolves to the path, or "" if canceled. */
+    saveHAR(): Promise<string>;
   };
 
   clipboard: {

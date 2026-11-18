@@ -6,6 +6,9 @@ import {
   type ConsoleProperty,
   type ConsoleStats,
   type MutationItem,
+  type NetworkAvailability,
+  type NetworkBody,
+  type NetworkRequest,
   type QueryCounts,
   type QueryItem,
   type QueryLabel,
@@ -42,6 +45,16 @@ export interface MockBackend extends Backend {
   disconnectDevice(deviceKey: string): void;
   /** Every method call, in order, for assertions. */
   readonly calls: string[];
+  /** Sets what `network.availability` reports and notifies. */
+  setNetworkAvailability(availability: NetworkAvailability): void;
+  /** Adds a captured request (defaults fill the rest) and notifies. */
+  addRequest(request: Partial<NetworkRequest> & { url: string }): NetworkRequest;
+  /** Changes a captured request, bumping its version, and notifies. */
+  updateRequest(seq: number, patch: Partial<NetworkRequest>): void;
+  /** Body returned by `network.responseBody` for a request. */
+  setResponseBody(seq: number, body: NetworkBody | string): void;
+  /** Starts a new network epoch (a re-attach) and notifies. */
+  resetNetworkEpoch(): void;
   /** Text last written through `clipboard.writeText`. */
   readonly clipboardText: string;
   /** Makes `clipboard.writeText` reject, to exercise the failure path. */
@@ -99,6 +112,16 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
   let epoch = 1;
   let cleared = 0;
   const propertyTable = new Map<string, ConsoleProperty[]>();
+  let networkAvailability: NetworkAvailability = { checked: true, supported: true };
+  const requests = new Map<number, NetworkRequest>();
+  const responseBodies = new Map<number, NetworkBody>();
+  let netVersion = 0;
+  let netSeq = 0;
+  let netEpoch = 1;
+  let netCleared = 0;
+  const netDropped = 0;
+  const notifyNetwork = () =>
+    emit(TOPICS.networkChanged, { topic: TOPICS.networkChanged, seq: Date.now() });
   const devices = new Map<
     string,
     { device: SdkDevice; queries: QueryItem[]; mutations: MutationItem[] }
@@ -312,6 +335,123 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
         notifyQueries();
         return Promise.resolve();
       },
+    },
+    network: {
+      availability: () => Promise.resolve(networkAvailability),
+      stats: () => {
+        const seqs = [...requests.keys()].sort((a, b) => a - b);
+        return Promise.resolve({
+          version: netVersion,
+          len: requests.size,
+          oldestSeq: seqs[0] ?? 0,
+          lastSeq: netSeq,
+          dropped: netDropped,
+          epoch: netEpoch,
+          cleared: netCleared,
+        });
+      },
+      since: (version, limit) => {
+        calls.push(`network.since:${version}`);
+        const rows = [...requests.values()]
+          .filter((r) => r.version > version)
+          .sort((a, b) => a.version - b.version)
+          .map(
+            ({
+              requestHeaders: _rq,
+              responseHeaders: _rs,
+              hasPostData: _h,
+              postData: _p,
+              protocol: _pr,
+              remoteAddress: _ra,
+              timing: _t,
+              initiator: _i,
+              ...summary
+            }) => summary,
+          );
+        return Promise.resolve(limit > 0 ? rows.slice(0, limit) : rows);
+      },
+      request: (seq) => {
+        const r = requests.get(seq);
+        return r
+          ? Promise.resolve({ ...r })
+          : Promise.reject(new Error("network: request not found"));
+      },
+      responseBody: (seq, epoch) => {
+        calls.push(`network.responseBody:${seq}`);
+        if (epoch !== netEpoch) return Promise.reject(new Error("network: earlier session"));
+        const body = responseBodies.get(seq);
+        return body ? Promise.resolve(body) : Promise.reject(new Error("network: no body"));
+      },
+      requestBody: (seq) => Promise.resolve(requests.get(seq)?.postData ?? ""),
+      clear: () => {
+        calls.push("network.clear");
+        requests.clear();
+        responseBodies.clear();
+        netCleared += 1;
+        netVersion += 1;
+        notifyNetwork();
+        return Promise.resolve();
+      },
+      saveHAR: () => {
+        calls.push("network.saveHAR");
+        return Promise.resolve("/Users/me/lens.har");
+      },
+    },
+    setNetworkAvailability: (availability) => {
+      networkAvailability = availability;
+      notifyNetwork();
+    },
+    addRequest: (partial) => {
+      netSeq += 1;
+      netVersion += 1;
+      const request: NetworkRequest = {
+        seq: netSeq,
+        epoch: netEpoch,
+        version: netVersion,
+        requestId: `r${netSeq}`,
+        method: "GET",
+        resourceType: "Fetch",
+        state: "pending",
+        status: 0,
+        statusText: "",
+        mimeType: "",
+        startedAt: Date.now(),
+        startTime: netSeq,
+        responseTime: 0,
+        endTime: 0,
+        encodedSize: 0,
+        decodedSize: 0,
+        requestHeaders: {},
+        responseHeaders: {},
+        hasPostData: false,
+        ...partial,
+      };
+      request.seq = netSeq;
+      request.version = netVersion;
+      request.epoch = partial.epoch ?? netEpoch;
+      requests.set(request.seq, request);
+      notifyNetwork();
+      return request;
+    },
+    updateRequest: (seq, patch) => {
+      const r = requests.get(seq);
+      if (!r) return;
+      netVersion += 1;
+      requests.set(seq, { ...r, ...patch, seq, version: netVersion });
+      notifyNetwork();
+    },
+    setResponseBody: (seq, body) => {
+      responseBodies.set(
+        seq,
+        typeof body === "string"
+          ? { text: body, base64: false, truncated: false, size: body.length }
+          : body,
+      );
+    },
+    resetNetworkEpoch: () => {
+      netEpoch += 1;
+      netVersion += 1;
+      notifyNetwork();
     },
     clipboard: {
       writeText: (text) => {

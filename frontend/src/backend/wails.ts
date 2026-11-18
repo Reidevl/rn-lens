@@ -2,12 +2,15 @@ import { Clipboard, Events } from "@wailsio/runtime";
 
 import * as AppService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/appservice";
 import * as ConsoleService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/consoleservice";
+import * as NetworkService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/networkservice";
 import * as QueriesService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/queriesservice";
 import * as TargetsService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/targetsservice";
 import type {
   Backend,
   ConsoleEntry,
   ConsoleProperty,
+  NetworkRequest,
+  NetworkSummary,
   MutationItem,
   QueryCounts,
   QueryItem,
@@ -60,6 +63,18 @@ export function createWailsBackend(): Backend {
       action: (deviceKey, type, queryHash, dataJSON) =>
         QueriesService.Action(deviceKey, type, queryHash, dataJSON),
       setOnline: (deviceKey, online) => QueriesService.SetOnline(deviceKey, online),
+    },
+    network: {
+      availability: () => NetworkService.Availability(),
+      stats: () => NetworkService.Stats(),
+      // Generated enums are string unions structurally; narrow once here.
+      since: async (version, limit) =>
+        ((await NetworkService.Since(version, limit)) ?? []) as unknown as NetworkSummary[],
+      request: async (seq) => (await NetworkService.Request(seq)) as unknown as NetworkRequest,
+      responseBody: (seq, epoch) => NetworkService.ResponseBody(seq, epoch),
+      requestBody: (seq, epoch) => NetworkService.RequestBody(seq, epoch),
+      clear: () => NetworkService.Clear(),
+      saveHAR: () => NetworkService.SaveHAR(),
     },
     clipboard: {
       // The webview's navigator.clipboard is not reliable under the Wails
