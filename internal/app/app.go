@@ -103,6 +103,8 @@ type App struct {
 	lastState targets.State
 	// attachMu serializes domain enabling across fast re-attaches.
 	attachMu sync.Mutex
+	// refreshMu orders starting the Fast Refresh tracker with stopping it.
+	refreshMu sync.Mutex
 }
 
 // New builds the application graph from cfg. It performs no I/O until Start.
@@ -211,7 +213,12 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 	a.lastState = snap.State
 	a.stateMu.Unlock()
 	if left {
+		// Release recordings waiting on the old connection now, not at
+		// their timeouts.
+		a.perf.BeginSession()
+		a.refreshMu.Lock()
 		a.refresh.Detached()
+		a.refreshMu.Unlock()
 	}
 	if !entered {
 		return
@@ -242,9 +249,13 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 		_ = a.network.OnAttached(networkCtx)
 		// Last, so its evaluate does not delay the domains above; skipped
 		// when the session already moved on.
+		// refreshMu orders this check with Detached on the session goroutine,
+		// so a detach in between cannot leave the tracker running.
+		a.refreshMu.Lock()
 		if now := a.session.Snapshot(); endpoint != "" && now.State == targets.StateAttached && now.Target != nil && now.Target.ID == targetID {
 			a.refresh.Attached(endpoint)
 		}
+		a.refreshMu.Unlock()
 	}()
 }
 

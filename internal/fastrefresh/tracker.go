@@ -231,7 +231,7 @@ func (t *Tracker) session(ctx context.Context, gen uint64, hot, bundle string, n
 		t.set(gen, State{Phase: PhaseReady})
 	}
 
-	initial, modules := false, 0
+	initial, failed, modules := false, false, 0
 	for {
 		raw, err := s.Recv(ctx)
 		if err != nil {
@@ -261,14 +261,15 @@ func (t *Tracker) session(ctx context.Context, gen uint64, hot, bundle string, n
 		}
 		switch msg.Type {
 		case "update-start":
-			initial, modules = msg.Body.IsInitialUpdate, 0
+			initial, failed, modules = msg.Body.IsInitialUpdate, false, 0
 			if !initial {
 				t.set(gen, State{Phase: PhaseUpdating})
 			}
 		case "update":
 			modules = len(msg.Body.Added) + len(msg.Body.Modified) + len(msg.Body.Deleted)
 		case "update-done":
-			if !initial {
+			// Metro ends a failed rebuild with update-done too.
+			if !initial && !failed {
 				t.set(gen, State{Phase: PhaseUpdated, Modules: modules, At: t.opts.Now()})
 			}
 			initial = false
@@ -277,6 +278,7 @@ func (t *Tracker) session(ctx context.Context, gen uint64, hot, bundle string, n
 			if message == "" {
 				message = "Metro could not rebuild the bundle."
 			}
+			failed = true
 			t.set(gen, State{Phase: PhaseError, Message: message, At: t.opts.Now()})
 		}
 	}

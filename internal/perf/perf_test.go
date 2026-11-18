@@ -263,3 +263,29 @@ func TestANewSessionReleasesAWaitingStop(t *testing.T) {
 		t.Fatal("StopTrace still waiting after a new session")
 	}
 }
+
+// React Native sends trace chunks only after Tracing.end; late chunks of a
+// timed-out recording must not join the next one.
+func TestLateChunksOfATimedOutTraceStayOut(t *testing.T) {
+	t.Parallel()
+	svc, srv := newService(t, perf.Options{TraceTimeout: 50 * time.Millisecond})
+	srv.Handle("Tracing.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	srv.Handle("Tracing.end", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	ctx := context.Background()
+	if err := svc.StartTrace(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.StopTrace(ctx); !errors.Is(err, perf.ErrTraceIncomplete) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := svc.StartTrace(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	srv.Emit("Tracing.dataCollected", map[string]any{"value": []map[string]any{{"name": "stale"}}})
+	time.Sleep(50 * time.Millisecond)
+	traceTarget(t, srv, [][]map[string]any{{{"name": "fresh", "ph": "I", "ts": 1}}}, false)
+	trace, err := svc.StopTrace(ctx)
+	if err != nil || len(trace.Events) != 1 || !strings.Contains(string(trace.Events[0]), "fresh") {
+		t.Fatalf("trace = %d events (%v), want only the fresh one", len(trace.Events), err)
+	}
+}

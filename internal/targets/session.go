@@ -191,7 +191,6 @@ func (s *Session) detachLocked() {
 	}
 }
 
-// Call forwards a CDP request to the attached connection.
 // Barrier queues a cdp.EventLensBarrier with token behind every event read
 // so far; handlers see it after all of them (see cdpws.Conn.Barrier).
 func (s *Session) Barrier(token string) error {
@@ -212,6 +211,7 @@ func (s *Session) Barrier(token string) error {
 	return nil
 }
 
+// Call forwards a CDP request to the attached connection.
 func (s *Session) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	s.mu.RLock()
 	conn := s.conn

@@ -214,3 +214,24 @@ func TestTrackerWaitsForTheAppToReloadAfterAMetroRestart(t *testing.T) {
 	second.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":true}}`)
 	waitState(t, tr, phase(fastrefresh.PhaseReady))
 }
+
+// Metro sends update-start, then update or error, then update-done for
+// every rebuild: update-done must not hide the error.
+func TestBundlingErrorSurvivesUpdateDone(t *testing.T) {
+	t.Parallel()
+	d := newDialer()
+	tr := fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{})
+	t.Cleanup(tr.Stop)
+	tr.Attached("http://127.0.0.1:8081")
+	s := next(t, d.streams)
+	next(t, s.sent)
+	waitState(t, tr, phase(fastrefresh.PhaseReady))
+	s.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":false}}`)
+	s.in <- []byte(`{"type":"error","body":{"type":"TransformError","message":"SyntaxError: boom","errors":[]}}`)
+	s.in <- []byte(`{"type":"update-done","body":{}}`)
+	s.in <- []byte(`{"type":"bundle-registered"}`) // a later message proves update-done was handled
+	time.Sleep(100 * time.Millisecond)
+	if st := tr.State(); st.Phase != fastrefresh.PhaseError || st.Message != "SyntaxError: boom" {
+		t.Fatalf("after update-start, error, update-done: state = %+v, want PhaseError", st)
+	}
+}

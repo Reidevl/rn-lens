@@ -18,8 +18,8 @@ the attached app, plus a Fast Refresh indicator.
 
 - [x] A recorded trace opens in Perfetto (`TestE2E_PerformanceRecordings` writes it with `LENS_E2E_TRACE_OUT`; Perfetto's trace processor v59.1 loads it with the user timing marks)
 - [x] The screenshot is a PNG, the profile has nodes and the heap snapshot parses (same test, green on an RN 0.88.1 development build)
-- [x] The status bar follows Fast Refresh: the same test edits a source file (`LENS_E2E_FAST_REFRESH_FILE`) and sees the update; after a Metro restart it shows the reload hint and registers again once the app reloads. Bundling errors are covered by unit tests
-- [ ] Independent review of the recording concurrency and the new desktop surface
+- [x] The status bar follows Fast Refresh: the same test edits a source file (`LENS_E2E_FAST_REFRESH_FILE`) and sees the update; after a Metro restart it shows the reload hint and registers again once the app reloads. It then writes a syntax error and sees "Fast Refresh failed" with Metro's message until the fix refreshes
+- [x] Independent review of the recording concurrency and the new desktop surface (one blocker, fixed: a bundling error was replaced by "0 modules")
 
 ## Out of scope
 

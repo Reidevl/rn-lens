@@ -134,6 +134,7 @@ func (s *Service) Status() Status {
 
 // BeginSession forgets every recording: a new debugger session cannot stop
 // what the previous one started. Waiting operations return ErrSessionEnded.
+// Call it on attach and on detach.
 func (s *Service) BeginSession() {
 	s.mu.Lock()
 	s.gen++
@@ -156,7 +157,9 @@ func (s *Service) HandleEvent(ev cdp.Event) {
 			return
 		}
 		s.mu.Lock()
-		if s.trace != nil {
+		// React Native sends chunks only after Tracing.end: chunks during a
+		// recording are late ones from a stop that timed out.
+		if s.trace != nil && s.trace.stopping {
 			s.trace.events = append(s.trace.events, p.Value...)
 		}
 		s.mu.Unlock()
