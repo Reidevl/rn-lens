@@ -1,0 +1,39 @@
+{
+  "name": "rnlens",
+  "version": "0.0.0",
+  "description": "Lens, React Native DevTools: runs Lens in your browser (npx rnlens)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reidevl/rn-lens.git",
+    "directory": "packages/rnlens"
+  },
+  "homepage": "https://github.com/Reidevl/rn-lens#readme",
+  "keywords": [
+    "react-native",
+    "devtools",
+    "debugger",
+    "expo"
+  ],
+  "bin": {
+    "rnlens": "bin/rnlens.js"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "optionalDependencies": {
+    "@rnlens/cli-darwin-amd64": "0.0.0",
+    "@rnlens/cli-darwin-arm64": "0.0.0",
+    "@rnlens/cli-linux-amd64": "0.0.0",
+    "@rnlens/cli-linux-arm64": "0.0.0",
+    "@rnlens/cli-windows-amd64": "0.0.0",
+    "@rnlens/cli-windows-arm64": "0.0.0"
+  }
+}

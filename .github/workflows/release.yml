@@ -1,0 +1,222 @@
+name: Release
+
+# Builds and publishes a release that release-please created: the rnlens
+# archives (GoReleaser), their checksums signature, SBOMs and build
+# provenance, the npm packages, Homebrew and Scoop manifests, and the desktop
+# app for each OS. release-please.yml calls it after creating the release;
+# it can also be re-run by hand for an existing tag.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag, for example v0.1.0
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "22"
+  WAILS_VERSION: "v3.1.0"
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  rnlens:
+    name: rnlens archives
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload release assets
+      id-token: write # keyless cosign signature and provenance
+      attestations: write # build provenance
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Task
+        uses: arduino/setup-task@v3
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      - uses: sigstore/cosign-installer@v3
+
+      - uses: anchore/sbom-action/download-syft@v0
+
+      - name: Build and upload archives, checksums, Homebrew and Scoop
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ inputs.tag }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+
+      - name: Sign the checksums and write SBOMs
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist/checksums.txt.sig \
+            --output-certificate dist/checksums.txt.pem \
+            dist/checksums.txt
+          for archive in dist/rnlens_*.tar.gz dist/rnlens_*.zip; do
+            syft scan "file:$archive" -o "spdx-json=$archive.sbom.json"
+          done
+
+      - name: Upload signature and SBOMs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" dist/checksums.txt.sig dist/checksums.txt.pem dist/*.sbom.json --clobber
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/rnlens_*.tar.gz
+            dist/rnlens_*.zip
+
+      - name: Keep the binaries for the npm job
+        uses: actions/upload-artifact@v4
+        with:
+          name: goreleaser-dist
+          path: |
+            dist/artifacts.json
+            dist/rnlens_*/rnlens*
+          retention-days: 1
+
+  npm:
+    name: npm packages
+    needs: rnlens
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: goreleaser-dist
+          path: dist
+
+      - name: Build the packages
+        run: node packages/rnlens/scripts/build-npm.js --root . --out dist/npm --version "$TAG"
+
+      - name: Publish the platform packages, then the launcher
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          tag=latest
+          case "$TAG" in *-*) tag=next ;; esac
+          for dir in dist/npm/cli-*; do
+            npm publish "$dir" --access public --provenance --tag "$tag"
+          done
+          npm publish dist/npm/rnlens --access public --provenance --tag "$tag"
+
+  desktop:
+    name: desktop app (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # upload release assets
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Task
+        uses: arduino/setup-task@v3
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: choco install nsis -y
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          task darwin:package
+          mkdir -p out
+          ditto bin/rnlens.app out/Lens.app
+          ditto -c -k --keepParent out/Lens.app "out/Lens_${TAG}_macos_$(uname -m).zip"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          task windows:package
+          mkdir -p out
+          installer=$(find build/windows/nsis -maxdepth 1 -name '*-installer.exe' | head -1)
+          cp "$installer" "out/Lens_${TAG}_windows_amd64_setup.exe"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          task linux:create:appimage
+          mkdir -p out
+          cp bin/*.AppImage "out/Lens_${TAG}_linux_x86_64.AppImage"
+
+      - name: Upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" out/Lens_* --clobber

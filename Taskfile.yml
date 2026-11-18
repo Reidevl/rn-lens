@@ -84,10 +84,11 @@ tasks:
       - pnpm run typecheck
 
   test:
-    summary: Runs Go and frontend tests
+    summary: Runs Go, frontend and npm launcher tests
     cmds:
       - task: test:go
       - task: test:frontend
+      - task: test:npm
 
   test:go:
     summary: Runs Go tests with gotestsum (falls back to go test)
@@ -104,6 +105,12 @@ tasks:
     deps: [common:install:frontend:deps, common:generate:bindings]
     cmds:
       - pnpm run test
+
+  test:npm:
+    summary: Tests the rnlens npm launcher (outside the pnpm workspace)
+    dir: packages/rnlens
+    cmds:
+      - node --test
 
   fmt:
     summary: Formats Go and frontend code

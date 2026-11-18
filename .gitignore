@@ -31,3 +31,6 @@ odd/
 
 # Gentle AI skill registry cache (tooling, generated)
 .atl/
+
+# GoReleaser output (goreleaser release --snapshot)
+/dist/

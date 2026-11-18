@@ -1,0 +1,100 @@
+# GoReleaser builds the portable rnlens binary: the server build (browser
+# mode, ADR-0005), which needs no cgo and so cross-compiles for every OS from
+# one machine. The desktop app is packaged per OS by the release workflow.
+#
+# Local check (no publishing): goreleaser release --snapshot --clean
+# Signing (cosign), SBOMs and build provenance run in
+# .github/workflows/release.yml, where the keyless identity exists.
+version: 2
+
+project_name: rnlens
+
+before:
+  hooks:
+    # Builds frontend/dist (bindings, install, vite), which the binary embeds.
+    - task common:build:frontend
+
+builds:
+  - id: rnlens
+    main: ./cmd/rnlens
+    binary: rnlens
+    env:
+      - CGO_ENABLED=0
+    # The server build (browser mode, ADR-0005).
+    tags:
+      - server
+      - production
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: rnlens
+    ids: [rnlens]
+    name_template: "rnlens_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - docs/guides/install.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  # release-please writes CHANGELOG.md; the GitHub release links to it.
+  disable: true
+
+release:
+  github:
+    owner: Reidevl
+    name: rn-lens
+  # release-please creates the release and its notes; GoReleaser adds the
+  # archives and checksums to it.
+  mode: append
+  prerelease: auto
+  footer: |
+    Verify a download: see [Install → Verify](https://github.com/Reidevl/rn-lens/blob/main/docs/guides/install.md#verify-a-download).
+
+homebrew_casks:
+  - name: rnlens
+    ids: [rnlens]
+    binaries: [rnlens]
+    homepage: https://github.com/Reidevl/rn-lens
+    description: React Native DevTools in the browser (Lens server build)
+    license: MIT
+    repository:
+      owner: Reidevl
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Never pushes from a snapshot or a pre-release.
+    skip_upload: auto
+    hooks:
+      post:
+        install_steps: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/rnlens"]
+          end
+
+scoops:
+  - name: rnlens
+    ids: [rnlens]
+    homepage: https://github.com/Reidevl/rn-lens
+    description: React Native DevTools in the browser (Lens server build)
+    license: MIT
+    repository:
+      owner: Reidevl
+      name: scoop-bucket
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    skip_upload: auto

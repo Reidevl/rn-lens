@@ -2,4 +2,7 @@ packages:
   - frontend
   - protocol
   - packages/*
+  # Published from the release workflow; its platform packages exist only
+  # after a release (see packages/rnlens/README.md).
+  - "!packages/rnlens"
   - docs
