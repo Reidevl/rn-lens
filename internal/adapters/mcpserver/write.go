@@ -182,7 +182,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 			if err := lens.StorageSet(ctx, dev, in.Store, in.Key, v); err != nil {
 				return nil, nil, err
 			}
-			return message("Wrote %s in %s.", in.Key, in.Store)
+			return message("Wrote %s in %s on %s.", in.Key, in.Store, dev)
 		})
 
 	addTool(s, ctl, &mcp.Tool{
@@ -197,7 +197,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 			if err := lens.StorageRemove(ctx, dev, in.Store, in.Key); err != nil {
 				return nil, nil, err
 			}
-			return message("Removed %s from %s.", in.Key, in.Store)
+			return message("Removed %s from %s on %s.", in.Key, in.Store, dev)
 		})
 
 	addTool(s, ctl, &mcp.Tool{
@@ -212,7 +212,7 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 			if err := lens.StorageClear(ctx, dev, in.Store); err != nil {
 				return nil, nil, err
 			}
-			return message("Cleared %s.", in.Store)
+			return message("Cleared %s on %s.", in.Store, dev)
 		})
 
 	addTool(s, ctl, &mcp.Tool{
@@ -231,6 +231,6 @@ func addWriteTools(s *mcp.Server, ctl *Control, lens Lens) {
 			if msg == "" {
 				msg = "Done."
 			}
-			return message("%s", msg)
+			return message("%s (%s)", msg, dev)
 		})
 }

@@ -231,7 +231,7 @@ func TestStorageAndPluginTools(t *testing.T) {
 	mustCall(t, cs, "set_storage_value", map[string]any{"store": "async-storage", "key": "theme", "value": "dark"})
 	mustCall(t, cs, "remove_storage_key", map[string]any{"store": "async-storage", "key": "theme"})
 	mustCall(t, cs, "clear_storage", map[string]any{"store": "async-storage"})
-	if out := mustCall(t, cs, "plugin_action", map[string]any{"plugin": "feature-flags", "block": "flags", "action": "toggle", "row": "darkMode"}); out != "darkMode is on" {
+	if out := mustCall(t, cs, "plugin_action", map[string]any{"plugin": "feature-flags", "block": "flags", "action": "toggle", "row": "darkMode"}); out != "darkMode is on (dev.rnlens.example|d1)" {
 		t.Fatalf("plugin = %q", out)
 	}
 	want := []string{

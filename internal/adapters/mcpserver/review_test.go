@@ -273,3 +273,32 @@ func TestTheAttachedAppMatchesByIdentityWhenDeviceNamesDiffer(t *testing.T) {
 		t.Fatalf("calls = %v", got)
 	}
 }
+
+// Every app on an Android device reports the same device name, so the name
+// alone must never pick another app's device as the default.
+func TestAnotherAppOnTheSameDeviceIsNotTheDefault(t *testing.T) {
+	t.Parallel()
+	sameDevice := device("com.other.b", "e1", "queries", "storage")
+	sameDevice.App.Name, sameDevice.App.Platform, sameDevice.App.RNVersion, sameDevice.Device.Name = "Other B", "android", "0.88.1", "sdk_gphone64_arm64"
+	pixel := device("com.other.c", "p9", "queries", "storage")
+	pixel.App.Name, pixel.App.Platform, pixel.App.RNVersion, pixel.Device.Name = "Other C", "android", "0.88.1", "Pixel 9"
+	session := attachedTo("sdk_gphone64_arm64", "android", "0.88.1")
+	session.Metadata.AppIdentifier, session.Metadata.AppDisplayName = "com.mine.app", "Mine"
+	lens := &fakeLens{devices: []queries.Device{sameDevice, pixel}, session: session}
+	out, isErr := call(t, connect(t, lens), "clear_storage", map[string]any{"store": "async"})
+	if !isErr || !strings.Contains(out, "several devices") {
+		t.Fatalf("clear_storage defaulted to another app: %s", out)
+	}
+	if got := lens.Calls(); len(got) != 0 {
+		t.Fatalf("calls = %v", got)
+	}
+}
+
+// Write results say which device they changed.
+func TestWriteResultsNameTheDevice(t *testing.T) {
+	t.Parallel()
+	out := mustCall(t, connect(t, oneDevice()), "clear_storage", map[string]any{"store": "async-storage"})
+	if !strings.Contains(out, "dev.rnlens.example|d1") {
+		t.Fatalf("result = %q", out)
+	}
+}

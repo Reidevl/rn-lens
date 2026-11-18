@@ -186,10 +186,12 @@ func pickDevice(arg string, keys []string, preferred string) (string, error) {
 
 // attachedKey returns the SDK device running the app Lens is attached to.
 // Its platform and React Native version must agree with the attached app's
-// (when both sides report them), and its device name or its app identity
-// must match: on iOS the SDK only knows the device as "iOS", so the app's
-// name against the attached app's display name (spaces and case ignored)
-// or bundle id usually decides. A device matching on name wins a tie.
+// (when both sides report them). When the attached app reports its bundle
+// id or display name, the device's app must match it (its id against the
+// bundle id, or its id or name against the display name, spaces and case
+// ignored): every app on an Android device reports the same device name,
+// so the name alone could pick another app. The device name then only
+// breaks a tie, or decides when the attached app reports no identity.
 // "" when nothing matches exactly one device.
 func attachedKey(lens Lens) string {
 	snap := lens.Session()
@@ -207,16 +209,18 @@ func attachedKey(lens Lens) string {
 		return (md.AppIdentifier != "" && d.App.ID == md.AppIdentifier) ||
 			(display != "" && (norm(d.App.ID) == display || norm(d.App.Name) == display))
 	}
+	identity := md.AppIdentifier != "" || md.AppDisplayName != ""
 	var matches, byName []queries.Device
 	for _, d := range lens.SDKDevices() {
 		if !same(d.App.Platform, md.Platform) || !same(d.App.RNVersion, md.ReactNativeVersion) {
 			continue
 		}
-		if nameOf(d) || appOf(d) {
-			matches = append(matches, d)
-			if nameOf(d) {
-				byName = append(byName, d)
-			}
+		if identity && !appOf(d) || !identity && !nameOf(d) {
+			continue
+		}
+		matches = append(matches, d)
+		if nameOf(d) {
+			byName = append(byName, d)
 		}
 	}
 	if len(matches) > 1 && len(byName) == 1 {

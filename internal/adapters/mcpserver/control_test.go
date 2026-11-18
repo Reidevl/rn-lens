@@ -44,7 +44,7 @@ func TestEveryToolCallIsRecorded(t *testing.T) {
 	if first.Tool != "status" || first.Client != "claude-code 2.1" || first.Kind != KindRead || first.Error != "" || first.Seq != 1 {
 		t.Fatalf("first = %+v", first)
 	}
-	if write.Tool != "set_storage_value" || write.Kind != KindDestructive || !strings.Contains(string(write.Args), `"key":"theme"`) || write.Result != "Wrote theme in async-storage." {
+	if write.Tool != "set_storage_value" || write.Kind != KindDestructive || !strings.Contains(string(write.Args), `"key":"theme"`) || write.Result != "Wrote theme in async-storage on dev.rnlens.example|d1." {
 		t.Fatalf("write = %+v", write)
 	}
 	if failed.Error == "" || !strings.Contains(failed.Error, "EXPLODE") {
