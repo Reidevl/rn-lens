@@ -43,6 +43,13 @@ jobs:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
 
+      # The Wails CLI links the Linux webview, even when it only builds the
+      # frontend and bindings.
+      - name: Install Linux webview dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -238,7 +245,11 @@ jobs:
 
       - name: Install NSIS
         if: runner.os == 'Windows'
-        run: choco install nsis -y
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          # choco does not put makensis on the PATH of later steps.
+          Add-Content -Path $env:GITHUB_PATH -Value "${env:ProgramFiles(x86)}\NSIS"
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
