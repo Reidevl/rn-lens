@@ -47,6 +47,8 @@ Selecting a query opens its key, timestamps, data as a tree and the actions:
 
 Mutations list every mutation with its status, variables, data and error.
 
+Every detail view has **Copy** buttons: one for the whole query or mutation, and one per JSON section (data, variables, error). They put pretty-printed JSON on the clipboard, ready to paste into a test fixture or an issue. A missing value copies as `null`.
+
 ## How it connects
 
 The SDK opens a WebSocket to Lens (`ws://<host>:7420/lens`) and announces the

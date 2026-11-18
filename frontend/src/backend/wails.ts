@@ -1,4 +1,4 @@
-import { Events } from "@wailsio/runtime";
+import { Clipboard, Events } from "@wailsio/runtime";
 
 import * as AppService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/appservice";
 import * as ConsoleService from "../../bindings/github.com/Reidevl/rn-lens/internal/adapters/wailsui/consoleservice";
@@ -60,6 +60,13 @@ export function createWailsBackend(): Backend {
       action: (deviceKey, type, queryHash, dataJSON) =>
         QueriesService.Action(deviceKey, type, queryHash, dataJSON),
       setOnline: (deviceKey, online) => QueriesService.SetOnline(deviceKey, online),
+    },
+    clipboard: {
+      // The webview's navigator.clipboard is not reliable under the Wails
+      // custom scheme; the runtime writes through the native pasteboard.
+      writeText: async (text) => {
+        await Clipboard.SetText(text);
+      },
     },
     events: {
       on: (name, handler) =>

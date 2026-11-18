@@ -136,4 +136,69 @@ describe("QueriesPanel", () => {
     expect(screen.getByText("title:")).toBeInTheDocument();
     expect(screen.getByText('"x"')).toBeInTheDocument();
   });
+  it("copies the selected query and its data as JSON", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.connectDevice(sampleDevice(), [sampleQuery()]);
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("option", { name: /todos/ }));
+
+    await user.click(screen.getByRole("button", { name: "Copy data" }));
+    await waitFor(() =>
+      expect(backend.clipboardText).toBe(JSON.stringify(sampleQuery().state.data ?? null, null, 2)),
+    );
+    expect(screen.getByRole("button", { name: "Copy data" })).toHaveTextContent("Copied");
+
+    await user.click(screen.getByRole("button", { name: "Copy query" }));
+    await waitFor(() =>
+      expect(JSON.parse(backend.clipboardText)).toMatchObject({ queryKey: ["todos", { page: 1 }] }),
+    );
+  });
+
+  it("copies a mutation and its variables as JSON", async () => {
+    const user = userEvent.setup();
+    useShellStore.setState({ activePanel: "mutations" });
+    const backend = createMockBackend();
+    backend.connectDevice(
+      sampleDevice(),
+      [],
+      [
+        {
+          mutationId: 7,
+          mutationKey: ["addTodo"],
+          state: {
+            status: "success",
+            submittedAt: Date.now(),
+            isPaused: false,
+            variables: { title: "x" },
+            data: { id: 9 },
+          },
+        },
+      ],
+    );
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("option", { name: /addTodo/ }));
+
+    await user.click(screen.getByRole("button", { name: "Copy variables" }));
+    await waitFor(() =>
+      expect(backend.clipboardText).toBe(JSON.stringify({ title: "x" }, null, 2)),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Copy mutation" }));
+    await waitFor(() => expect(JSON.parse(backend.clipboardText)).toMatchObject({ mutationId: 7 }));
+  });
+
+  it("says when the clipboard refuses the copy", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.failClipboard(true);
+    backend.connectDevice(sampleDevice(), [sampleQuery()]);
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("option", { name: /todos/ }));
+
+    await user.click(screen.getByRole("button", { name: "Copy data" }));
+    expect(await screen.findByRole("button", { name: "Copy data" })).toHaveTextContent(
+      "Copy failed",
+    );
+  });
 });

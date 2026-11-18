@@ -42,6 +42,10 @@ export interface MockBackend extends Backend {
   disconnectDevice(deviceKey: string): void;
   /** Every method call, in order, for assertions. */
   readonly calls: string[];
+  /** Text last written through `clipboard.writeText`. */
+  readonly clipboardText: string;
+  /** Makes `clipboard.writeText` reject, to exercise the failure path. */
+  failClipboard(fail: boolean): void;
 }
 
 export interface MockBackendOptions {
@@ -86,6 +90,8 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
   let session: SessionSnapshot = options.session ?? idleSession;
   const listeners = new Map<string, Set<Handler>>();
   const calls: string[] = [];
+  let clipboardText = "";
+  let clipboardFails = false;
   const consoleCapacity = options.consoleCapacity ?? 10_000;
   let entries: ConsoleEntry[] = [];
   let nextSeq = 1;
@@ -306,6 +312,20 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
         notifyQueries();
         return Promise.resolve();
       },
+    },
+    clipboard: {
+      writeText: (text) => {
+        calls.push("clipboard.writeText");
+        if (clipboardFails) return Promise.reject(new Error("clipboard: denied"));
+        clipboardText = text;
+        return Promise.resolve();
+      },
+    },
+    get clipboardText() {
+      return clipboardText;
+    },
+    failClipboard: (fail) => {
+      clipboardFails = fail;
     },
     events: {
       on: (name, handler): Unsubscribe => {
