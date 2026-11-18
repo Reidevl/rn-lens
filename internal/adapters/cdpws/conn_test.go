@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -622,5 +623,42 @@ func TestKeepAliveWaitsWhileTheConsumerIsStalled(t *testing.T) {
 	defer cancel()
 	if _, err := conn.Call(ctx, "Runtime.enable", nil); !errors.As(err, new(*cdp.Error)) {
 		t.Fatalf("Call after draining = %v, want the fake's method-not-found error", err)
+	}
+}
+
+// A barrier queued after a reply is delivered after every event the target
+// sent before that reply, even though replies skip the event queue.
+func TestBarrierFollowsEventsSentBeforeAReply(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	srv.Handle("HeapProfiler.takeHeapSnapshot", func(cdptest.Request) (any, *cdptest.Error) {
+		for i := range 50 {
+			srv.Emit("HeapProfiler.addHeapSnapshotChunk", map[string]any{"chunk": strings.Repeat("x", 1000) + strconv.Itoa(i)})
+		}
+		return map[string]any{}, nil
+	})
+	conn := dial(t, srv, cdpws.Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := conn.Call(ctx, "HeapProfiler.takeHeapSnapshot", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !conn.Barrier("b1") {
+		t.Fatal("Barrier refused on a live connection")
+	}
+	chunks := 0
+	for ev := range conn.Events() {
+		if ev.Method == cdp.EventLensBarrier {
+			if string(ev.Params) != `"b1"` {
+				t.Fatalf("barrier params = %s", ev.Params)
+			}
+			break
+		}
+		if ev.Method == "HeapProfiler.addHeapSnapshotChunk" {
+			chunks++
+		}
+	}
+	if chunks != 50 {
+		t.Fatalf("barrier arrived after %d of 50 chunks", chunks)
 	}
 }

@@ -311,6 +311,24 @@ func (c *Conn) readLoop() {
 	}
 }
 
+// Barrier queues a cdp.EventLensBarrier event carrying token behind every
+// event read so far. Replies skip the event queue, so a caller that got a
+// reply and wants every event the target sent before it (heap snapshot
+// chunks, for instance) waits for its barrier on Events. It reports false
+// once the connection ended.
+func (c *Conn) Barrier(token string) bool {
+	params, err := json.Marshal(token)
+	if err != nil {
+		return false
+	}
+	select {
+	case <-c.done:
+		return false
+	default:
+	}
+	return c.enqueueEvent(cdp.Event{Method: cdp.EventLensBarrier, Params: params})
+}
+
 // enqueueEvent hands ev to pumpEvents. It blocks only while the queue is over
 // EventQueueBytes, which pauses the socket, and reports false once the
 // connection ended meanwhile.

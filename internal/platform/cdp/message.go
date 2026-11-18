@@ -44,6 +44,10 @@ const (
 	EventReactNativeMetadataUpdated    = "ReactNativeApplication.metadataUpdated"
 	MethodRuntimeEnable                = "Runtime.enable"
 	MethodPageReload                   = "Page.reload"
+	// EventLensBarrier never comes from a target: Lens queues it behind the
+	// events already received so a feature can wait until they were handled.
+	// Its params are the JSON string token the barrier was created with.
+	EventLensBarrier = "Lens.barrier"
 )
 
 // Error is a protocol-level error returned for a request.
