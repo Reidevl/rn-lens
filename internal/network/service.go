@@ -28,6 +28,8 @@ var (
 	ErrStale = errors.New("network: the request belongs to an earlier session; its body is no longer available")
 	// ErrNotFound means the request was evicted or cleared.
 	ErrNotFound = errors.New("network: request not found")
+	// ErrBodyTooLarge means a request body exceeds MaxBodyBytes.
+	ErrBodyTooLarge = errors.New("network: the request body is larger than Lens shows")
 )
 
 // ReasonNeedsNewerReactNative is the availability reason when the target has
@@ -52,8 +54,8 @@ type Availability struct {
 }
 
 // Body is a response body. Base64 is set for binary bodies (Text is then
-// base64). Truncated bodies were larger than the per-body limit: Text is
-// empty and Size tells how large they were.
+// base64). Size is the decoded byte count. Truncated bodies were larger than
+// the per-body limit (measured on the text as received): Text is empty.
 type Body struct {
 	Text      string `json:"text"`
 	Base64    bool   `json:"base64"`
@@ -237,6 +239,9 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 	if err != nil {
 		return "", err
 	}
+	if len(r.PostData) > s.opts.MaxBodyBytes {
+		return "", fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(r.PostData))
+	}
 	if r.PostData != "" || !r.HasPostData {
 		return r.PostData, nil
 	}
@@ -250,6 +255,9 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 	}
 	if s.store.Epoch() != epoch {
 		return "", ErrStale
+	}
+	if len(res.PostData) > s.opts.MaxBodyBytes {
+		return "", fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(res.PostData))
 	}
 	return res.PostData, nil
 }

@@ -328,3 +328,12 @@ func TestBinaryBodySizeIsTheDecodedSize(t *testing.T) {
 		t.Fatalf("size = %d, %v; want 5 decoded bytes", b.Size, err)
 	}
 }
+
+func TestRequestBodiesAboveTheLimitAreRefused(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{MaxBodyBytes: 4})
+	seq := h.finished(t, "1", map[string]any{"url": "https://x", "method": "POST", "headers": map[string]any{}, "postData": "12345", "hasPostData": true})
+	if _, err := h.svc.RequestBody(context.Background(), seq, h.svc.Store().Epoch()); !errors.Is(err, network.ErrBodyTooLarge) {
+		t.Fatalf("err = %v, want ErrBodyTooLarge", err)
+	}
+}

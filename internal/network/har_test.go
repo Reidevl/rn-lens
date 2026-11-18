@@ -27,7 +27,7 @@ func harFixture(t *testing.T) (*network.Store, network.HARBodies) {
 			"requestId": "1", "timestamp": 100.2,
 			"response": map[string]any{
 				"url": "https://httpbin.org/json", "status": 200, "statusText": "OK", "mimeType": "application/json",
-				"headers": map[string]any{"Content-Type": "application/json", "Content-Length": "16"}, "protocol": "h2",
+				"headers": map[string]any{"Content-Type": "application/json", "Content-Length": "16", "Set-Cookie": "a=1\nb=2"}, "protocol": "h2",
 				"remoteIPAddress": "2001:db8::1", "remotePort": 443,
 				"timing": map[string]any{"requestTime": 100, "proxyStart": -1, "proxyEnd": -1, "dnsStart": 2, "dnsEnd": 5, "connectStart": 5, "connectEnd": 30, "sslStart": 10, "sslEnd": 30, "sendStart": 31, "sendEnd": 32, "receiveHeadersEnd": 180},
 			},

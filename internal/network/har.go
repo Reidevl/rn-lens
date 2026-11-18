@@ -153,12 +153,16 @@ func harEntry(r Request, bodies HARBodies) HAREntry {
 			Content:     HARContent{Size: r.DecodedSize, MimeType: r.MimeType},
 			RedirectURL: headerValue(r.ResponseHeaders, "Location"),
 			HeadersSize: -1,
-			BodySize:    r.EncodedSize,
+			// CDP's encoded length includes the response headers; the body
+			// alone is unknown on the wire.
+			BodySize: -1,
 		},
 	}
 	if post, ok := bodies.Requests[r.Seq]; ok && post != "" {
 		e.Request.PostData = &HARPostData{MimeType: headerValue(r.RequestHeaders, "Content-Type"), Text: post}
 		e.Request.BodySize = len(post)
+	} else if r.HasPostData {
+		e.Request.BodySize = -1 // a body was sent but could not be fetched
 	}
 	if b, ok := bodies.Responses[r.Seq]; ok {
 		switch {
@@ -249,12 +253,16 @@ func httpVersion(protocol string) string {
 	}
 }
 
+// nameValues lists headers sorted by name. CDP joins repeated headers (for
+// example Set-Cookie) with newlines; HAR lists each one.
 func nameValues(h map[string]string) []HARNameValue {
 	out := make([]HARNameValue, 0, len(h))
 	for k, v := range h {
-		out = append(out, HARNameValue{Name: k, Value: v})
+		for _, part := range strings.Split(v, "\n") {
+			out = append(out, HARNameValue{Name: k, Value: part})
+		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

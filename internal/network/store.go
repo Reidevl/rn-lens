@@ -182,13 +182,23 @@ func (s *Store) Ingest(ev cdp.Event) bool {
 // requestWillBeSent requires s.mu. A known requestId with a redirect
 // response closes that hop and starts a new row for the next URL.
 func (s *Store) requestWillBeSent(p cdp.RequestWillBeSentParams) {
-	if seq, ok := s.byID[p.RequestID]; ok && p.RedirectResponse != nil {
+	if seq, ok := s.byID[p.RequestID]; ok {
 		if prev := s.rows[seq]; prev != nil {
-			applyResponse(prev, *p.RedirectResponse)
-			prev.Redirected = true
-			prev.State = StateComplete
-			prev.EndTime = p.Timestamp
-			s.touch(prev)
+			switch {
+			case p.RedirectResponse != nil:
+				applyResponse(prev, *p.RedirectResponse)
+				prev.Redirected = true
+				prev.State = StateComplete
+				prev.EndTime = p.Timestamp
+				s.touch(prev)
+			case prev.State == StatePending:
+				// The id was reused without a redirect: nothing can finish
+				// the earlier row any more.
+				prev.State = StateFailed
+				prev.ErrorText = ErrorReplaced
+				prev.EndTime = p.Timestamp
+				s.touch(prev)
+			}
 		}
 	}
 	startedAt := s.clk.Now().UnixMilli()
@@ -293,7 +303,9 @@ func (s *Store) Since(version uint64, limit int) []Summary {
 	return out
 }
 
-// Get returns a copy of the request with the given seq.
+// Get returns a copy of the request with the given seq. The copy shares its
+// header maps and timing with the store, which only ever replaces them; do
+// not modify them in place.
 func (s *Store) Get(seq uint64) (Request, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -304,7 +316,7 @@ func (s *Store) Get(seq uint64) (Request, bool) {
 	return *r, true
 }
 
-// All returns copies of every request, oldest first.
+// All returns copies of every request, oldest first (see Get about sharing).
 func (s *Store) All() []Request {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -346,6 +358,10 @@ func (s *Store) Clear() {
 	s.cleared++
 	s.version++
 }
+
+// ErrorReplaced is the failure text of a pending request whose id the app
+// reused for a new request.
+const ErrorReplaced = "Replaced by a new request with the same id"
 
 // ErrorSessionEnded is the failure text of requests still pending when the
 // debugger session they belonged to ended.

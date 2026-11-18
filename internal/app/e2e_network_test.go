@@ -15,7 +15,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/targets"
 )
 
-// TestE2E_NetworkCapturesAFetch attaches to a real app on React Native 0.83+
+// TestE2E_NetworkCapturesARequest attaches to a real app on React Native 0.83+
 // (LENS_E2E_METRO, as in TestE2E_AttachToRunningApp), sends one request from it
 // and checks the request, its status and its body. It never reloads the app
 // and starts no SDK server, so it can run next to a Lens window.

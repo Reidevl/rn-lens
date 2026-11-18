@@ -265,3 +265,23 @@ func TestLargeInlinePostDataIsLeftForLazyFetch(t *testing.T) {
 		t.Fatalf("large post kept inline (%d bytes) or lost its flag", len(large.PostData))
 	}
 }
+
+func TestAReusedIDWithoutARedirectFailsTheEarlierPendingRow(t *testing.T) {
+	s := newStore(0)
+	ingest(t, s, willBeSend(t, "1", "https://x/first", 1), willBeSend(t, "1", "https://x/second", 2))
+	rows := s.Since(0, 0)
+	var first, second network.Summary
+	for _, r := range rows {
+		if r.URL == "https://x/first" {
+			first = r
+		} else {
+			second = r
+		}
+	}
+	if first.State != network.StateFailed || first.ErrorText != network.ErrorReplaced || first.Redirected {
+		t.Fatalf("first = %+v", first)
+	}
+	if second.State != network.StatePending {
+		t.Fatalf("second = %+v", second)
+	}
+}
