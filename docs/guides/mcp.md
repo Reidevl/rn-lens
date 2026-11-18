@@ -81,10 +81,11 @@ changed.
 `status` shows each device's connection time, its last message
 (`lastMessageAt`, `idleSeconds`) and which one is the attached app's. Lens
 pings every device and drops those that stop answering, so a listed device
-is connected even when it is idle. Error fields the app reported as `null` are left out, so a query or
-mutation without an error reads the same either way. Results above 256 KiB
-are cut: narrow them with `search` or
-`limit`.
+is connected even when it is idle.
+
+Error fields the app reported as `null` are left out, so a query or mutation
+without an error reads the same either way. Results above 256 KiB are cut:
+narrow them with `search` or `limit`.
 
 ## Options
 
