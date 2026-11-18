@@ -3,6 +3,8 @@ package wailsui
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Reidevl/rn-lens/internal/app"
@@ -11,6 +13,10 @@ import (
 )
 
 const queryActionTimeout = 15 * time.Second
+
+// errUnknownActionType rejects an action type outside protocol.ActionTypes
+// before it costs a device round trip.
+var errUnknownActionType = errors.New("unknown action type")
 
 // QueriesService exposes the TanStack Query mirror to the frontend. State is
 // pulled after each app.TopicQueriesChanged notice (ADR-0003).
@@ -66,9 +72,13 @@ func (s *QueriesService) Mutations(deviceKey string) ([]protocol.Mutation, error
 	return list, err
 }
 
-// Action runs a devtools action on the device. dataJSON is only read for
-// SET_QUERY_DATA and must be valid JSON.
+// Action runs a devtools action on the device. actionType must be one of
+// protocol.ActionTypes; dataJSON is only read for SET_QUERY_DATA and must be
+// valid JSON. Both are checked here, before anything reaches the device.
 func (s *QueriesService) Action(deviceKey, actionType, queryHash, dataJSON string) error {
+	if !protocol.IsActionType(actionType) {
+		return fmt.Errorf("%w: %q", errUnknownActionType, actionType)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), queryActionTimeout)
 	defer cancel()
 	var data json.RawMessage

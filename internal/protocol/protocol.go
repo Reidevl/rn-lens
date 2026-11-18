@@ -311,6 +311,16 @@ var ActionTypes = []string{
 	ActionClearQueryCache, ActionClearMutationCache,
 }
 
+// IsActionType reports whether typ is one of ActionTypes.
+func IsActionType(typ string) bool {
+	for _, t := range ActionTypes {
+		if t == typ {
+			return true
+		}
+	}
+	return false
+}
+
 // QueryAction asks the device to run a devtools action.
 type QueryAction struct {
 	ID        string          `json:"id"`

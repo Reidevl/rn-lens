@@ -208,6 +208,62 @@ func TestCloseIsIdempotentAndReportsErrClosed(t *testing.T) {
 	}
 }
 
+// A Call that writes after Close sent its close frame, while Close still
+// waits for the peer's answer, fails like any other call on a gone
+// connection: with ErrClosed, not the transport's own sentinel.
+func TestCallDuringTheCloseHandshakeReportsErrClosed(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	conn := dial(t, srv, cdpws.Options{})
+	if !srv.WaitConnected(time.Second) {
+		t.Fatal("client did not connect")
+	}
+
+	// A frozen peer never answers the close frame, so Close stays in its
+	// handshake window until Unfreeze.
+	srv.Freeze()
+	closed := make(chan error, 1)
+	go func() { closed <- conn.Close() }()
+
+	// Calls issued before the close frame left wait for a reply the frozen
+	// peer never sends and time out; the first one issued after it fails at
+	// the write. That one is the call under test.
+	deadline := time.Now().Add(3 * time.Second)
+	var err error
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		_, err = conn.Call(ctx, "Runtime.enable", nil)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close never entered its handshake window")
+		}
+	}
+	select {
+	case <-conn.Done():
+		t.Fatal("the connection ended before the Call failed; the handshake window was missed")
+	default:
+	}
+	if !errors.Is(err, cdpws.ErrClosed) {
+		t.Fatalf("Call during Close = %v, want ErrClosed", err)
+	}
+
+	srv.Unfreeze()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close did not return after the peer answered")
+	}
+	if !errors.Is(conn.Err(), cdpws.ErrClosed) {
+		t.Fatalf("Err = %v, want ErrClosed", conn.Err())
+	}
+}
+
 func TestOnFrameObservesBothDirections(t *testing.T) {
 	t.Parallel()
 	srv := cdptest.New(t)

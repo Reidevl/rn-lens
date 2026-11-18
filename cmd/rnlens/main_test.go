@@ -87,6 +87,30 @@ func TestRunPrintsUsageWithExitCodes(t *testing.T) {
 	}
 }
 
+// -h anywhere in the root flag list prints the same usage as a leading
+// --help and exits 0, instead of the FlagSet's generated usage and exit 2.
+func TestRunPrintsUsageWhenHelpFollowsOtherFlags(t *testing.T) {
+	for _, args := range [][]string{{"--sdk-port", "1", "-h"}, {"--sdk-port", "1", "--help"}, {"--sdk-token", "t", "-h"}} {
+		out, code := captureStdout(t, func() int { return run(args) })
+		if code != 0 {
+			t.Fatalf("run(%v) = %d, want 0", args, code)
+		}
+		for _, want := range []string{"Usage:", "rnlens targets", "rnlens record", "Exit codes:"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("run(%v) output lacks %q:\n%s", args, want, out)
+			}
+		}
+	}
+}
+
+func TestRunExitsTwoOnBadRootFlags(t *testing.T) {
+	for _, args := range [][]string{{"--no-such-flag"}, {"--sdk-port", "not-a-number"}} {
+		if _, code := captureStdout(t, func() int { return run(args) }); code != 2 {
+			t.Fatalf("run(%v) = %d, want 2", args, code)
+		}
+	}
+}
+
 func TestTargetsPrintsJSONAndExitsZero(t *testing.T) {
 	metro := fakeMetro(t, []map[string]any{fuseboxPage("http://localhost:8081")})
 

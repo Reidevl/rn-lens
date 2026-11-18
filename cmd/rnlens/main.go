@@ -9,6 +9,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -52,9 +53,18 @@ func run(args []string) int {
 	}
 
 	fs := flag.NewFlagSet("rnlens", flag.ContinueOnError)
+	// -h anywhere in the flag list gets the same usage as a leading --help;
+	// the FlagSet's generated one would not mention the subcommands.
+	fs.Usage = func() {}
 	sdkPort := fs.Int("sdk-port", 7420, "port the @rnlens/sdk WebSocket server listens on (0 disables it)")
 	sdkToken := fs.String("sdk-token", "", "pairing token the SDK must present (optional)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printUsage()
+			return 0
+		}
+		// The FlagSet already reported the error on stderr.
+		fmt.Fprintln(os.Stderr, `Run "rnlens -h" for usage.`)
 		return 2
 	}
 	sdkAddr := fmt.Sprintf(":%d", *sdkPort)

@@ -76,6 +76,10 @@ type Server struct {
 
 	mu       sync.RWMutex
 	sessions map[SessionKey]*Session
+	// conns holds every accepted socket, registered or still in its
+	// handshake, so Stop can cut stragglers once its context expires.
+	conns    map[*websocket.Conn]struct{}
+	nextSeq  uint64
 	http     *http.Server
 	listener net.Listener
 	wg       sync.WaitGroup
@@ -102,7 +106,11 @@ func New(opts Options, handler Handler) *Server {
 	if opts.LensVersion == "" {
 		opts.LensVersion = "dev"
 	}
-	return &Server{opts: opts, handler: handler, sessions: make(map[SessionKey]*Session)}
+	return &Server{
+		opts: opts, handler: handler,
+		sessions: make(map[SessionKey]*Session),
+		conns:    make(map[*websocket.Conn]struct{}),
+	}
 }
 
 // Start listens and serves in the background. It returns the bound address.
@@ -140,7 +148,11 @@ func (s *Server) Addr() string {
 
 // Stop closes every session and the listener, refuses connections that
 // arrive from now on and returns once every session goroutine has delivered
-// its OnDisconnect.
+// its OnDisconnect, or once ctx expires. On expiry it stops waiting for the
+// remaining goroutines, asks the library to cut the sockets still open and
+// returns ctx.Err(). A socket already inside its close handshake is not cut
+// by CloseNow (coder/websocket only waits for it); it still ends within the
+// library's own close budget, after Stop has returned.
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	s.closed = true
@@ -149,42 +161,80 @@ func (s *Server) Stop(ctx context.Context) error {
 		sessions = append(sessions, sess)
 	}
 	s.mu.Unlock()
-	// Close concurrently: each close handshake waits for its peer (up to the
-	// library's 5 s budget while the session's Read holds the socket), so a
-	// sequential loop would stall every later session behind a slow one.
-	var closes sync.WaitGroup
-	for _, sess := range sessions {
-		closes.Add(1)
-		go func(sess *Session) {
-			defer closes.Done()
-			sess.Close(CloseServerShutdown, "lens is shutting down")
-		}(sess)
-	}
-	closes.Wait()
+	settled := make(chan struct{})
+	go func() {
+		defer close(settled)
+		// Close concurrently: each close handshake waits for its peer (up to
+		// the library's 5 s budget while the session's Read holds the socket),
+		// so a sequential loop would stall every later session behind a slow
+		// one.
+		var closes sync.WaitGroup
+		for _, sess := range sessions {
+			closes.Add(1)
+			go func(sess *Session) {
+				defer closes.Done()
+				sess.Close(CloseServerShutdown, "lens is shutting down")
+			}(sess)
+		}
+		closes.Wait()
+		// Shutdown closes the listener; it does not track hijacked sockets,
+		// which is why the wait group counts connections too.
+		s.wg.Wait()
+	}()
 	var err error
 	if s.http != nil {
-		// Shutdown closes the listener; it does not track hijacked sockets,
-		// which is why the wait group counts sessions too.
 		err = s.http.Shutdown(ctx)
 	}
-	s.wg.Wait()
+	select {
+	case <-settled:
+		return err
+	case <-ctx.Done():
+	}
+	// Cut the stragglers but do not wait for them: CloseNow on a socket whose
+	// close handshake is in flight blocks until that handshake gives up, and
+	// a handler may still be inside OnDisconnect.
+	s.mu.Lock()
+	conns := make([]*websocket.Conn, 0, len(s.conns))
+	for conn := range s.conns {
+		conns = append(conns, conn)
+	}
+	s.mu.Unlock()
+	for _, conn := range conns {
+		go func(conn *websocket.Conn) { _ = conn.CloseNow() }(conn)
+	}
+	if err == nil {
+		err = ctx.Err()
+	}
 	return err
 }
 
-// track adds the calling connection goroutine to the wait group unless Stop
-// already began. Adding under the mutex that Stop takes before it waits keeps
-// every Add ordered before the Wait.
-func (s *Server) track() bool {
+// track records conn as a live socket and adds the calling connection
+// goroutine to the wait group, unless Stop already began. Adding under the
+// mutex that Stop takes before it waits keeps every Add ordered before the
+// Wait; the sequence taken under the same lock orders Sessions.
+func (s *Server) track(conn *websocket.Conn, remote string) (*Session, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return false
+		return nil, false
 	}
 	s.wg.Add(1)
-	return true
+	s.nextSeq++
+	s.conns[conn] = struct{}{}
+	return &Session{server: s, conn: conn, remote: remote, connectedAt: time.Now(), seq: s.nextSeq}, true
 }
 
-// Sessions lists live sessions, most recently connected last.
+// untrack forgets conn and releases its wait-group slot.
+func (s *Server) untrack(conn *websocket.Conn) {
+	s.mu.Lock()
+	delete(s.conns, conn)
+	s.mu.Unlock()
+	s.wg.Done()
+}
+
+// Sessions lists live sessions, most recently accepted last. The order is
+// by acceptance sequence, which never ties, so it is deterministic even
+// when two sockets were accepted at the same instant.
 func (s *Server) Sessions() []*Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -192,7 +242,7 @@ func (s *Server) Sessions() []*Session {
 	for _, sess := range s.sessions {
 		out = append(out, sess)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].connectedAt.Before(out[j].connectedAt) })
+	sort.Slice(out, func(i, j int) bool { return out[i].seq < out[j].seq })
 	return out
 }
 
@@ -213,13 +263,13 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn.SetReadLimit(maxFrameBytes)
-	if !s.track() {
+	sess, ok := s.track(conn, r.RemoteAddr)
+	if !ok {
 		_ = conn.Close(CloseServerShutdown, "lens is shutting down")
 		return
 	}
-	defer s.wg.Done()
+	defer s.untrack(conn)
 
-	sess := &Session{server: s, conn: conn, remote: r.RemoteAddr, connectedAt: time.Now()}
 	if err := sess.handshake(); err != nil {
 		s.opts.Logger.Info("sdk handshake rejected", "remote", r.RemoteAddr, "err", err)
 		return
