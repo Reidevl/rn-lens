@@ -192,6 +192,26 @@ func (s *Session) detachLocked() {
 }
 
 // Call forwards a CDP request to the attached connection.
+// Barrier queues a cdp.EventLensBarrier with token behind every event read
+// so far; handlers see it after all of them (see cdpws.Conn.Barrier).
+func (s *Session) Barrier(token string) error {
+	s.mu.RLock()
+	conn := s.conn
+	state := s.snapshot.State
+	s.mu.RUnlock()
+	if conn == nil || state != StateAttached {
+		return ErrNotAttached
+	}
+	b, ok := conn.(interface{ Barrier(token string) bool })
+	if !ok {
+		return errors.New("targets: the connection does not support barriers")
+	}
+	if !b.Barrier(token) {
+		return ErrNotAttached
+	}
+	return nil
+}
+
 func (s *Session) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	s.mu.RLock()
 	conn := s.conn

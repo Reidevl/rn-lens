@@ -495,3 +495,32 @@ func TestResolveKeepingSamePageEmitsNoExtraChange(t *testing.T) {
 		t.Fatalf("first retry emitted %d reconnecting snapshots, want 1 (no extra change for an unchanged page)", firstRetries)
 	}
 }
+
+func TestBarrierReachesEventHandlers(t *testing.T) {
+	t.Parallel()
+	srv := cdptest.New(t)
+	rec := newStateRecorder()
+	s := newSession(t, rec)
+	if err := s.Barrier("idle"); !errors.Is(err, targets.ErrNotAttached) {
+		t.Fatalf("Barrier while idle = %v, want ErrNotAttached", err)
+	}
+	got := make(chan string, 1)
+	s.OnEvent(func(ev cdp.Event) {
+		if ev.Method == cdp.EventLensBarrier {
+			got <- string(ev.Params)
+		}
+	})
+	s.Attach(targetFor(srv))
+	rec.waitFor(t, "attached", inState(targets.StateAttached))
+	if err := s.Barrier("b1"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case p := <-got:
+		if p != `"b1"` {
+			t.Fatalf("barrier params = %s", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the barrier never reached the handler")
+	}
+}
