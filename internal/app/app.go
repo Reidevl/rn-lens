@@ -183,6 +183,9 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 	if !entered {
 		return
 	}
+	// Before anything can reach the new session: bodies of the old one are
+	// refused from here on.
+	a.network.BeginSession()
 	name := ""
 	if snap.Target != nil {
 		name = snap.Target.Title

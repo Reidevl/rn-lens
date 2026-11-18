@@ -347,11 +347,25 @@ func (s *Store) Clear() {
 	s.version++
 }
 
+// ErrorSessionEnded is the failure text of requests still pending when the
+// debugger session they belonged to ended.
+const ErrorSessionEnded = "The debugger reconnected before the request finished"
+
 // NewEpoch starts a new attach generation: requests from older epochs stay
-// listed but their bodies can no longer be fetched. It returns the new epoch.
+// listed but their bodies can no longer be fetched, and the ones still pending
+// are marked failed because their events died with the old session. It
+// returns the new epoch.
 func (s *Store) NewEpoch() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, seq := range s.order {
+		if r := s.rows[seq]; r != nil && r.State == StatePending {
+			r.State = StateFailed
+			r.ErrorText = ErrorSessionEnded
+			s.touch(r)
+		}
+	}
+	s.byID = make(map[string]uint64)
 	s.epoch++
 	s.version++
 	return s.epoch

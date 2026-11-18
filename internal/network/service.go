@@ -3,10 +3,12 @@ package network
 import (
 	"container/list"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -113,18 +115,23 @@ func (s *Service) HandleEvent(ev cdp.Event) {
 	}
 }
 
-// OnAttached runs after every successful attach. A re-attach starts a new
-// epoch (bodies of earlier requests are gone with the old session). It then
-// enables the Network domain; a target without one is reported through
-// Availability, not as an error.
-func (s *Service) OnAttached(ctx context.Context) error {
+// BeginSession marks a new debugger session. Call it synchronously as soon as
+// the session is attached, before any request can reach it: a re-attach starts
+// a new epoch, so bodies of earlier requests (gone with the old session, and
+// whose requestIds the app may reuse) are refused from then on. It does no I/O.
+func (s *Service) BeginSession() {
 	if s.attachments.Add(1) > 1 {
 		s.store.NewEpoch()
 		s.mu.Lock()
 		s.cache.purge()
 		s.mu.Unlock()
+		s.notify()
 	}
+}
 
+// OnAttached enables the Network domain after BeginSession; a target without
+// one is reported through Availability, not as an error.
+func (s *Service) OnAttached(ctx context.Context) error {
 	callCtx, cancel := context.WithTimeout(ctx, s.opts.EnableTimeout)
 	defer cancel()
 	_, err := s.caller.Call(callCtx, cdp.MethodNetworkEnable, nil)
@@ -204,8 +211,16 @@ func (s *Service) ResponseBody(ctx context.Context, seq, epoch uint64) (Body, er
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return Body{}, fmt.Errorf("network: decode response body: %w", err)
 	}
+	// A re-attach while the app answered: the reply came from the new session
+	// and may describe another request that reused the requestId.
+	if s.store.Epoch() != epoch {
+		return Body{}, ErrStale
+	}
 	body := Body{Text: res.Body, Base64: res.Base64Encoded, Size: len(res.Body)}
-	if body.Size > s.opts.MaxBodyBytes {
+	if body.Base64 {
+		body.Size = decodedLen(res.Body)
+	}
+	if len(res.Body) > s.opts.MaxBodyBytes {
 		body.Text = ""
 		body.Truncated = true
 	}
@@ -233,7 +248,16 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return "", fmt.Errorf("network: decode request body: %w", err)
 	}
+	if s.store.Epoch() != epoch {
+		return "", ErrStale
+	}
 	return res.PostData, nil
+}
+
+// decodedLen is the byte size of a base64 body.
+func decodedLen(b64 string) int {
+	n := base64.StdEncoding.DecodedLen(len(b64))
+	return n - strings.Count(b64[max(0, len(b64)-2):], "=")
 }
 
 func (s *Service) notify() {
