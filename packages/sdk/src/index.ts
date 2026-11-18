@@ -8,6 +8,18 @@ export type {
   WebSocketConstructor,
 } from "./client";
 export { useLens } from "./use-lens";
+export {
+  ASYNC_STORAGE_SIZED_KEYS_MAX,
+  STORAGE_SNAPSHOT_MAX_KEYS,
+  STORAGE_VALUE_MAX_BYTES,
+} from "./storage/adapter";
+export type {
+  AsyncStorageLike,
+  LensStorageOptions,
+  MMKVLike,
+  MMKVValue,
+  SecureStoreLike,
+} from "./storage/types";
 export type { LensLogger } from "./logger";
 export { safeSerialize, toSafeJson, DEFAULT_MAX_BYTES, DEFAULT_MAX_DEPTH } from "./serialize";
 export { SNAPSHOT_FRAME_MAX_BYTES, SNAPSHOT_MAX_BYTES } from "./tanstack/serialize";
@@ -22,4 +34,7 @@ export type {
   QueryActionType,
   QueryEventKind,
   MutationEventKind,
+  StorageActionType,
+  StorageKind,
+  StorageValue,
 } from "@rnlens/protocol";

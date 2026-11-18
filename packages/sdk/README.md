@@ -56,6 +56,7 @@ lens.disconnect();
 | Option          | Type                   | Default                                     | Purpose                                                                |
 | --------------- | ---------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
 | `queryClient`   | `QueryClient`          | —                                           | TanStack client to mirror; enables the Queries and Mutations panels.   |
+| `storage`       | `LensStorageOptions`   | —                                           | Storage instances to mirror; enables the Storage panel (see Storage).  |
 | `url`           | `string`               | derived, see below                          | Full WebSocket URL of Lens.                                            |
 | `token`         | `string`               | —                                           | Pairing token when Lens runs with `--sdk-token`.                       |
 | `deviceName`    | `string`               | device model                                | Name shown in the Lens device list.                                    |
@@ -65,6 +66,61 @@ lens.disconnect();
 | `logger`        | `LensLogger`           | silent                                      | Pass `console` to see connection diagnostics.                          |
 | `WebSocketImpl` | `WebSocketConstructor` | global `WebSocket`                          | Alternative WebSocket implementation (tests, custom runtimes).         |
 | `backoff`       | `{ minMs?, maxMs? }`   | `{ minMs: 500, maxMs: 10000 }`              | Reconnect backoff bounds.                                              |
+
+## Storage
+
+Pass the storage instances the app already uses; the SDK imports none of
+these libraries and only relies on the methods listed in its exported
+`AsyncStorageLike`, `MMKVLike` (react-native-mmkv v3) and `SecureStoreLike`
+(expo-secure-store) types.
+
+```ts
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { MMKV } from "react-native-mmkv";
+
+const storage = new MMKV();
+
+useLens({
+  queryClient,
+  storage: {
+    asyncStorage: AsyncStorage,
+    mmkv: { default: storage },
+    secureStore: { module: SecureStore, keys: ["session.token"] },
+    exclude: ["pin", /^auth\./],
+  },
+});
+```
+
+| Store        | Id                  | Listing                                     | Changes                                     |
+| ------------ | ------------------- | ------------------------------------------- | ------------------------------------------- |
+| AsyncStorage | `async-storage`     | every key; sizes when the store has ≤ 500   | snapshot of the store after each Lens write |
+| MMKV         | `mmkv:<record key>` | every key; sizes of string and bytes values | live, through `addOnValueChangedListener`   |
+| SecureStore  | `secure-store`      | only the declared `keys`; no sizes          | snapshot of the store after each Lens write |
+
+- Snapshots carry keys only; Lens reads a value with `GET` when it is opened.
+  A `storage.snapshot` is sent after `welcome`, on `REFRESH` (that store only)
+  and after every `SET`, `REMOVE` or `CLEAR` on AsyncStorage or SecureStore,
+  which have no change listener. AsyncStorage changes made by the app itself
+  show up on the next refresh.
+- MMKV reports every change, from the app or from Lens, as `storage.event`
+  (`set` with the size, `removed`); a `CLEAR` from Lens sends one `cleared`.
+- `exclude` hides keys: a string matches a key exactly, a RegExp is tested
+  against it. Excluded keys never appear in snapshots or events, every action
+  on them is answered `ok: false` with `"key is excluded by the app"`, and
+  `CLEAR` leaves them in place.
+- SecureStore cannot enumerate keys: only `secureStore.keys` are listed, and
+  actions on other keys are refused. `CLEAR` deletes the declared keys.
+- Values: AsyncStorage and SecureStore store strings and refuse other types.
+  MMKV stores strings, numbers, booleans and bytes (base64 on the wire). MMKV
+  does not expose an entry's type, so `GET` tries `getString`, `getNumber`,
+  `getBoolean` and `getBuffer` in that order and the first defined answer wins.
+- Limits: a value whose text form exceeds 1 MiB (`STORAGE_VALUE_MAX_BYTES`) is
+  answered with `truncated: true`, its `size` and an empty `value`. A store
+  lists at most 10,000 keys (`STORAGE_SNAPSHOT_MAX_KEYS`), sorted, and sets
+  `truncated` when it has more.
+- Every `storage.action` is answered with one `storage.result`
+  (`{ id, ok, error?, value? }`); a missing key reads as `ok: false, "not set"`.
 
 ## How the URL is derived
 
@@ -82,8 +138,8 @@ alias for the host machine.
 ## What is sent
 
 - `hello` with the SDK version, protocol version 1, app and device identity,
-  the Metro script URL and the feature list (`["queries"]` when a
-  `queryClient` is given). The device id is persisted with
+  the Metro script URL and the feature list (`"queries"` when a
+  `queryClient` is given, `"storage"` when `storage` is given). The device id is persisted with
   `@react-native-async-storage/async-storage` when that package is installed,
   otherwise it is stable for the process.
 - `queries.snapshot` right after Lens answers `welcome`, and again on
