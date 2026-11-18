@@ -47,8 +47,10 @@ build. Strictness lives in the conformance tests, tolerance in the decoders.
 
 After the handshake an undecodable or non-text frame closes the session with
 `4006` and an envelope with another major closes it with `4002`. The SDK treats
-`4002` and `4003` as fatal: it warns, goes `disabled` and stops reconnecting;
-every other close is followed by a reconnect with backoff.
+`4002` and `4003` as fatal: it warns, goes `disabled` and stops reconnecting.
+`4001` becomes fatal after three consecutive closes with no `welcome` in
+between (a `welcome` resets the count); every other close is followed by a
+reconnect with backoff.
 
 ## Messages
 
@@ -92,10 +94,15 @@ false). A full `query` or `queries.snapshot` simply omits undefined fields.
 serializer (BigInt as string, Date as ISO string, circular references as
 `"[Circular]"`, depth 20) and cut at 1 MiB; a cut value sets `dataTruncated`.
 
-Lens reads frames of at most 8 MiB. A `queries.snapshot` is capped as a whole
-at 6 MiB (`SNAPSHOT_MAX_BYTES` in `@rnlens/sdk`): above that, the SDK replaces
-the `data` of the largest queries with the truncation marker, largest first,
-until the frame fits, keeping every query listed.
+Lens reads frames of at most 8 MiB (`SNAPSHOT_FRAME_MAX_BYTES` in
+`@rnlens/sdk`). A `queries.snapshot` is capped as a whole at 6 MiB
+(`SNAPSHOT_MAX_BYTES`): above that, the SDK replaces the largest values among
+query `data` and mutation `variables`, `data` and `context` with the truncation
+marker, largest first, until the frame fits, keeping every query and mutation
+listed. A snapshot still above 8 MiB after that (query keys, `meta` and errors
+are not capped) is not sent: the SDK logs a warning with the size and the limit
+and keeps sending `query.event` and `mutation.event`; the next
+`snapshot.request` or reconnect tries again.
 
 ## Regenerating types
 

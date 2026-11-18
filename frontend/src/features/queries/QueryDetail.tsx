@@ -3,9 +3,10 @@ import { useState } from "react";
 import { useBackend, type QueryActionType, type QueryItem } from "@/backend";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/atoms/Button";
+import { RelativeTime } from "@/shared/ui/atoms/RelativeTime";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
-import { ago, keyText, labelDot, labelText, statusBadge } from "./presentation";
+import { keyText, labelDot, labelText, statusBadge } from "./presentation";
 import { runQueriesAction, useQueriesStore } from "./queriesStore";
 
 const ACTIONS: Array<{ type: QueryActionType; label: string; danger?: boolean }> = [
@@ -61,7 +62,9 @@ export function QueryDetail({ query, deviceKey }: { query: QueryItem; deviceKey:
           </span>
           <span className="text-muted-foreground">fetch: {query.state.fetchStatus}</span>
           <span className="text-muted-foreground">observers: {query.observersCount}</span>
-          <span className="text-muted-foreground">updated {ago(query.state.dataUpdatedAt)}</span>
+          <span className="text-muted-foreground">
+            updated <RelativeTime ms={query.state.dataUpdatedAt} />
+          </span>
           {query.state.isInvalidated ? <span className="text-warning">invalidated</span> : null}
           {query.dataTruncated ? (
             <span className="text-warning">data truncated at 1 MiB</span>

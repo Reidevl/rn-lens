@@ -16,7 +16,8 @@ import { SDK_VERSION } from "./version";
 
 /**
  * `disabled` is the state of a production (no-op) client and of a client that
- * stopped after a fatal close code (4002, 4003); `connect()` retries the latter.
+ * stopped after a fatal close code (4002, 4003, or 4001 three times in a row);
+ * `connect()` retries the latter.
  */
 export type LensClientState = "idle" | "connecting" | "connected" | "reconnecting" | "disabled";
 
@@ -88,6 +89,14 @@ const FATAL_CLOSE_CODES: Readonly<Record<number, string>> = {
   4003: "pairing token missing or wrong; pass the token Lens shows",
 };
 
+/** Lens closes with 4001 when no `hello` arrived within its handshake timeout. */
+const HELLO_TIMEOUT_CLOSE_CODE = 4001;
+/**
+ * Consecutive 4001 closes (no `welcome` in between) after which the client
+ * stops like after 4002/4003 instead of looping hello → timeout → reconnect.
+ */
+const MAX_CONSECUTIVE_HELLO_TIMEOUTS = 3;
+
 const NOOP_CLIENT: LensClient = {
   state: "disabled",
   connect: () => {},
@@ -137,6 +146,7 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
   let socket: LensWebSocket | undefined;
   let ready = false;
   let attempt = 0;
+  let helloTimeouts = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let closedByUser = true;
 
@@ -199,6 +209,7 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
       case "welcome":
         ready = true;
         attempt = 0;
+        helloTimeouts = 0;
         setState("connected");
         log.info(`connected to Lens ${message.payload.lensVersion}`);
         adapter?.sendSnapshot();
@@ -280,7 +291,15 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
       if (socket !== ws) return;
       socket = undefined;
       ready = false;
-      const fatal = code === undefined ? undefined : FATAL_CLOSE_CODES[code];
+      let fatal = code === undefined ? undefined : FATAL_CLOSE_CODES[code];
+      if (code === HELLO_TIMEOUT_CLOSE_CODE) {
+        helloTimeouts += 1;
+        if (helloTimeouts >= MAX_CONSECUTIVE_HELLO_TIMEOUTS) {
+          fatal =
+            `no hello reached Lens within its handshake timeout ${helloTimeouts} times in a row; ` +
+            "check the url and that the app can reach Lens";
+        }
+      }
       if (fatal !== undefined) {
         log.warn(`Lens closed the connection with code ${code}: ${fatal}; not reconnecting`);
         closedByUser = true;
@@ -312,6 +331,7 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
     if (!closedByUser) return;
     closedByUser = false;
     attempt = 0;
+    helloTimeouts = 0;
     adapter?.attach();
     open();
   }

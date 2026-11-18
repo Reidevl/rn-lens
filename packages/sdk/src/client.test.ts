@@ -170,6 +170,61 @@ describe("createLensClient", () => {
     expect(client.state).toBe("disabled");
   });
 
+  it("goes disabled with one warning after three consecutive 4001 closes", async () => {
+    const warn = vi.fn();
+    const states: LensClientState[] = [];
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      backoff: fastBackoff,
+      logger: { warn },
+    });
+    client.onStateChange((s) => states.push(s));
+    client.connect();
+    for (let i = 0; i < 3; i++) {
+      await lens.next("hello");
+      lens.closeClients(4001);
+    }
+    await waitFor(() => client?.state === "disabled");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message] = warn.mock.calls[0] as [string];
+    expect(message).toContain("4001");
+    expect(message).toContain("hello");
+
+    await new Promise((r) => setTimeout(r, 150));
+    expect(lens.connectionCount).toBe(0);
+    expect(lens.frames.filter((f) => f.type === "hello")).toHaveLength(3);
+    expect(states).toEqual(["connecting", "reconnecting", "disabled"]);
+
+    client.connect();
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+  });
+
+  it("a welcome resets the 4001 counter", async () => {
+    const warn = vi.fn();
+    client = createLensClient({
+      url: lens.url,
+      enabled: true,
+      backoff: fastBackoff,
+      logger: { warn },
+    });
+    client.connect();
+    for (let i = 0; i < 2; i++) {
+      await lens.next("hello");
+      lens.closeClients(4001);
+    }
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+    lens.closeClients(4001);
+    await lens.next("hello");
+    lens.closeClients(4001);
+    await lens.welcome();
+    await waitFor(() => client?.state === "connected");
+    expect(warn).not.toHaveBeenCalled();
+    expect(lens.frames.filter((f) => f.type === "hello")).toHaveLength(5);
+  });
+
   it("keeps reconnecting after every other close code", async () => {
     client = createLensClient({ url: lens.url, enabled: true, backoff: fastBackoff });
     client.connect();

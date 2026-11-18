@@ -1,11 +1,12 @@
 import { useBackend } from "@/backend";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/atoms/Button";
+import { RelativeTime } from "@/shared/ui/atoms/RelativeTime";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
 import { DevicePicker } from "./DevicePicker";
 import { NoSdk } from "./NoSdk";
-import { ago, keyText, statusBadge } from "./presentation";
+import { keyText, statusBadge } from "./presentation";
 import { runQueriesAction, useQueriesStore } from "./queriesStore";
 import { useQueriesSync } from "./useQueriesSync";
 
@@ -87,7 +88,7 @@ export function MutationsPanel() {
                       {m.mutationKey ? keyText(m.mutationKey) : `#${m.mutationId}`}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {ago(m.state.submittedAt)}
+                      <RelativeTime ms={m.state.submittedAt} />
                     </span>
                   </button>
                 </li>

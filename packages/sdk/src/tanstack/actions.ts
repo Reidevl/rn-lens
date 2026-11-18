@@ -81,7 +81,12 @@ export async function runQueryAction(
         queryClient.removeQueries(exact);
         return ok;
       case "SET_QUERY_DATA":
-        query.setState({ ...query.state, data: action.data });
+        // Same call as the official devtools explorer: observers are notified
+        // and dataUpdatedAt / dataUpdateCount advance like after a fetch.
+        if (action.data === undefined) {
+          return { id: action.id, ok: false, error: "SET_QUERY_DATA requires data" };
+        }
+        queryClient.setQueryData(query.queryKey, action.data);
         return ok;
       case "TRIGGER_LOADING":
         triggerLoading(query);

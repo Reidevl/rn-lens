@@ -94,6 +94,11 @@ alias for the host machine.
   `TRIGGER_ERROR`, `RESET`) travels as an explicit `null`.
 - `online.status` when `onlineManager` changes; `online.set` from Lens calls
   `onlineManager.setOnline`.
+- `action.result` for every `query.action` Lens sends. The actions run the
+  recipes of the official TanStack Query devtools; in particular `SET_QUERY_DATA`
+  calls `queryClient.setQueryData(queryKey, data)`, so observers re-render and
+  `dataUpdatedAt` and `dataUpdateCount` advance as after a fetch. An action
+  without `data` is answered with `ok: false`.
 
 Payloads go through a safe serializer: BigInt becomes a string, Date an ISO
 string, functions `"[Function]"`, circular references `"[Circular]"`, Map and
@@ -102,11 +107,15 @@ with `{ "__lensTruncated": true, "bytes": n }` and the query or mutation gets
 `dataTruncated: true`.
 
 A whole `queries.snapshot` is capped at `SNAPSHOT_MAX_BYTES` (6 MiB, exported):
-when the serialized snapshot would exceed it, the `data` of the largest queries
-is replaced with the same marker, largest first, until the frame fits. Every
-query stays listed; the client warns through `logger` how many were cut. Lens
-reads frames of at most 8 MiB, so a snapshot above the budget would otherwise
-be dropped and resent on every reconnect.
+when the serialized snapshot would exceed it, the largest values among query
+`data` and mutation `variables`, `data` and `context` are replaced with the same
+marker, largest first, until the frame fits. Every query and mutation stays
+listed; the client warns through `logger` how many were cut. Lens reads frames
+of at most `SNAPSHOT_FRAME_MAX_BYTES` (8 MiB, exported); a snapshot still above
+that after capping (query keys, `meta` and errors are not capped) is not sent,
+because Lens would close the socket with 1009 and the reconnect would resend
+it. The client logs one warning with the size and the limit, keeps sending
+cache events, and tries again on the next `snapshot.request` or reconnect.
 
 ## Production behavior
 
@@ -129,7 +138,9 @@ drop what you do not import.
   pass the same value as `token`. A protocol mismatch closes with code 4002:
   update either side. Both codes (4003 token, 4002 protocol) are fatal: the
   client logs a warning naming the code, goes `disabled` and stops
-  reconnecting until `connect()` is called again. Every other close keeps
+  reconnecting until `connect()` is called again. Code 4001 (no `hello` within
+  the handshake timeout) is fatal after three consecutive closes without a
+  `welcome` in between; a `welcome` resets the count. Every other close keeps
   reconnecting with backoff.
 - **Nothing shows up.** Pass `logger: console` to see the resolved URL,
   reconnect attempts and the Lens version after `welcome`. Check that

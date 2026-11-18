@@ -58,13 +58,33 @@ describe("runQueryAction", () => {
     expect(queryClient.getQueryCache().get(hash)).toBeUndefined();
   });
 
-  it("SET_QUERY_DATA replaces data", async () => {
+  // Official recipe (@tanstack/query-devtools Explorer.tsx): queryClient.setQueryData(queryKey, data),
+  // so observers are notified and dataUpdatedAt / dataUpdateCount advance like after a fetch.
+  it("SET_QUERY_DATA goes through queryClient.setQueryData: observers see it and dataUpdatedAt advances", async () => {
+    const observer = new QueryObserver(queryClient, { queryKey: key, queryFn: () => ({ n: 99 }) });
+    const unsubscribe = observer.subscribe(() => {});
+    const before = query().state;
+    await new Promise((r) => setTimeout(r, 5));
     expect(await run("SET_QUERY_DATA", { data: { n: 7, extra: true } })).toEqual({
       id: "a",
       ok: true,
     });
     expect(query().state.data).toEqual({ n: 7, extra: true });
     expect(query().state.status).toBe("success");
+    expect(query().state.dataUpdatedAt).toBeGreaterThan(before.dataUpdatedAt);
+    expect(query().state.dataUpdateCount).toBe(before.dataUpdateCount + 1);
+    expect(observer.getCurrentResult().data).toEqual({ n: 7, extra: true });
+    expect(calls).toBe(1);
+    unsubscribe();
+  });
+
+  it("SET_QUERY_DATA without data fails instead of clearing the query", async () => {
+    expect(await run("SET_QUERY_DATA")).toEqual({
+      id: "a",
+      ok: false,
+      error: "SET_QUERY_DATA requires data",
+    });
+    expect(query().state.data).toEqual({ n: 1 });
   });
 
   it("TRIGGER_LOADING then RESTORE_LOADING", async () => {

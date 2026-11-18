@@ -10,7 +10,7 @@ export type {
 export { useLens } from "./use-lens";
 export type { LensLogger } from "./logger";
 export { safeSerialize, toSafeJson, DEFAULT_MAX_BYTES, DEFAULT_MAX_DEPTH } from "./serialize";
-export { SNAPSHOT_MAX_BYTES } from "./tanstack/serialize";
+export { SNAPSHOT_FRAME_MAX_BYTES, SNAPSHOT_MAX_BYTES } from "./tanstack/serialize";
 export type { SafeSerializeOptions, SafeSerializeResult, TruncationMarker } from "./serialize";
 export { resolveLensUrl, DEFAULT_LENS_PORT } from "./env";
 export { SDK_VERSION } from "./version";
