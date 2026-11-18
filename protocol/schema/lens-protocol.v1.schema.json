@@ -39,6 +39,18 @@
     },
     {
       "$ref": "#/$defs/PingMessage"
+    },
+    {
+      "$ref": "#/$defs/StorageSnapshotMessage"
+    },
+    {
+      "$ref": "#/$defs/StorageEventMessage"
+    },
+    {
+      "$ref": "#/$defs/StorageActionMessage"
+    },
+    {
+      "$ref": "#/$defs/StorageResultMessage"
     }
   ],
   "$defs": {
@@ -46,12 +58,24 @@
       "title": "JsonValue",
       "description": "Any JSON value (object, array, string, number, boolean or null).",
       "anyOf": [
-        { "type": "object" },
-        { "type": "array" },
-        { "type": "string" },
-        { "type": "number" },
-        { "type": "boolean" },
-        { "type": "null" }
+        {
+          "type": "object"
+        },
+        {
+          "type": "array"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "QueryKey": {
@@ -840,6 +864,268 @@
         },
         "payload": {
           "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "StorageKind": {
+      "title": "StorageKind",
+      "type": "string",
+      "enum": ["async-storage", "mmkv", "secure-store"]
+    },
+    "StorageValue": {
+      "title": "StorageValue",
+      "type": "object",
+      "description": "A stored value. Bytes travel as base64 in value.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "bytes"]
+        },
+        "value": {
+          "type": "string",
+          "description": "The value as text: numbers and booleans in JSON form, bytes as base64."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "The value was larger than the SDK sends (1 MiB); value is empty."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size in bytes of the full value."
+        }
+      },
+      "required": ["type", "value"],
+      "additionalProperties": false
+    },
+    "StorageKey": {
+      "title": "StorageKey",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes of the value, when cheap to know."
+        }
+      },
+      "required": ["key"],
+      "additionalProperties": false
+    },
+    "StorageStore": {
+      "title": "StorageStore",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable id the SDK chose, for example \"async-storage\" or \"mmkv:default\"."
+        },
+        "kind": {
+          "$ref": "#/$defs/StorageKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StorageKey"
+          }
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "The store has more keys than the snapshot carries (10,000)."
+        },
+        "live": {
+          "type": "boolean",
+          "description": "The SDK reports changes as they happen (MMKV); otherwise Lens refreshes."
+        },
+        "declaredKeys": {
+          "type": "boolean",
+          "description": "Only the keys the app declared are listed (SecureStore cannot enumerate)."
+        }
+      },
+      "required": ["id", "kind", "name", "keys"],
+      "additionalProperties": false
+    },
+    "StorageSnapshotPayload": {
+      "title": "StorageSnapshotPayload",
+      "type": "object",
+      "properties": {
+        "stores": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StorageStore"
+          }
+        },
+        "storeId": {
+          "type": "string",
+          "description": "Set when the snapshot replaces only this store."
+        }
+      },
+      "required": ["stores"],
+      "additionalProperties": false
+    },
+    "StorageEventPayload": {
+      "title": "StorageEventPayload",
+      "type": "object",
+      "properties": {
+        "storeId": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["set", "removed", "cleared"]
+        },
+        "key": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["storeId", "kind"],
+      "additionalProperties": false
+    },
+    "StorageActionType": {
+      "title": "StorageActionType",
+      "type": "string",
+      "enum": ["GET", "SET", "REMOVE", "CLEAR", "REFRESH"]
+    },
+    "StorageActionPayload": {
+      "title": "StorageActionPayload",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Correlates with storage.result."
+        },
+        "type": {
+          "$ref": "#/$defs/StorageActionType"
+        },
+        "storeId": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/StorageValue"
+        }
+      },
+      "required": ["id", "type", "storeId"],
+      "additionalProperties": false
+    },
+    "StorageResultPayload": {
+      "title": "StorageResultPayload",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The storage.action id this answers."
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/StorageValue",
+          "description": "The value, for GET."
+        }
+      },
+      "required": ["id", "ok"],
+      "additionalProperties": false
+    },
+    "StorageSnapshotMessage": {
+      "title": "StorageSnapshotMessage",
+      "description": "The app's storage stores and their keys (values are fetched on demand).",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "storage.snapshot"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/StorageSnapshotPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "StorageEventMessage": {
+      "title": "StorageEventMessage",
+      "description": "A key changed in a live store (MMKV).",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "storage.event"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/StorageEventPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "StorageActionMessage": {
+      "title": "StorageActionMessage",
+      "description": "Lens asks the SDK to read or change a store.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "storage.action"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/StorageActionPayload"
+        }
+      },
+      "required": ["v", "type", "payload"],
+      "additionalProperties": false
+    },
+    "StorageResultMessage": {
+      "title": "StorageResultMessage",
+      "description": "Outcome of a storage.action.",
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "storage.result"
+        },
+        "id": {
+          "type": "string",
+          "description": "Optional correlation id."
+        },
+        "payload": {
+          "$ref": "#/$defs/StorageResultPayload"
         }
       },
       "required": ["v", "type", "payload"],

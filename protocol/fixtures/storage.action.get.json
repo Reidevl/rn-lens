@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "storage.action",
+  "id": "s2",
+  "payload": {
+    "id": "s2",
+    "type": "GET",
+    "storeId": "mmkv:default",
+    "key": "avatar"
+  }
+}

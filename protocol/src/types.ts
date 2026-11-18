@@ -19,7 +19,11 @@ export type LensMessage =
   | SnapshotRequestMessage
   | QueryActionMessage
   | OnlineSetMessage
-  | PingMessage;
+  | PingMessage
+  | StorageSnapshotMessage
+  | StorageEventMessage
+  | StorageActionMessage
+  | StorageResultMessage;
 /**
  * Any JSON value (object, array, string, number, boolean or null).
  */
@@ -45,6 +49,8 @@ export type QueryActionType =
   | "RESTORE_LOADING"
   | "CLEAR_QUERY_CACHE"
   | "CLEAR_MUTATION_CACHE";
+export type StorageKind = "async-storage" | "mmkv" | "secure-store";
+export type StorageActionType = "GET" | "SET" | "REMOVE" | "CLEAR" | "REFRESH";
 
 /**
  * First message the SDK sends after the socket opens.
@@ -370,4 +376,148 @@ export interface PingMessage {
    */
   id?: string;
   payload: EmptyPayload;
+}
+/**
+ * The app's storage stores and their keys (values are fetched on demand).
+ */
+export interface StorageSnapshotMessage {
+  v: 1;
+  type: "storage.snapshot";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: StorageSnapshotPayload;
+}
+export interface StorageSnapshotPayload {
+  stores: StorageStore[];
+  /**
+   * Set when the snapshot replaces only this store.
+   */
+  storeId?: string;
+}
+export interface StorageStore {
+  /**
+   * Stable id the SDK chose, for example "async-storage" or "mmkv:default".
+   */
+  id: string;
+  kind: StorageKind;
+  name: string;
+  keys: StorageKey[];
+  /**
+   * The store has more keys than the snapshot carries (10,000).
+   */
+  truncated?: boolean;
+  /**
+   * The SDK reports changes as they happen (MMKV); otherwise Lens refreshes.
+   */
+  live?: boolean;
+  /**
+   * Only the keys the app declared are listed (SecureStore cannot enumerate).
+   */
+  declaredKeys?: boolean;
+}
+export interface StorageKey {
+  key: string;
+  /**
+   * Bytes of the value, when cheap to know.
+   */
+  size?: number;
+}
+/**
+ * A key changed in a live store (MMKV).
+ */
+export interface StorageEventMessage {
+  v: 1;
+  type: "storage.event";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: StorageEventPayload;
+}
+export interface StorageEventPayload {
+  storeId: string;
+  kind: "set" | "removed" | "cleared";
+  key?: string;
+  size?: number;
+}
+/**
+ * Lens asks the SDK to read or change a store.
+ */
+export interface StorageActionMessage {
+  v: 1;
+  type: "storage.action";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: StorageActionPayload;
+}
+export interface StorageActionPayload {
+  /**
+   * Correlates with storage.result.
+   */
+  id: string;
+  type: StorageActionType;
+  storeId: string;
+  key?: string;
+  value?: StorageValue;
+}
+/**
+ * A stored value. Bytes travel as base64 in value.
+ */
+export interface StorageValue {
+  type: "string" | "number" | "boolean" | "bytes";
+  /**
+   * The value as text: numbers and booleans in JSON form, bytes as base64.
+   */
+  value: string;
+  /**
+   * The value was larger than the SDK sends (1 MiB); value is empty.
+   */
+  truncated?: boolean;
+  /**
+   * Size in bytes of the full value.
+   */
+  size?: number;
+}
+/**
+ * Outcome of a storage.action.
+ */
+export interface StorageResultMessage {
+  v: 1;
+  type: "storage.result";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: StorageResultPayload;
+}
+export interface StorageResultPayload {
+  /**
+   * The storage.action id this answers.
+   */
+  id: string;
+  ok: boolean;
+  error?: string;
+  value?: StorageValue1;
+}
+/**
+ * A stored value. Bytes travel as base64 in value.
+ */
+export interface StorageValue1 {
+  type: "string" | "number" | "boolean" | "bytes";
+  /**
+   * The value as text: numbers and booleans in JSON form, bytes as base64.
+   */
+  value: string;
+  /**
+   * The value was larger than the SDK sends (1 MiB); value is empty.
+   */
+  truncated?: boolean;
+  /**
+   * Size in bytes of the full value.
+   */
+  size?: number;
 }

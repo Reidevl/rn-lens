@@ -35,6 +35,10 @@ const (
 	TypeOnlineSet       = "online.set"
 	TypePing            = "ping"
 	TypePong            = "pong"
+	TypeStorageSnapshot = "storage.snapshot"
+	TypeStorageEvent    = "storage.event"
+	TypeStorageAction   = "storage.action"
+	TypeStorageResult   = "storage.result"
 )
 
 // Message is the envelope of every frame.
@@ -336,6 +340,106 @@ type ActionResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+// Storage kinds an SDK can expose.
+const (
+	StorageKindAsyncStorage = "async-storage"
+	StorageKindMMKV         = "mmkv"
+	StorageKindSecureStore  = "secure-store"
+)
+
+// StorageValue types. Numbers and booleans travel in JSON form, bytes as base64.
+const (
+	StorageValueString  = "string"
+	StorageValueNumber  = "number"
+	StorageValueBoolean = "boolean"
+	StorageValueBytes   = "bytes"
+)
+
+// StorageValue is a stored value as it travels on the wire.
+type StorageValue struct {
+	Type      string `json:"type"`
+	Value     string `json:"value"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Size      int    `json:"size,omitempty"`
+}
+
+// StorageKey is one key of a store; Size is 0 when the SDK cannot tell cheaply.
+type StorageKey struct {
+	Key  string `json:"key"`
+	Size int    `json:"size,omitempty"`
+}
+
+// StorageStore is one store and its keys.
+type StorageStore struct {
+	ID           string       `json:"id"`
+	Kind         string       `json:"kind"`
+	Name         string       `json:"name"`
+	Keys         []StorageKey `json:"keys"`
+	Truncated    bool         `json:"truncated,omitempty"`
+	Live         bool         `json:"live,omitempty"`
+	DeclaredKeys bool         `json:"declaredKeys,omitempty"`
+}
+
+// StorageSnapshot lists every store, or only StoreID's when it is set.
+type StorageSnapshot struct {
+	Stores  []StorageStore `json:"stores"`
+	StoreID string         `json:"storeId,omitempty"`
+}
+
+// Storage event kinds.
+const (
+	StorageEventSet     = "set"
+	StorageEventRemoved = "removed"
+	StorageEventCleared = "cleared"
+)
+
+// StorageEvent reports a change in a live store.
+type StorageEvent struct {
+	StoreID string `json:"storeId"`
+	Kind    string `json:"kind"`
+	Key     string `json:"key,omitempty"`
+	Size    int    `json:"size,omitempty"`
+}
+
+// Storage action types Lens can ask the device to run.
+const (
+	StorageGet     = "GET"
+	StorageSet     = "SET"
+	StorageRemove  = "REMOVE"
+	StorageClear   = "CLEAR"
+	StorageRefresh = "REFRESH"
+)
+
+// StorageActionTypes lists every valid storage action, in schema order.
+var StorageActionTypes = []string{StorageGet, StorageSet, StorageRemove, StorageClear, StorageRefresh}
+
+// IsStorageActionType reports whether typ is one of StorageActionTypes.
+func IsStorageActionType(typ string) bool {
+	for _, t := range StorageActionTypes {
+		if t == typ {
+			return true
+		}
+	}
+	return false
+}
+
+// StorageAction asks the device to read or change a store.
+type StorageAction struct {
+	ID      string        `json:"id"`
+	Type    string        `json:"type"`
+	StoreID string        `json:"storeId"`
+	Key     string        `json:"key,omitempty"`
+	Value   *StorageValue `json:"value,omitempty"`
+}
+
+// StorageResult answers a StorageAction; Value is set for GET.
+type StorageResult struct {
+	ID    string        `json:"id"`
+	OK    bool          `json:"ok"`
+	Error string        `json:"error,omitempty"`
+	Value *StorageValue `json:"value,omitempty"`
+}
+
 // PayloadType returns a pointer to the Go type that decodes typ's payload,
 // or nil for unknown types.
 func PayloadType(typ string) any {
@@ -360,6 +464,14 @@ func PayloadType(typ string) any {
 		return &ActionResult{}
 	case TypeOnlineSet:
 		return &OnlineSet{}
+	case TypeStorageSnapshot:
+		return &StorageSnapshot{}
+	case TypeStorageEvent:
+		return &StorageEvent{}
+	case TypeStorageAction:
+		return &StorageAction{}
+	case TypeStorageResult:
+		return &StorageResult{}
 	default:
 		return nil
 	}

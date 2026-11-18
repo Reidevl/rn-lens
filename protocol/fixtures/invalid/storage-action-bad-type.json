@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "storage.action",
+  "id": "s9",
+  "payload": {
+    "id": "s9",
+    "type": "DROP_TABLE",
+    "storeId": "async-storage"
+  }
+}

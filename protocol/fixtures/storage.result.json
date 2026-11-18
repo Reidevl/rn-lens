@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "storage.result",
+  "id": "s2",
+  "payload": {
+    "id": "s2",
+    "ok": true,
+    "value": {
+      "type": "bytes",
+      "value": "iVBORw0KGgo=",
+      "size": 8
+    }
+  }
+}
