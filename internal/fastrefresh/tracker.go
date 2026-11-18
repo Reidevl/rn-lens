@@ -75,12 +75,11 @@ type Tracker struct {
 	caller Caller
 	opts   Options
 
-	mu    sync.Mutex
-	state State
-
-	runMu  sync.Mutex
+	mu     sync.Mutex
+	state  State
+	gen    uint64 // the run allowed to change state
 	cancel context.CancelFunc
-	done   chan struct{}
+	wg     sync.WaitGroup
 }
 
 // New returns a Tracker in PhaseOff.
@@ -111,77 +110,87 @@ func (t *Tracker) State() State {
 }
 
 // Attached starts following the app attached through the Metro at endpoint
-// (its base URL), replacing any previous registration.
+// (its base URL), replacing any previous registration. It does not wait for
+// the previous registration to end, so it is safe on the session goroutine.
 func (t *Tracker) Attached(endpoint string) {
-	t.runMu.Lock()
-	defer t.runMu.Unlock()
-	t.stopLocked()
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	t.cancel, t.done = cancel, done
-	t.set(State{Phase: PhaseConnecting})
+	t.mu.Lock()
+	if t.cancel != nil {
+		t.cancel()
+	}
+	t.gen++
+	gen := t.gen
+	t.cancel = cancel
+	t.mu.Unlock()
+	t.set(gen, State{Phase: PhaseConnecting})
+	t.wg.Add(1)
 	go func() {
-		defer close(done)
-		t.run(ctx, endpoint)
+		defer t.wg.Done()
+		t.run(ctx, gen, endpoint)
 	}()
 }
 
 // Detached ends the registration and reports PhaseOff.
 func (t *Tracker) Detached() {
-	t.runMu.Lock()
-	defer t.runMu.Unlock()
-	t.stopLocked()
-	t.set(State{Phase: PhaseOff})
+	t.mu.Lock()
+	gen := t.endLocked()
+	t.mu.Unlock()
+	t.set(gen, State{Phase: PhaseOff})
 }
 
-// Stop ends the registration; call it on shutdown.
+// Stop ends the registration and waits for it; call it on shutdown.
 func (t *Tracker) Stop() {
-	t.runMu.Lock()
-	defer t.runMu.Unlock()
-	t.stopLocked()
+	t.mu.Lock()
+	t.endLocked()
+	t.mu.Unlock()
+	t.wg.Wait()
 }
 
-func (t *Tracker) stopLocked() {
+func (t *Tracker) endLocked() uint64 {
 	if t.cancel != nil {
 		t.cancel()
-		<-t.done
-		t.cancel, t.done = nil, nil
+		t.cancel = nil
 	}
+	t.gen++
+	return t.gen
 }
 
-func (t *Tracker) set(s State) {
+// set changes the state when gen is still the current run.
+func (t *Tracker) set(gen uint64, s State) {
 	t.mu.Lock()
-	changed := t.state != s
-	t.state = s
+	changed := t.gen == gen && t.state != s
+	if changed {
+		t.state = s
+	}
 	t.mu.Unlock()
 	if changed {
 		t.opts.OnChange()
 	}
 }
 
-func (t *Tracker) run(ctx context.Context, endpoint string) {
+func (t *Tracker) run(ctx context.Context, gen uint64, endpoint string) {
 	bundle, err := t.bundleURL(ctx)
 	if ctx.Err() != nil {
 		return
 	}
 	if err != nil {
-		t.set(State{Phase: PhaseUnavailable, Message: err.Error()})
+		t.set(gen, State{Phase: PhaseUnavailable, Message: err.Error()})
 		return
 	}
 	hot, err := hotURL(endpoint)
 	if err != nil {
-		t.set(State{Phase: PhaseUnavailable, Message: err.Error()})
+		t.set(gen, State{Phase: PhaseUnavailable, Message: err.Error()})
 		return
 	}
 	backoff := t.opts.BackoffMin
 	for {
-		if t.session(ctx, hot, bundle) {
+		if t.session(ctx, gen, hot, bundle) {
 			backoff = t.opts.BackoffMin
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		t.set(State{Phase: PhaseConnecting})
+		t.set(gen, State{Phase: PhaseConnecting})
 		select {
 		case <-ctx.Done():
 			return
@@ -193,7 +202,7 @@ func (t *Tracker) run(ctx context.Context, endpoint string) {
 
 // session registers once and follows the socket until it fails. It reports
 // whether the registration succeeded.
-func (t *Tracker) session(ctx context.Context, hot, bundle string) bool {
+func (t *Tracker) session(ctx context.Context, gen uint64, hot, bundle string) bool {
 	s, err := t.dialer.DialHMR(ctx, hot)
 	if err != nil {
 		t.opts.Logger.Debug("fast refresh: dial failed", "url", hot, "err", err)
@@ -203,7 +212,7 @@ func (t *Tracker) session(ctx context.Context, hot, bundle string) bool {
 	if err := s.Send(ctx, map[string]any{"type": "register-entrypoints", "entryPoints": []string{bundle}}); err != nil {
 		return false
 	}
-	t.set(State{Phase: PhaseReady})
+	t.set(gen, State{Phase: PhaseReady})
 
 	initial, modules := false, 0
 	for {
@@ -228,13 +237,13 @@ func (t *Tracker) session(ctx context.Context, hot, bundle string) bool {
 		case "update-start":
 			initial, modules = msg.Body.IsInitialUpdate, 0
 			if !initial {
-				t.set(State{Phase: PhaseUpdating})
+				t.set(gen, State{Phase: PhaseUpdating})
 			}
 		case "update":
 			modules = len(msg.Body.Added) + len(msg.Body.Modified) + len(msg.Body.Deleted)
 		case "update-done":
 			if !initial {
-				t.set(State{Phase: PhaseUpdated, Modules: modules, At: t.opts.Now()})
+				t.set(gen, State{Phase: PhaseUpdated, Modules: modules, At: t.opts.Now()})
 			}
 			initial = false
 		case "error":
@@ -242,7 +251,7 @@ func (t *Tracker) session(ctx context.Context, hot, bundle string) bool {
 			if message == "" {
 				message = "Metro could not rebuild the bundle."
 			}
-			t.set(State{Phase: PhaseError, Message: message, At: t.opts.Now()})
+			t.set(gen, State{Phase: PhaseError, Message: message, At: t.opts.Now()})
 		}
 	}
 }

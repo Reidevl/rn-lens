@@ -26,6 +26,7 @@ func init() {
 	application.RegisterEvent[ChangeNotice](app.TopicQueriesChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicNetworkChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicStorageChanged)
+	application.RegisterEvent[ChangeNotice](app.TopicPerformanceChanged)
 }
 
 const (
@@ -55,6 +56,13 @@ func Run(core *app.App, assets fs.FS) error {
 			CanCreateDirectories(true).
 			PromptForSingleSelection()
 	}
+	saveAs := func(name, label, pattern string) (string, error) {
+		return desktop.Dialog.SaveFile().
+			SetFilename(name).
+			AddFilter(label, pattern).
+			CanCreateDirectories(true).
+			PromptForSingleSelection()
+	}
 	openJSON := func(string) (string, error) {
 		return desktop.Dialog.OpenFile().
 			CanChooseFiles(true).
@@ -71,6 +79,7 @@ func Run(core *app.App, assets fs.FS) error {
 			application.NewService(NewQueriesService(core)),
 			application.NewService(NewNetworkService(core, saveHAR)),
 			application.NewService(NewStorageService(core, saveJSON, openJSON)),
+			application.NewService(NewPerformanceService(core, saveAs)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -98,7 +107,7 @@ func Run(core *app.App, assets fs.FS) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged, app.TopicStorageChanged}
+	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged, app.TopicStorageChanged, app.TopicPerformanceChanged}
 	coalescer := NewCoalescer(core.Bus(), topics, notifyTick,
 		func(topic string, notice ChangeNotice) { desktop.Event.Emit(topic, notice) })
 	go coalescer.Run(ctx)
