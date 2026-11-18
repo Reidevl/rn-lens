@@ -120,8 +120,9 @@ export async function runStorageAction(action: () => Promise<string | void>): Pr
   store.setError(null);
   store.setNotice(null);
   try {
-    const notice = await action();
-    if (notice) useStorageStore.getState().setNotice(notice);
+    const notice: unknown = await action();
+    // Only text is a notice; a bridge may resolve "no result" to {}.
+    if (typeof notice === "string" && notice) useStorageStore.getState().setNotice(notice);
     return true;
   } catch (err) {
     useStorageStore.getState().setError(errorMessage(err));
