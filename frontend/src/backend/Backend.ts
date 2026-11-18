@@ -368,6 +368,57 @@ export interface StorageImportOutcome {
   skipped: Record<string, string> | null;
 }
 
+/** Where the last Fast Refresh stands. */
+export type FastRefreshPhase =
+  "off" | "unavailable" | "connecting" | "ready" | "updating" | "updated" | "error";
+
+export interface FastRefreshState {
+  phase: FastRefreshPhase;
+  /** Modules added, changed or deleted by the last update. */
+  modules?: number;
+  /** ISO time of the last update or error. */
+  at?: string;
+  /** Explains "error" and "unavailable". */
+  message?: string;
+}
+
+export interface PerformanceStatus {
+  tracing: boolean;
+  profiling: boolean;
+  snapshotting: boolean;
+  fastRefresh: FastRefreshState;
+}
+
+export type ScreenshotFormat = "png" | "jpeg";
+
+export interface Screenshot {
+  format: ScreenshotFormat;
+  /** The image, base64-encoded. */
+  data: string;
+  bytes: number;
+}
+
+export interface TraceSummary {
+  events: number;
+  durationMs: number;
+  /** Size of the exported file. */
+  bytes: number;
+  dataLoss: boolean;
+}
+
+export interface ProfileSummary {
+  nodes: number;
+  samples: number;
+  durationMs: number;
+  bytes: number;
+}
+
+export interface HeapSnapshotResult {
+  /** "" when the user canceled. */
+  path: string;
+  bytes: number;
+}
+
 /** Change-notification topics emitted by Go. Payloads carry no data. */
 export const TOPICS = {
   targetsChanged: "targets:changed",
@@ -376,6 +427,7 @@ export const TOPICS = {
   queriesChanged: "queries:changed",
   networkChanged: "network:changed",
   storageChanged: "storage:changed",
+  performanceChanged: "performance:changed",
 } as const;
 
 export type Unsubscribe = () => void;
@@ -452,6 +504,26 @@ export interface Backend {
     exportStore(deviceKey: string, storeId: string): Promise<string>;
     /** Asks for an export file and writes it into the store. */
     importStore(deviceKey: string, storeId: string): Promise<StorageImportOutcome>;
+  };
+
+  performance: {
+    status(): Promise<PerformanceStatus>;
+    /** Categories recorded when startTrace gets none. */
+    traceCategories(): Promise<string[]>;
+    /** `quality` (1-100) applies to JPEG only. */
+    screenshot(format: ScreenshotFormat, quality: number): Promise<Screenshot>;
+    /** Saves the last screenshot; resolves to the path, or "" if canceled. */
+    saveScreenshot(): Promise<string>;
+    startTrace(categories: string[]): Promise<void>;
+    stopTrace(): Promise<TraceSummary>;
+    /** Saves the last trace as Chrome JSON; resolves to the path, or "" if canceled. */
+    saveTrace(): Promise<string>;
+    startProfile(): Promise<void>;
+    stopProfile(): Promise<ProfileSummary>;
+    /** Saves the last CPU profile; resolves to the path, or "" if canceled. */
+    saveProfile(): Promise<string>;
+    /** Asks where to save, then streams a heap snapshot there. */
+    saveHeapSnapshot(): Promise<HeapSnapshotResult>;
   };
 
   clipboard: {

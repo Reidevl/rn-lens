@@ -9,6 +9,7 @@ import {
   type NetworkAvailability,
   type NetworkBody,
   type NetworkRequest,
+  type PerformanceStatus,
   type QueryCounts,
   type QueryItem,
   type QueryLabel,
@@ -66,6 +67,10 @@ export interface MockBackend extends Backend {
   ): void;
   /** Current value of `<storeId>/<key>` on the fake device, for assertions. */
   storageValue(deviceKey: string, storeId: string, key: string): StorageValue | undefined;
+  /** Patches what `performance.status` reports and notifies. */
+  setPerformance(patch: Partial<PerformanceStatus>): void;
+  /** Makes every `performance` call reject with `message`; null restores them. */
+  failPerformance(message: string | null): void;
   /** Text last written through `clipboard.writeText`. */
   readonly clipboardText: string;
   /** Makes `clipboard.writeText` reject, to exercise the failure path. */
@@ -135,6 +140,24 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     string,
     { device: StorageDevice; stores: StorageStore[]; values: Map<string, StorageValue> }
   >();
+  let perfStatus: PerformanceStatus = {
+    tracing: false,
+    profiling: false,
+    snapshotting: false,
+    fastRefresh: { phase: "off" },
+  };
+  let perfFailure: string | null = null;
+  const notifyPerformance = () =>
+    emit(TOPICS.performanceChanged, { topic: TOPICS.performanceChanged, seq: Date.now() });
+  /** Records the call and fails it when failPerformance is set. */
+  const perfCall = (name: string) => {
+    calls.push(`performance.${name}`);
+    if (perfFailure !== null) throw new Error(perfFailure);
+  };
+  const setPerf = (patch: Partial<PerformanceStatus>) => {
+    perfStatus = { ...perfStatus, ...patch };
+    notifyPerformance();
+  };
   const notifyStorage = () =>
     emit(TOPICS.storageChanged, { topic: TOPICS.storageChanged, seq: Date.now() });
   const storageOf = (deviceKey: string, storeId: string) => {
@@ -552,6 +575,59 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     },
     storageValue: (deviceKey, storeId, key) =>
       storageDevices.get(deviceKey)?.values.get(`${storeId}/${key}`),
+    performance: {
+      status: async () => ({ ...perfStatus }),
+      traceCategories: async () => ["devtools.timeline", "disabled-by-default-v8.cpu_profiler"],
+      screenshot: async (format) => {
+        perfCall("screenshot");
+        // A 1x1 transparent PNG.
+        return {
+          format,
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+          bytes: 68,
+        };
+      },
+      saveScreenshot: async () => {
+        perfCall("saveScreenshot");
+        return "/Users/me/lens-screenshot.png";
+      },
+      startTrace: async (categories) => {
+        perfCall(`startTrace:${categories.join(",")}`);
+        if (perfStatus.tracing)
+          throw new Error("perf: a recording of this kind is already running");
+        setPerf({ tracing: true });
+      },
+      stopTrace: async () => {
+        perfCall("stopTrace");
+        setPerf({ tracing: false });
+        return { events: 1520, durationMs: 4210.5, bytes: 312_000, dataLoss: false };
+      },
+      saveTrace: async () => {
+        perfCall("saveTrace");
+        return "/Users/me/lens-trace.json";
+      },
+      startProfile: async () => {
+        perfCall("startProfile");
+        setPerf({ profiling: true });
+      },
+      stopProfile: async () => {
+        perfCall("stopProfile");
+        setPerf({ profiling: false });
+        return { nodes: 840, samples: 3900, durationMs: 5000, bytes: 210_000 };
+      },
+      saveProfile: async () => {
+        perfCall("saveProfile");
+        return "/Users/me/lens.cpuprofile";
+      },
+      saveHeapSnapshot: async () => {
+        perfCall("saveHeapSnapshot");
+        return { path: "/Users/me/lens.heapsnapshot", bytes: 6_500_000 };
+      },
+    },
+    setPerformance: setPerf,
+    failPerformance: (message) => {
+      perfFailure = message;
+    },
     clipboard: {
       writeText: (text) => {
         calls.push("clipboard.writeText");
