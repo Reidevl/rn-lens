@@ -2,8 +2,8 @@ name: Release
 
 # Builds and publishes a release that release-please created: the rnlens
 # archives (GoReleaser), their checksums signature, SBOMs and build
-# provenance, the npm packages, Homebrew and Scoop manifests, and the desktop
-# app for each OS. release-please.yml calls it after creating the release;
+# provenance, the npm packages (the rnlens launcher and the @rnlens/sdk
+# library), Homebrew and Scoop manifests, and the desktop app for each OS. release-please.yml calls it after creating the release;
 # it can also be re-run by hand for an existing tag.
 
 on:
@@ -145,6 +145,55 @@ jobs:
             npm publish "$dir" --access public --provenance --tag "$tag"
           done
           npm publish dist/npm/rnlens --access public --provenance --tag "$tag"
+
+  sdk:
+    name: SDK package
+    needs: rnlens
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check that the SDK version matches the tag
+        run: |
+          version=$(node -p 'require("./packages/sdk/package.json").version')
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::packages/sdk/package.json has version $version, but the tag is $TAG"
+            exit 1
+          fi
+
+      - name: Test and build
+        run: |
+          pnpm --filter @rnlens/sdk test
+          pnpm --filter @rnlens/sdk build
+
+      # pnpm pack replaces workspace: ranges with real versions; npm publish
+      # on the folder would copy them into the published package.json as-is.
+      - name: Pack
+        run: pnpm --filter @rnlens/sdk pack --pack-destination "$RUNNER_TEMP/sdk"
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          tag=latest
+          case "$TAG" in *-*) tag=next ;; esac
+          npm publish "$RUNNER_TEMP"/sdk/*.tgz --access public --provenance --tag "$tag"
 
   desktop:
     name: desktop app (${{ matrix.os }})

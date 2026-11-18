@@ -55,7 +55,8 @@
           "type": "json",
           "path": "build/windows/info.json",
           "jsonpath": "$.info['0409'].ProductVersion"
-        }
+        },
+        { "type": "json", "path": "packages/sdk/package.json", "jsonpath": "$.version" }
       ]
     }
   }
