@@ -154,22 +154,24 @@ func (d *deviceState) apply(msg protocol.Message) (bool, error) {
 		if snap.StoreID == "" {
 			d.stores = make(map[string]*protocol.StorageStore)
 			d.order = nil
-		} else {
-			// A one-store snapshot replaces that store only; without it, the
-			// store is gone.
-			delete(d.stores, snap.StoreID)
-			d.order = slices.DeleteFunc(d.order, func(id string) bool { return id == snap.StoreID })
 		}
+		replaced := false
 		for _, st := range snap.Stores {
 			if snap.StoreID != "" && st.ID != snap.StoreID {
 				continue
 			}
+			replaced = true
 			st.Keys = sortedKeys(st.Keys)
 			if _, known := d.stores[st.ID]; !known {
-				d.order = append(d.order, st.ID)
+				d.order = append(d.order, st.ID) // a known store keeps its place
 			}
 			stored := st
 			d.stores[st.ID] = &stored
+		}
+		if snap.StoreID != "" && !replaced {
+			// A one-store snapshot without that store: the app no longer has it.
+			delete(d.stores, snap.StoreID)
+			d.order = slices.DeleteFunc(d.order, func(id string) bool { return id == snap.StoreID })
 		}
 		return true, nil
 	case protocol.TypeStorageEvent:

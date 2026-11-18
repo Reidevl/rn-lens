@@ -263,6 +263,8 @@ describe("StoragePanel", () => {
     await user.click(screen.getByRole("button", { name: "Clear store" }));
     await user.click(screen.getByRole("tab", { name: /MMKV/ }));
     expect(screen.queryByRole("button", { name: "Confirm clear" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /AsyncStorage/ }));
+    expect(screen.queryByRole("button", { name: "Confirm clear" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Clear store" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Device" }), "other|d2");

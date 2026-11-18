@@ -142,7 +142,10 @@ export function StoragePanel() {
           <select
             aria-label="Device"
             value={deviceKey}
-            onChange={(e) => selectDevice(e.target.value)}
+            onChange={(e) => {
+              setClearArmedFor(null);
+              selectDevice(e.target.value);
+            }}
             className="h-7 rounded-md border border-border bg-background px-1 text-xs"
           >
             {devices.map((d) => (
@@ -193,6 +196,7 @@ export function StoragePanel() {
               if (next < 0) return;
               e.preventDefault();
               setAdding(false);
+              setClearArmedFor(null);
               selectStore(stores[next].id);
               document.getElementById(`storage-store-${stores[next].id}`)?.focus();
             }}
@@ -208,6 +212,7 @@ export function StoragePanel() {
                 tabIndex={s.id === storeId ? 0 : -1}
                 onClick={() => {
                   setAdding(false);
+                  setClearArmedFor(null);
                   selectStore(s.id);
                 }}
                 className={cn(

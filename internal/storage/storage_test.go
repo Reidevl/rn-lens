@@ -239,7 +239,11 @@ func TestPendingActionsEndWhenTheDeviceLeavesOrTimesOut(t *testing.T) {
 		done <- err
 	}()
 	// Disconnect only once the second action is on the wire.
+	deadline := time.Now().Add(2 * time.Second)
 	for sent := 0; sent < 2; {
+		if time.Now().After(deadline) {
+			t.Fatal("the second action never reached the device")
+		}
 		dev.mu.Lock()
 		sent = len(dev.sent)
 		dev.mu.Unlock()
@@ -276,5 +280,19 @@ func TestAOneStoreSnapshotWithoutTheStoreRemovesIt(t *testing.T) {
 	}}))
 	if stores, _ := svc.Stores(key); len(stores) != 1 {
 		t.Fatalf("stores = %+v, want the other id ignored", stores)
+	}
+}
+
+func TestAOneStoreSnapshotKeepsTheStoreInPlace(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := connected(t)
+	key := "dev.rnlens.example|d1"
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", snapshot))
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", protocol.StorageSnapshot{StoreID: "async-storage", Stores: []protocol.StorageStore{
+		{ID: "async-storage", Kind: protocol.StorageKindAsyncStorage, Name: "AsyncStorage", Keys: []protocol.StorageKey{{Key: "fresh"}}},
+	}}))
+	stores, _ := svc.Stores(key)
+	if len(stores) != 2 || stores[0].ID != "async-storage" || stores[1].ID != "mmkv:default" {
+		t.Fatalf("store order = %v, want the refreshed store to keep its place", []string{stores[0].ID, stores[1].ID})
 	}
 }
