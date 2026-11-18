@@ -149,14 +149,17 @@ func (c *Control) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		c.mu.Lock()
 		kind, known := c.kinds[callReq.Params.Name]
 		c.mu.Unlock()
+		if !known {
+			kind = KindChange // fail closed: a tool the panel does not know may change the app
+		}
 		call := Call{
 			Time:   time.Now(),
 			Client: clientName(callReq),
 			Tool:   callReq.Params.Name,
 			Kind:   kind,
-			Args:   append(json.RawMessage(nil), callReq.Params.Arguments...),
+			Args:   cutArgs(callReq.Params.Arguments),
 		}
-		if known && kind != KindRead && c.ReadOnly() {
+		if kind != KindRead && c.ReadOnly() {
 			msg := fmt.Sprintf("Lens is read-only for AI clients, so %s did not run; turn read-only off in Lens's MCP panel to allow changes", call.Tool)
 			call.Refused, call.Error = true, msg
 			c.record(call)
@@ -178,6 +181,16 @@ func (c *Control) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		c.record(call)
 		return res, err
 	}
+}
+
+// cutArgs keeps arguments up to summaryLimit; longer ones are stored as a
+// JSON string of their start, so the log stays bounded.
+func cutArgs(raw json.RawMessage) json.RawMessage {
+	if len(raw) <= summaryLimit {
+		return append(json.RawMessage(nil), raw...)
+	}
+	cut, _ := json.Marshal(truncateUTF8(string(raw), summaryLimit) + "…")
+	return cut
 }
 
 func clientName(req *mcp.CallToolRequest) string {

@@ -480,6 +480,39 @@ export interface HeapSnapshotResult {
   bytes: number;
 }
 
+/** The MCP endpoint as the MCP panel shows it. */
+export interface McpStatus {
+  enabled: boolean;
+  url: string;
+  /** Clients must send a bearer token (the token is only in app.mcp()). */
+  tokenSet: boolean;
+  /** Tools that change the app are refused. */
+  readOnly: boolean;
+}
+
+export type McpToolKind = "read" | "change" | "destructive";
+
+export interface McpTool {
+  name: string;
+  description: string;
+  kind: McpToolKind;
+}
+
+/** One tool call an AI client made. */
+export interface McpCall {
+  seq: number;
+  time: string;
+  client: string;
+  tool: string;
+  kind: McpToolKind;
+  args?: unknown;
+  durationMs: number;
+  result?: string;
+  error?: string;
+  /** Read-only mode stopped the call before it ran. */
+  refused?: boolean;
+}
+
 /** Change-notification topics emitted by Go. Payloads carry no data. */
 export const TOPICS = {
   targetsChanged: "targets:changed",
@@ -490,6 +523,7 @@ export const TOPICS = {
   storageChanged: "storage:changed",
   performanceChanged: "performance:changed",
   pluginsChanged: "plugins:changed",
+  mcpChanged: "mcp:changed",
 } as const;
 
 export type Unsubscribe = () => void;
@@ -600,6 +634,15 @@ export interface Backend {
       actionId: string,
       rowId?: string,
     ): Promise<string>;
+  };
+
+  mcp: {
+    status(): Promise<McpStatus>;
+    tools(): Promise<McpTool[]>;
+    /** Calls with seq > after, oldest first. */
+    activity(after: number): Promise<McpCall[]>;
+    clearActivity(): Promise<void>;
+    setReadOnly(on: boolean): Promise<void>;
   };
 
   clipboard: {

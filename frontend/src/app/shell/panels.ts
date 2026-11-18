@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bot,
   Database,
   type LucideIcon,
   Network,
@@ -18,7 +19,8 @@ export type PanelId =
   | "mutations"
   | "storage"
   | "performance"
-  | "plugins";
+  | "plugins"
+  | "mcp";
 
 export interface PanelDefinition {
   id: PanelId;
@@ -26,6 +28,8 @@ export interface PanelDefinition {
   icon: LucideIcon;
   /** Milestone that delivers the panel; shown while it is a placeholder. */
   milestone: string;
+  /** "bottom" entries are about Lens itself and sit apart from the app's panels. */
+  placement?: "bottom";
 }
 
 /** Left-rail entries, in display order. */
@@ -38,4 +42,5 @@ export const PANELS: readonly PanelDefinition[] = [
   { id: "storage", label: "Storage", icon: Database, milestone: "M5" },
   { id: "performance", label: "Performance", icon: Activity, milestone: "M6" },
   { id: "plugins", label: "Plugins", icon: Puzzle, milestone: "M7" },
+  { id: "mcp", label: "MCP", icon: Bot, milestone: "M8", placement: "bottom" },
 ];
