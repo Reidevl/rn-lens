@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/Reidevl/rn-lens/internal/queries"
+	"github.com/Reidevl/rn-lens/internal/targets"
 )
 
 // DefaultPort is where Lens serves MCP; 7420 is the SDK's, 7430 browser mode's.
@@ -141,9 +145,15 @@ func message(format string, args ...any) (*mcp.CallToolResult, any, error) {
 // errNoDevice explains how to connect a device.
 var errNoDevice = errors.New("no app with @rnlens/sdk is connected for this feature; add useLens(...) to the app (see `status`)")
 
+// choose resolves the optional device argument for lens's attached app.
+func choose(lens Lens, arg string, keys []string) (string, error) {
+	return pickDevice(arg, keys, attachedKey(lens))
+}
+
 // pickDevice resolves the optional device argument among keys: the key
-// itself, an app id that matches exactly one device, or the only device.
-func pickDevice(arg string, keys []string) (string, error) {
+// itself, an app id that matches exactly one device, the only device, or
+// preferred (the device running the attached app) when several qualify.
+func pickDevice(arg string, keys []string, preferred string) (string, error) {
 	if len(keys) == 0 {
 		return "", errNoDevice
 	}
@@ -151,7 +161,10 @@ func pickDevice(arg string, keys []string) (string, error) {
 		if len(keys) == 1 {
 			return keys[0], nil
 		}
-		return "", fmt.Errorf("several devices are connected; pass device as one of: %s", strings.Join(keys, ", "))
+		if preferred != "" && slices.Contains(keys, preferred) {
+			return preferred, nil
+		}
+		return "", fmt.Errorf("several devices are connected and none is the attached app's; pass device as one of: %s", strings.Join(keys, ", "))
 	}
 	var byApp []string
 	for _, k := range keys {
@@ -169,6 +182,62 @@ func pickDevice(arg string, keys []string) (string, error) {
 		return "", fmt.Errorf("app id %q matches several devices; pass one of: %s", arg, strings.Join(byApp, ", "))
 	}
 	return "", fmt.Errorf("unknown device %q; connected: %s", arg, strings.Join(keys, ", "))
+}
+
+// attachedKey returns the SDK device running the app Lens is attached to.
+// Its platform and React Native version must agree with the attached app's
+// (when both sides report them). When the attached app reports its bundle
+// id or display name, the device's app must match it (its id against the
+// bundle id, or its id or name against the display name, spaces and case
+// ignored): every app on an Android device reports the same device name,
+// so the name alone could pick another app. The device name then only
+// breaks a tie, or decides when the attached app reports no identity.
+// "" when nothing matches exactly one device.
+func attachedKey(lens Lens) string {
+	snap := lens.Session()
+	md := snap.Metadata
+	if snap.State != targets.StateAttached || md == nil {
+		return ""
+	}
+	same := func(a, b string) bool { return a == "" || b == "" || strings.EqualFold(a, b) }
+	norm := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, " ", "")) }
+	nameOf := func(d queries.Device) bool {
+		return d.Device.Name != "" && strings.EqualFold(d.Device.Name, md.DeviceName)
+	}
+	appOf := func(d queries.Device) bool {
+		display := norm(md.AppDisplayName)
+		return (md.AppIdentifier != "" && d.App.ID == md.AppIdentifier) ||
+			(display != "" && (norm(d.App.ID) == display || norm(d.App.Name) == display))
+	}
+	identity := md.AppIdentifier != "" || md.AppDisplayName != ""
+	var matches, byName []queries.Device
+	for _, d := range lens.SDKDevices() {
+		if !same(d.App.Platform, md.Platform) || !same(d.App.RNVersion, md.ReactNativeVersion) {
+			continue
+		}
+		if identity && !appOf(d) || !identity && !nameOf(d) {
+			continue
+		}
+		matches = append(matches, d)
+		if nameOf(d) {
+			byName = append(byName, d)
+		}
+	}
+	if len(matches) > 1 && len(byName) == 1 {
+		matches = byName
+	}
+	if len(matches) != 1 {
+		return ""
+	}
+	return matches[0].Key
+}
+
+// dropNull treats a JSON null like an absent field.
+func dropNull(raw json.RawMessage) json.RawMessage {
+	if string(raw) == "null" {
+		return nil
+	}
+	return raw
 }
 
 func ptr[T any](v T) *T { return &v }

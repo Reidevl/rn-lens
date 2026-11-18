@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Reidevl/rn-lens/internal/app"
 	"github.com/Reidevl/rn-lens/internal/console"
+	"github.com/Reidevl/rn-lens/internal/protocol"
 	"github.com/Reidevl/rn-lens/internal/queries"
 )
 
@@ -178,4 +180,125 @@ type slowLens struct{ *fakeLens }
 func (s *slowLens) Evaluate(ctx context.Context, _ string) (console.Entry, error) {
 	<-ctx.Done()
 	return console.Entry{}, ctx.Err()
+}
+
+// With several devices, the one running the attached app is the default.
+func TestTheAttachedAppsDeviceIsTheDefault(t *testing.T) {
+	t.Parallel()
+	attached := device("Lens Example", "be61", "queries", "storage")
+	attached.App.Platform, attached.App.RNVersion, attached.Device.Name = "ios", "0.88.1", "iPhone 17 Pro"
+	expoGo := device("Lens Example", "7611", "queries")
+	expoGo.App.Platform, expoGo.App.RNVersion, expoGo.Device.Name = "ios", "0.88.0", "iPhone 15"
+	lens := &fakeLens{devices: []queries.Device{expoGo, attached}, session: attachedTo("iPhone 17 Pro", "ios", "0.88.1")}
+	cs := connect(t, lens)
+	mustCall(t, cs, "list_queries", nil)
+	if got := lens.Calls(); len(got) != 1 || got[0] != "queries:Lens Example|be61" {
+		t.Fatalf("calls = %v", got)
+	}
+	// No attached app that matches: still ambiguous, and the error says why.
+	lens.session = attachedTo("Pixel 9", "android", "0.88.1")
+	if out, isErr := call(t, cs, "list_queries", nil); !isErr || !strings.Contains(out, "several devices") {
+		t.Fatalf("no match = %s", out)
+	}
+}
+
+func TestStatusShowsEachDevicesConnection(t *testing.T) {
+	t.Parallel()
+	connected := time.Now().Add(-time.Hour)
+	d := device("Lens Example", "be61", "queries")
+	d.App.Platform, d.App.RNVersion, d.Device.Name = "ios", "0.88.1", "iPhone 17 Pro"
+	d.ConnectedAt, d.LastMessageAt = connected, time.Now().Add(-90*time.Second)
+	lens := &fakeLens{devices: []queries.Device{d}, session: attachedTo("iPhone 17 Pro", "ios", "0.88.1")}
+	out := mustCall(t, connect(t, lens), "status", nil)
+	var st struct {
+		SDKDevices []struct {
+			Key           string    `json:"key"`
+			ConnectedAt   time.Time `json:"connectedAt"`
+			LastMessageAt time.Time `json:"lastMessageAt"`
+			IdleSeconds   int       `json:"idleSeconds"`
+			AttachedApp   bool      `json:"attachedApp"`
+		} `json:"sdkDevices"`
+	}
+	if err := json.Unmarshal([]byte(out), &st); err != nil || len(st.SDKDevices) != 1 {
+		t.Fatalf("status = %s (%v)", out, err)
+	}
+	got := st.SDKDevices[0]
+	if !got.ConnectedAt.Equal(connected.Truncate(time.Second)) && got.ConnectedAt.IsZero() {
+		t.Fatalf("connectedAt = %v", got.ConnectedAt)
+	}
+	if got.IdleSeconds < 89 || got.IdleSeconds > 95 || !got.AttachedApp {
+		t.Fatalf("device = %+v", got)
+	}
+}
+
+// Fields the SDK sent as null and fields it left out read the same.
+func TestNullErrorFieldsAreDropped(t *testing.T) {
+	t.Parallel()
+	lens := oneDevice()
+	lens.queries = []queries.Query{{Query: protocol.Query{QueryHash: "q", QueryKey: json.RawMessage(`["q"]`), State: protocol.QueryState{Status: "success", Error: json.RawMessage("null"), Data: json.RawMessage(`{"a":null}`)}}}}
+	lens.mutations = []protocol.Mutation{{MutationID: 1, State: protocol.MutationState{Status: "success", Error: json.RawMessage("null"), FailureReason: json.RawMessage("null"), Data: json.RawMessage("null")}}}
+	cs := connect(t, lens)
+	for tool, args := range map[string]map[string]any{"list_queries": nil, "get_query": {"queryHash": "q"}, "list_mutations": nil} {
+		out := mustCall(t, cs, tool, args)
+		if strings.Contains(out, `"error": null`) || strings.Contains(out, `"failureReason": null`) {
+			t.Fatalf("%s kept null error fields: %s", tool, out)
+		}
+	}
+	if out := mustCall(t, cs, "get_query", map[string]any{"queryHash": "q"}); !strings.Contains(out, `"a": null`) {
+		t.Fatalf("null inside data must stay: %s", out)
+	}
+	if out := mustCall(t, cs, "list_mutations", nil); !strings.Contains(out, `"data": null`) {
+		t.Fatalf("a mutation's null result is data and must stay: %s", out)
+	}
+}
+
+// On iOS the SDK reports the device name as "iOS", so the app's identity
+// (its name against the attached app's display name) and the React Native
+// version have to do the matching. These are the values a real attach
+// reported.
+func TestTheAttachedAppMatchesByIdentityWhenDeviceNamesDiffer(t *testing.T) {
+	t.Parallel()
+	devApp := device("Lens Example", "18f5", "queries")
+	devApp.App.Name, devApp.App.Platform, devApp.App.RNVersion, devApp.Device.Name = "Lens Example", "ios", "0.88.1", "iOS"
+	expoGo := device("Lens Example", "7611", "queries")
+	expoGo.App.Name, expoGo.App.Platform, expoGo.App.RNVersion, expoGo.Device.Name = "Lens Example", "ios", "0.88.0", "iOS"
+	other := device("Other App", "aa", "queries")
+	other.App.Name, other.App.Platform, other.App.RNVersion, other.Device.Name = "Other App", "ios", "0.88.1", "iOS"
+	session := attachedTo("iPhone Duo", "ios", "0.88.1")
+	session.Metadata.AppDisplayName, session.Metadata.AppIdentifier = "LensExample", "dev.rnlens.example"
+	lens := &fakeLens{devices: []queries.Device{other, expoGo, devApp}, session: session}
+	cs := connect(t, lens)
+	mustCall(t, cs, "list_queries", nil)
+	if got := lens.Calls(); len(got) != 1 || got[0] != "queries:Lens Example|18f5" {
+		t.Fatalf("calls = %v", got)
+	}
+}
+
+// Every app on an Android device reports the same device name, so the name
+// alone must never pick another app's device as the default.
+func TestAnotherAppOnTheSameDeviceIsNotTheDefault(t *testing.T) {
+	t.Parallel()
+	sameDevice := device("com.other.b", "e1", "queries", "storage")
+	sameDevice.App.Name, sameDevice.App.Platform, sameDevice.App.RNVersion, sameDevice.Device.Name = "Other B", "android", "0.88.1", "sdk_gphone64_arm64"
+	pixel := device("com.other.c", "p9", "queries", "storage")
+	pixel.App.Name, pixel.App.Platform, pixel.App.RNVersion, pixel.Device.Name = "Other C", "android", "0.88.1", "Pixel 9"
+	session := attachedTo("sdk_gphone64_arm64", "android", "0.88.1")
+	session.Metadata.AppIdentifier, session.Metadata.AppDisplayName = "com.mine.app", "Mine"
+	lens := &fakeLens{devices: []queries.Device{sameDevice, pixel}, session: session}
+	out, isErr := call(t, connect(t, lens), "clear_storage", map[string]any{"store": "async"})
+	if !isErr || !strings.Contains(out, "several devices") {
+		t.Fatalf("clear_storage defaulted to another app: %s", out)
+	}
+	if got := lens.Calls(); len(got) != 0 {
+		t.Fatalf("calls = %v", got)
+	}
+}
+
+// Write results say which device they changed.
+func TestWriteResultsNameTheDevice(t *testing.T) {
+	t.Parallel()
+	out := mustCall(t, connect(t, oneDevice()), "clear_storage", map[string]any{"store": "async-storage"})
+	if !strings.Contains(out, "dev.rnlens.example|d1") {
+		t.Fatalf("result = %q", out)
+	}
 }

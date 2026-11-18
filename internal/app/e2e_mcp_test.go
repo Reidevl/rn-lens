@@ -97,6 +97,10 @@ func TestE2E_MCPManagesTheApp(t *testing.T) {
 		out, isErr := tool("list_queries", nil)
 		return !isErr && strings.Contains(out, "queryHash")
 	})
+	// The SDK device running the attached app is recognised as such.
+	if out := must("status", nil); !strings.Contains(out, `"attachedApp": true`) {
+		t.Fatalf("no SDK device matched the attached app: %s", out[:min(len(out), 6000)])
+	}
 	var page struct {
 		Queries []struct {
 			QueryHash string `json:"queryHash"`

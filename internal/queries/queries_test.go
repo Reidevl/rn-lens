@@ -499,3 +499,25 @@ func TestDisconnectOfAnotherSessionDoesNotNotify(t *testing.T) {
 		t.Fatal("device must survive a stale disconnect")
 	}
 }
+
+// Seen records any frame of the device's session (queries, storage or
+// plugins), so status can tell an idle device from a busy one.
+func TestSeenRecordsTheLastMessage(t *testing.T) {
+	t.Parallel()
+	svc, _, key, _ := connect(t)
+	dev := svc.Devices()[0]
+	if !dev.LastMessageAt.Equal(dev.ConnectedAt) {
+		t.Fatalf("LastMessageAt at connect = %v, want the connect time %v", dev.LastMessageAt, dev.ConnectedAt)
+	}
+	time.Sleep(5 * time.Millisecond)
+	svc.Seen(key, "s1")
+	if got := svc.Devices()[0].LastMessageAt; !got.After(dev.ConnectedAt) {
+		t.Fatalf("LastMessageAt after Seen = %v", got)
+	}
+	before := svc.Devices()[0].LastMessageAt
+	svc.Seen(key, "old-session") // a replaced session's frame is ignored
+	svc.Seen("other|dev", "s1")
+	if got := svc.Devices()[0].LastMessageAt; !got.Equal(before) {
+		t.Fatalf("a stale Seen moved LastMessageAt to %v", got)
+	}
+}

@@ -20,15 +20,22 @@ import (
 
 // fakeLens records the changes tools ask for and serves canned data.
 type fakeLens struct {
-	mu      sync.Mutex
-	calls   []string
-	devices []queries.Device
-	console []console.Entry
-	reqs    []network.Summary
-	queries []queries.Query
-	stores  []protocol.StorageStore
-	set     []protocol.StorageValue
-	evalErr bool
+	mu        sync.Mutex
+	calls     []string
+	devices   []queries.Device
+	console   []console.Entry
+	reqs      []network.Summary
+	queries   []queries.Query
+	stores    []protocol.StorageStore
+	set       []protocol.StorageValue
+	evalErr   bool
+	session   targets.Snapshot
+	mutations []protocol.Mutation
+}
+
+// attachedTo is a session attached to an app on the named device.
+func attachedTo(deviceName, platform, rn string) targets.Snapshot {
+	return targets.Snapshot{State: targets.StateAttached, Metadata: &targets.Metadata{DeviceName: deviceName, Platform: platform, ReactNativeVersion: rn}}
 }
 
 func (f *fakeLens) record(c string) {
@@ -49,7 +56,10 @@ func device(appID, id string, features ...string) queries.Device {
 
 func (f *fakeLens) Info() app.Info { return app.Info{Name: "Lens", Version: "9.9.9"} }
 func (f *fakeLens) Session() targets.Snapshot {
-	return targets.Snapshot{State: targets.StateAttached}
+	if f.session.State == "" {
+		return targets.Snapshot{State: targets.StateAttached}
+	}
+	return f.session
 }
 
 func (f *fakeLens) Targets() []targets.Target { return []targets.Target{{ID: "t1", Title: "Example"}} }
@@ -104,7 +114,7 @@ func (f *fakeLens) Query(d, hash string) (queries.Query, error) {
 	}
 	return queries.Query{}, errors.New("queries: unknown query")
 }
-func (f *fakeLens) Mutations(string) ([]protocol.Mutation, error) { return nil, nil }
+func (f *fakeLens) Mutations(string) ([]protocol.Mutation, error) { return f.mutations, nil }
 func (f *fakeLens) QueryAction(_ context.Context, d, action, hash string, data json.RawMessage) error {
 	f.record("action:" + d + ":" + action + ":" + hash + ":" + string(data))
 	return nil

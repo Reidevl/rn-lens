@@ -36,7 +36,11 @@ type Device struct {
 	SDKVersion  string              `json:"sdkVersion"`
 	Features    []string            `json:"features"`
 	ConnectedAt time.Time           `json:"connectedAt"`
-	Online      bool                `json:"online"`
+	// LastMessageAt is when the device last sent a frame (any feature);
+	// pings are not counted. The connection itself is kept alive by pings,
+	// so a listed device is connected even when it is idle.
+	LastMessageAt time.Time `json:"lastMessageAt"`
+	Online        bool      `json:"online"`
 }
 
 // Label is the devtools status bucket of a query.
@@ -144,12 +148,24 @@ func NewService(notify func()) *Service {
 // DeviceKey builds the key used everywhere for a device.
 func DeviceKey(appID, deviceID string) string { return appID + "|" + deviceID }
 
+// Seen records that the device's session sent a frame now. Frames of a
+// replaced session and unknown devices are ignored. It does not notify:
+// activity alone changes nothing the panels show.
+func (s *Service) Seen(key, sessionID string) {
+	s.mu.Lock()
+	if d, ok := s.devices[key]; ok && d.info.SessionID == sessionID {
+		d.info.LastMessageAt = time.Now()
+	}
+	s.mu.Unlock()
+}
+
 // Connect registers a device (replacing a previous one with the same key).
 func (s *Service) Connect(sessionID string, hello protocol.Hello, sender Sender) Device {
 	key := DeviceKey(hello.App.ID, hello.Device.ID)
+	now := time.Now()
 	info := Device{
 		Key: key, SessionID: sessionID, App: hello.App, Device: hello.Device,
-		SDKVersion: hello.SDKVersion, Features: hello.Features, ConnectedAt: time.Now(), Online: true,
+		SDKVersion: hello.SDKVersion, Features: hello.Features, ConnectedAt: now, LastMessageAt: now, Online: true,
 	}
 	s.mu.Lock()
 	if old, ok := s.devices[key]; ok {

@@ -70,11 +70,26 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Lens version, the attached app (Metro target, session state, React Native metadata) and the devices running @rnlens/sdk with their features (queries, storage, plugins).",
 	},
 		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
-			snap := lens.Session()
+			attached := attachedKey(lens)
+			type sdkDevice struct {
+				queries.Device
+				// IdleSeconds since the device's last frame. A listed device
+				// is connected: Lens pings it and drops it when it stops
+				// answering.
+				IdleSeconds int `json:"idleSeconds"`
+				// AttachedApp marks the device running the attached app; it
+				// is the default when several devices qualify.
+				AttachedApp bool `json:"attachedApp"`
+			}
+			sdk := lens.SDKDevices()
+			devices := make([]sdkDevice, 0, len(sdk))
+			for _, d := range sdk {
+				devices = append(devices, sdkDevice{Device: d, IdleSeconds: int(time.Since(d.LastMessageAt).Seconds()), AttachedApp: d.Key == attached})
+			}
 			return result(map[string]any{
 				"lens":       lens.Info(),
-				"session":    snap,
-				"sdkDevices": lens.SDKDevices(),
+				"session":    lens.Session(),
+				"sdkDevices": devices,
 			})
 		})
 
@@ -171,7 +186,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "TanStack queries of a device: key, hash, status (fresh, stale, fetching, paused, inactive), observers and update times, without their data (use get_query).",
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in queryListArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, queryKeys(lens))
+			dev, err := choose(lens, in.Device, queryKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -200,7 +215,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 					Status: q.State.Status, FetchStatus: q.State.FetchStatus, Observers: q.ObserversCount,
 					DataUpdatedAt: q.State.DataUpdatedAt,
 				})
-				if len(q.State.Error) > 0 {
+				if len(dropNull(q.State.Error)) > 0 {
 					out[len(out)-1].Error = q.State.Error
 				}
 			}
@@ -212,7 +227,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "One query with its full state and data.",
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in queryArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, queryKeys(lens))
+			dev, err := choose(lens, in.Device, queryKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -220,6 +235,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 			if err != nil {
 				return nil, nil, err
 			}
+			q.State.Error, q.State.FetchMeta = dropNull(q.State.Error), dropNull(q.State.FetchMeta)
 			return result(q)
 		})
 
@@ -228,7 +244,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "TanStack mutations of a device with their state, variables and result.",
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in deviceArg) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, queryKeys(lens))
+			dev, err := choose(lens, in.Device, queryKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -236,7 +252,12 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 			if err != nil {
 				return nil, nil, err
 			}
-			return result(map[string]any{"device": dev, "mutations": list})
+			out := make([]protocol.Mutation, len(list))
+			for i, m := range list {
+				m.State.Error, m.State.FailureReason = dropNull(m.State.Error), dropNull(m.State.FailureReason)
+				out[i] = m
+			}
+			return result(map[string]any{"device": dev, "mutations": out})
 		})
 
 	addTool(s, ctl, &mcp.Tool{
@@ -244,7 +265,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Storage of a device (AsyncStorage, MMKV instances, SecureStore): each store with its keys and sizes. Read a value with get_storage_value.",
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in deviceArg) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, storageKeys(lens))
+			dev, err := choose(lens, in.Device, storageKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -260,7 +281,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "One stored value as {type, value}: strings as is, numbers and booleans in JSON form, bytes as base64.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in storageGetArgs) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, storageKeys(lens))
+			dev, err := choose(lens, in.Device, storageKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -276,7 +297,7 @@ func addReadTools(s *mcp.Server, ctl *Control, lens Lens) {
 		Description: "Panels the app added to Lens with createLensPanel, with their current blocks (tables, key/value lists, logs, buttons). plugin_action clicks a button.",
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in deviceArg) (*mcp.CallToolResult, any, error) {
-			dev, err := pickDevice(in.Device, pluginKeys(lens))
+			dev, err := choose(lens, in.Device, pluginKeys(lens))
 			if err != nil {
 				return nil, nil, err
 			}
