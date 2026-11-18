@@ -15,6 +15,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/Reidevl/rn-lens/internal/adapters/mcpserver"
 	"github.com/Reidevl/rn-lens/internal/app"
 )
 
@@ -31,6 +32,7 @@ func init() {
 	application.RegisterEvent[ChangeNotice](app.TopicStorageChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicPerformanceChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicPluginsChanged)
+	application.RegisterEvent[ChangeNotice](app.TopicMCPChanged)
 }
 
 const (
@@ -49,6 +51,9 @@ type RunOptions struct {
 	Port int
 	// MCP is the running MCP endpoint, shown in the UI; empty when off.
 	MCP MCPInfo
+	// MCPControl is the endpoint's activity log and read-only switch; nil
+	// when MCP is off.
+	MCPControl *mcpserver.Control
 }
 
 // Run starts Lens and blocks until it ends: a native window in the desktop
@@ -118,6 +123,7 @@ func Run(core *app.App, assets fs.FS, opts RunOptions) error {
 			application.NewService(storageService),
 			application.NewService(NewPerformanceService(core, saveAs)),
 			application.NewService(NewPluginsService(core)),
+			application.NewService(NewMCPService(opts.MCP, opts.MCPControl)),
 		},
 		Assets: application.AssetOptions{
 			Handler: withLensRoutes(lensRoutes, application.AssetFileServerFS(assets)),
@@ -146,7 +152,7 @@ func Run(core *app.App, assets fs.FS, opts RunOptions) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged, app.TopicStorageChanged, app.TopicPerformanceChanged, app.TopicPluginsChanged}
+	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged, app.TopicStorageChanged, app.TopicPerformanceChanged, app.TopicPluginsChanged, app.TopicMCPChanged}
 	coalescer := NewCoalescer(core.Bus(), topics, notifyTick,
 		func(topic string, notice ChangeNotice) { desktop.Event.Emit(topic, notice) })
 	go coalescer.Run(ctx)

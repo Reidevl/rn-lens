@@ -79,7 +79,7 @@ func TestRunPrintsUsageWithExitCodes(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("run(%v) = %d, want 0", args, code)
 		}
-		for _, want := range []string{"Usage:", "--metro URLS", "--mcp-port N", "--mcp-token T", "rnlens targets", "rnlens record", "Exit codes:", "2  "} {
+		for _, want := range []string{"Usage:", "--metro URLS", "--mcp-port N", "--mcp-token T", "--mcp-read-only", "rnlens targets", "rnlens record", "Exit codes:", "2  "} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("run(%v) output lacks %q:\n%s", args, want, out)
 			}

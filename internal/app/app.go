@@ -41,6 +41,8 @@ const (
 	TopicNetworkChanged = "network:changed"
 	TopicStorageChanged = "storage:changed"
 	TopicPluginsChanged = "plugins:changed"
+	// TopicMCPChanged covers the MCP activity log and read-only switch.
+	TopicMCPChanged = "mcp:changed"
 	// TopicPerformanceChanged covers the recordings and the Fast Refresh
 	// status.
 	TopicPerformanceChanged = "performance:changed"
