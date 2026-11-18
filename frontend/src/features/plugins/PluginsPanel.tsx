@@ -23,7 +23,7 @@ export function PluginsPanel() {
   if (devices.length === 0) return <NoPlugins />;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center gap-3 border-b border-border px-3 py-2">
         {devices.length > 1 ? (
           <select

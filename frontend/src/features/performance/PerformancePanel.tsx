@@ -27,7 +27,7 @@ export function PerformancePanel() {
     );
   }
   return (
-    <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-auto p-3 lg:grid-cols-2">
+    <div className="grid h-full min-h-0 auto-rows-min grid-cols-1 gap-3 overflow-auto p-3 lg:grid-cols-2">
       <ScreenshotCard />
       <TraceCard />
       <ProfileCard />

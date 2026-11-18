@@ -28,7 +28,7 @@ export function McpPanel() {
     );
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4">
       <Header />
       {error ? (
         <p role="alert" className="text-xs text-destructive">
@@ -117,15 +117,20 @@ function Card({
   title,
   children,
   action,
+  className,
 }: {
   title: string;
   children: ReactNode;
   action?: ReactNode;
+  className?: string;
 }) {
   return (
     <section
       aria-label={title}
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3 text-sm"
+      className={cn(
+        "flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3 text-sm",
+        className,
+      )}
     >
       <header className="flex items-center justify-between gap-2">
         <h3 className="font-medium">{title}</h3>
@@ -222,6 +227,8 @@ function Activity() {
   return (
     <Card
       title="Activity"
+      // Fills the rest of the panel; only the list inside scrolls.
+      className="min-h-64 flex-1"
       action={
         <Button
           size="sm"
@@ -241,9 +248,9 @@ function Activity() {
           No AI tool calls yet. Connect a client and ask it about your app.
         </p>
       ) : (
-        <div className="overflow-auto">
+        <div data-testid="activity-scroll" className="min-h-0 flex-1 overflow-auto">
           <table aria-label="Tool calls" className="w-full text-left text-xs">
-            <thead className="text-muted-foreground">
+            <thead className="sticky top-0 bg-card text-muted-foreground">
               <tr>
                 <th scope="col" className="py-1 pr-2 font-medium">
                   Time
@@ -310,7 +317,7 @@ function CallRow({ call, open, onToggle }: { call: McpCall; open: boolean; onTog
       {open ? (
         <tr>
           <td colSpan={5} className="pb-2">
-            <div className="grid gap-2 rounded-md bg-muted/40 p-2 font-mono break-all whitespace-pre-wrap select-text">
+            <div className="grid max-h-80 gap-2 overflow-auto rounded-md bg-muted/40 p-2 font-mono break-all whitespace-pre-wrap select-text">
               <div>
                 <div className="text-muted-foreground">Arguments</div>
                 {call.args === undefined ? "(none)" : JSON.stringify(call.args, null, 2)}
