@@ -428,3 +428,23 @@ describe("MMKV", () => {
     expect(mmkv.listeners.size).toBe(0);
   });
 });
+
+describe("MMKV v4", () => {
+  // react-native-mmkv v4 renamed delete(key) to remove(key).
+  class FakeMMKVv4 extends FakeMMKV {
+    declare delete: never;
+    remove(key: string): boolean {
+      const had = this.data.has(key);
+      FakeMMKV.prototype.delete.call(this, key);
+      return had;
+    }
+  }
+
+  it("REMOVE uses remove() when the instance has no delete()", async () => {
+    const mmkv = new FakeMMKVv4({ gone: "x" });
+    Object.defineProperty(mmkv, "delete", { value: undefined });
+    await connect({ mmkv: { m: mmkv } });
+    expect((await act({ type: "REMOVE", storeId: "mmkv:m", key: "gone" })).ok).toBe(true);
+    expect(mmkv.data.has("gone")).toBe(false);
+  });
+});

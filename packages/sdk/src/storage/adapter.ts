@@ -190,12 +190,12 @@ function mmkvDriver(
       mmkv.set(key, parsed);
       return undefined;
     },
-    remove: async (key) => mmkv.delete(key),
+    remove: async (key) => removeMMKV(mmkv, key),
     async clear(visibleKeys, hasHidden) {
       // The listener would report every key; Lens gets one `cleared` instead.
       clearing = true;
       try {
-        if (hasHidden) for (const key of visibleKeys) mmkv.delete(key);
+        if (hasHidden) for (const key of visibleKeys) removeMMKV(mmkv, key);
         else mmkv.clearAll();
       } finally {
         clearing = false;
@@ -387,4 +387,11 @@ export function createStorageAdapter(
   }
 
   return { attach, detach, sendSnapshot, handle };
+}
+
+/** Deletes one key with whichever name the installed MMKV uses (v4 remove, v3 delete). */
+function removeMMKV(mmkv: MMKVLike, key: string): void {
+  if (typeof mmkv.remove === "function") mmkv.remove(key);
+  else if (typeof mmkv.delete === "function") mmkv.delete(key);
+  else throw new Error("this MMKV instance has neither remove() nor delete()");
 }

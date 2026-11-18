@@ -13,7 +13,7 @@ export interface AsyncStorageLike {
 
 export type MMKVValue = string | number | boolean | ArrayBuffer | Uint8Array;
 
-/** A `react-native-mmkv` v3 `MMKV` instance. */
+/** A `react-native-mmkv` instance (v3 `new MMKV()` or v4 `createMMKV()`). */
 export interface MMKVLike {
   getAllKeys(): string[];
   getString(key: string): string | undefined;
@@ -21,7 +21,10 @@ export interface MMKVLike {
   getBoolean(key: string): boolean | undefined;
   getBuffer(key: string): ArrayBuffer | Uint8Array | undefined;
   set(key: string, value: MMKVValue): void;
-  delete(key: string): void;
+  /** v3 name of `remove`. */
+  delete?(key: string): void;
+  /** v4 name of `delete`. */
+  remove?(key: string): boolean | void;
   clearAll(): void;
   contains(key: string): boolean;
   addOnValueChangedListener(listener: (key: string) => void): { remove(): void };
