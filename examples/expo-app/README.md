@@ -35,6 +35,14 @@ Set `EXPO_PUBLIC_LENS_URL=ws://127.0.0.1:7421/lens` before `expo start` to
 point the SDK at a Lens that is not listening on the default port 7420 (the
 Go end-to-end test does this so it does not fight the Lens window).
 
+## Storage
+
+`storage.ts` exposes AsyncStorage, an MMKV instance (development build only;
+Expo Go does not ship MMKV) and SecureStore (`token` declared) to Lens and
+seeds a few values on launch: `theme`, `profile` (JSON) and an excluded
+`internal:cache-version` in AsyncStorage; `launches`, `onboarded` and an
+`avatar` byte array in MMKV. Open the Storage panel to browse and edit them.
+
 ## Network
 
 Expo Go does not report network traffic, so build the app once as a
