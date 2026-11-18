@@ -19,7 +19,9 @@ import (
 	"github.com/Reidevl/rn-lens/internal/adapters/metro"
 	"github.com/Reidevl/rn-lens/internal/adapters/sdkws"
 	"github.com/Reidevl/rn-lens/internal/console"
+	"github.com/Reidevl/rn-lens/internal/fastrefresh"
 	"github.com/Reidevl/rn-lens/internal/network"
+	"github.com/Reidevl/rn-lens/internal/perf"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 	"github.com/Reidevl/rn-lens/internal/protocol"
@@ -37,6 +39,9 @@ const (
 	TopicQueriesChanged = "queries:changed"
 	TopicNetworkChanged = "network:changed"
 	TopicStorageChanged = "storage:changed"
+	// TopicPerformanceChanged covers the recordings and the Fast Refresh
+	// status.
+	TopicPerformanceChanged = "performance:changed"
 )
 
 // Config holds the values the composition root needs from its caller.
@@ -83,6 +88,8 @@ type App struct {
 	network   *network.Service
 	queries   *queries.Service
 	storage   *storage.Service
+	perf      *perf.Service
+	refresh   *fastrefresh.Tracker
 	sdk       *sdkws.Server
 
 	startOnce sync.Once
@@ -133,6 +140,10 @@ func New(cfg Config) *App {
 		Logger: cfg.Logger,
 	})
 	a.session.OnEvent(a.network.HandleEvent)
+	notifyPerf := func() { a.bus.Publish(TopicPerformanceChanged, nil) }
+	a.perf = perf.NewService(a.session, perf.Options{OnChange: notifyPerf})
+	a.session.OnEvent(a.perf.HandleEvent)
+	a.refresh = fastrefresh.New(metro.HMRDialer{}, a.session, fastrefresh.Options{OnChange: notifyPerf, Logger: cfg.Logger})
 	a.queries = queries.NewService(func() { a.bus.Publish(TopicQueriesChanged, nil) })
 	a.storage = storage.NewService(func() { a.bus.Publish(TopicStorageChanged, nil) })
 	if cfg.SDKAddr != "off" {
@@ -196,8 +207,12 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 
 	a.stateMu.Lock()
 	entered := snap.State == targets.StateAttached && a.lastState != targets.StateAttached
+	left := snap.State != targets.StateAttached && a.lastState == targets.StateAttached
 	a.lastState = snap.State
 	a.stateMu.Unlock()
+	if left {
+		a.refresh.Detached()
+	}
 	if !entered {
 		return
 	}
@@ -205,9 +220,10 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 	// attach right after connecting): bodies of the old one are refused from
 	// here on, and replies that straddle the switch are re-checked.
 	a.network.BeginSession()
-	name := ""
+	a.perf.BeginSession()
+	name, targetID, endpoint := "", "", ""
 	if snap.Target != nil {
-		name = snap.Target.Title
+		name, targetID, endpoint = snap.Target.Title, snap.Target.ID, snap.Target.Endpoint
 	}
 	// Enable asynchronously: the callback runs on the session goroutine and
 	// must not wait on the connection it is reporting about.
@@ -224,11 +240,22 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 		networkCtx, cancelNetwork := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelNetwork()
 		_ = a.network.OnAttached(networkCtx)
+		// Last, so its evaluate does not delay the domains above; skipped
+		// when the session already moved on.
+		if now := a.session.Snapshot(); endpoint != "" && now.State == targets.StateAttached && now.Target != nil && now.Target.ID == targetID {
+			a.refresh.Attached(endpoint)
+		}
 	}()
 }
 
 // Console exposes the console feature to UI adapters.
 func (a *App) Console() *console.Service { return a.console }
+
+// Performance exposes the recordings to UI adapters.
+func (a *App) Performance() *perf.Service { return a.perf }
+
+// FastRefresh reports the last Fast Refresh of the attached app.
+func (a *App) FastRefresh() fastrefresh.State { return a.refresh.State() }
 
 // Network exposes the network feature to UI adapters.
 func (a *App) Network() *network.Service { return a.network }
@@ -276,6 +303,7 @@ func (a *App) Stop() {
 			cancel()
 		}
 		a.session.Detach()
+		a.refresh.Stop()
 	})
 }
 
