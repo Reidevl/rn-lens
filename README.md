@@ -21,6 +21,13 @@ window.
 | Storage (AsyncStorage, MMKV, SecureStore) — [guide](docs/guides/storage.md)                                               | `@rnlens/sdk`                      | One hook        |
 | Performance: screenshot, trace (Perfetto), CPU profile, heap snapshot, Fast Refresh — [guide](docs/guides/performance.md) | CDP                                | No              |
 
+## Install
+
+Not released yet. Once it is: `npx rnlens`, `brew install --cask
+reidevl/tap/rnlens`, Scoop, or the archives and desktop apps on GitHub
+Releases, each with checksums, a cosign signature and build provenance. See
+[docs/guides/install.md](docs/guides/install.md).
+
 ## How it connects
 
 Lens polls Metro for debuggable apps, attaches over the Chrome DevTools
