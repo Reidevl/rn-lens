@@ -174,8 +174,14 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMes
 		case <-c.done:
 			return nil, c.Err()
 		default:
-			return nil, err
 		}
+		if errors.Is(err, net.ErrClosed) {
+			// Close sent its close frame and is waiting for the peer's
+			// answer: the socket refuses writes but finish has not run yet.
+			// Report it the way every other call on a gone connection is.
+			return nil, fmt.Errorf("%w: %w", ErrClosed, err)
+		}
+		return nil, err
 	}
 
 	// The reply channel is the only completion signal: readLoop sends the
