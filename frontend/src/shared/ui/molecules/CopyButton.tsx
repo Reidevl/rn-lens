@@ -24,18 +24,27 @@ export function CopyButton({
   const [status, setStatus] = useState<Status>("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useEffect(() => () => clearTimeout(timer.current), []);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      clearTimeout(timer.current);
+    };
+  }, []);
 
   const onClick = () => {
     clearTimeout(timer.current);
-    copy()
-      .then(
-        () => setStatus("copied"),
-        () => setStatus("failed"),
-      )
-      .finally(() => {
-        timer.current = setTimeout(() => setStatus("idle"), RESET_MS);
-      });
+    const settle = (next: Status) => {
+      if (!mounted.current) return;
+      setStatus(next);
+      timer.current = setTimeout(() => setStatus("idle"), RESET_MS);
+    };
+    copy().then(
+      () => settle("copied"),
+      () => settle("failed"),
+    );
   };
 
   return (

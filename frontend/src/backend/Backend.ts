@@ -285,7 +285,7 @@ export interface Backend {
   };
 
   clipboard: {
-    /** Puts plain text on the system clipboard. Rejects when the OS refuses. */
+    /** Puts plain text on the system clipboard. Rejects when the text did not land there. */
     writeText(text: string): Promise<void>;
   };
 

@@ -64,8 +64,12 @@ export function createWailsBackend(): Backend {
     clipboard: {
       // The webview's navigator.clipboard is not reliable under the Wails
       // custom scheme; the runtime writes through the native pasteboard.
+      // SetText drops the OS result, so read the text back to confirm it.
       writeText: async (text) => {
         await Clipboard.SetText(text);
+        if ((await Clipboard.Text()) !== text) {
+          throw new Error("clipboard: the system refused the text");
+        }
       },
     },
     events: {
