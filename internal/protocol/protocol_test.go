@@ -167,6 +167,20 @@ func TestDecodeIgnoresUnknownFieldsUnlessStrict(t *testing.T) {
 	}
 }
 
+func TestIsActionTypeAcceptsExactlyTheSchemaActions(t *testing.T) {
+	t.Parallel()
+	for _, typ := range protocol.ActionTypes {
+		if !protocol.IsActionType(typ) {
+			t.Fatalf("IsActionType(%q) = false, want true", typ)
+		}
+	}
+	for _, typ := range []string{"", "refetch", "EXPLODE", " REFETCH"} {
+		if protocol.IsActionType(typ) {
+			t.Fatalf("IsActionType(%q) = true, want false", typ)
+		}
+	}
+}
+
 func TestDeltaDistinguishesUnsetFromZero(t *testing.T) {
 	t.Parallel()
 	msg, err := protocol.Decode([]byte(`{"v":1,"type":"query.event","payload":{"kind":"updated","queryHash":"h","action":"invalidate","delta":{"isInvalidated":false}}}`))
