@@ -90,11 +90,7 @@ export function sortRows(rows: NetworkSummary[], sort: Sort): NetworkSummary[] {
   });
 }
 
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
+export { formatBytes } from "@/shared/lib/formatBytes";
 
 /** Bytes the row shows: on the wire when known, otherwise decoded. */
 export function sizeOf(r: NetworkSummary): number {
