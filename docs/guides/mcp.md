@@ -35,8 +35,10 @@ Any client that speaks MCP over streamable HTTP connects to the same URL.
 - **Tools**: every tool with its kind (read, change, destructive).
 - **Activity**: every tool call an AI client made, newest first, with the
   client, the outcome (ok, error, refused) and how long it took; click a
-  tool to see its arguments and result. Lens keeps the last 500 calls;
-  **Clear** empties the list.
+  tool to see its arguments and result. Lens keeps the last 500 calls in
+  memory (arguments and results cut at 2 KiB each), never on disk;
+  **Clear** empties the list. Arguments can hold app data, such as a value
+  written to SecureStore or the JavaScript passed to `evaluate_js`.
 
 ## Tools
 

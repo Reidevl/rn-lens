@@ -7,7 +7,7 @@ import { Button } from "@/shared/ui/atoms/Button";
 import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 
 import { cursorConfig, mcpCommand } from "./command";
-import { useMcpStore } from "./mcpStore";
+import { pullMcp, useMcpStore } from "./mcpStore";
 import { useMcpSync } from "./useMcpSync";
 
 /** Connect AI clients, watch what they do, and decide whether they may change the app. */
@@ -56,6 +56,9 @@ function Header() {
     setError(null);
     try {
       await backend.mcp.setReadOnly(!readOnly);
+      // Refresh before the switch takes another click: the change notice can
+      // arrive a tick later, and a second click would resend the old value.
+      await pullMcp(backend);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -223,7 +226,11 @@ function Activity() {
         <Button
           size="sm"
           disabled={calls.length === 0}
-          onClick={() => void backend.mcp.clearActivity()}
+          onClick={() =>
+            void backend.mcp
+              .clearActivity()
+              .catch((err: unknown) => useMcpStore.getState().setError(errorMessage(err)))
+          }
         >
           Clear
         </Button>

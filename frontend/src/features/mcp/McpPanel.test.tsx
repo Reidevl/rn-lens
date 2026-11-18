@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -62,6 +62,35 @@ describe("MCP panel", () => {
       "aria-checked",
       "true",
     );
+  });
+
+  it("keeps a quick second click on the switch", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend({ mcp: { url } });
+    render(<App backend={backend} />);
+    const toggle = await screen.findByRole("switch", { name: /Read-only/ });
+    await user.click(toggle);
+    await waitFor(() => expect(toggle).toBeEnabled());
+    await user.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+    expect(backend.calls.filter((c) => c.startsWith("mcp.setReadOnly"))).toEqual([
+      "mcp.setReadOnly:true",
+      "mcp.setReadOnly:false",
+    ]);
+  });
+
+  it("shows when Clear fails", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend({ mcp: { url } });
+    backend.mcp.clearActivity = () => Promise.reject(new Error("mcp: clear failed"));
+    render(<App backend={backend} />);
+    act(() => {
+      backend.recordMcpCall({ tool: "status" });
+    });
+    const activity = await screen.findByRole("region", { name: "Activity" });
+    await within(activity).findByRole("button", { name: /status/ });
+    await user.click(within(activity).getByRole("button", { name: "Clear" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("mcp: clear failed");
   });
 
   it("lists the tools with their kind", async () => {

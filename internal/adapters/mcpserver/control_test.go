@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -120,5 +121,49 @@ func TestToolsAreDescribed(t *testing.T) {
 	}
 	if tools[0].Name != "status" {
 		t.Fatalf("tools are not in registration order: %s first", tools[0].Name)
+	}
+}
+
+// A tool added without addTool is unknown to the gate: in read-only mode it
+// is refused rather than trusted.
+func TestReadOnlyFailsClosedForUnknownTools(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	server, control := NewServer(oneDevice(), Options{ReadOnly: true})
+	ran := false
+	mcp.AddTool(server, &mcp.Tool{Name: "sneaky_write"}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+		ran = true
+		return message("wrote")
+	})
+	st, ct := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, st, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	if out, isErr := call(t, cs, "sneaky_write", nil); !isErr || !strings.Contains(out, "read-only") || ran {
+		t.Fatalf("unknown tool in read-only mode = %s (ran %v)", out, ran)
+	}
+	if last := control.Activity(0); len(last) != 1 || !last[0].Refused {
+		t.Fatalf("activity = %+v", last)
+	}
+}
+
+func TestLargeArgumentsAreCutInTheLog(t *testing.T) {
+	t.Parallel()
+	cs, control := connectControl(t, oneDevice(), Options{})
+	mustCall(t, cs, "evaluate_js", map[string]any{"expression": strings.Repeat("x", 3*summaryLimit)})
+	args := control.Activity(0)[0].Args
+	if len(args) > summaryLimit+64 {
+		t.Fatalf("stored %d bytes of arguments", len(args))
+	}
+	var s string
+	if err := json.Unmarshal(args, &s); err != nil || !strings.HasSuffix(s, "…") {
+		t.Fatalf("cut arguments are not a JSON string ending in …: %s (%v)", args, err)
 	}
 }
