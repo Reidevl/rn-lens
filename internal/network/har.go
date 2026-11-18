@@ -106,6 +106,8 @@ type HARTimings struct {
 }
 
 // HARBodies holds the bodies fetched for an export, keyed by request seq.
+// The budget is checked before each fetch, so an export can exceed it by at
+// most one body (5 MiB).
 // Omitted lists responses left out because the export reached its budget.
 type HARBodies struct {
 	Responses map[uint64]Body
@@ -341,6 +343,9 @@ func (s *Service) ExportHAR(ctx context.Context, lensVersion string) ([]byte, er
 			bodies.Responses[r.Seq] = b
 			budget -= len(b.Text)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("network: export HAR: %w", err)
 	}
 	return EncodeHAR(BuildHAR(reqs, lensVersion, bodies))
 }

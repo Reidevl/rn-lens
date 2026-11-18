@@ -94,9 +94,11 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
       });
     }
     await backend.clipboard.writeText(toCurl(r, body));
-    useNetworkStore
-      .getState()
-      .setNotice(missing ? `Copied the cURL command without the request body: ${missing}` : null);
+    if (missing) {
+      useNetworkStore
+        .getState()
+        .setNotice(`Copied the cURL command without the request body: ${missing}`);
+    }
   };
 
   // Uses the body a tab already loaded, or fetches it once.
@@ -107,9 +109,16 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
       body = cached.value;
     } else {
       // The Response and Preview tabs reuse this fetch instead of repeating it.
+      // A failure is recorded too, so those tabs show it instead of waiting.
       requested.current.add(`response:${key}`);
-      body = await backend.network.responseBody(row.seq, row.epoch);
-      setResponses((m) => ({ ...m, [key]: { state: "ready", value: body } }));
+      try {
+        body = await backend.network.responseBody(row.seq, row.epoch);
+      } catch (err) {
+        setResponses((m) => ({ ...m, [key]: { state: "error", message: errorMessage(err) } }));
+        throw err;
+      }
+      const value = body;
+      setResponses((m) => ({ ...m, [key]: { state: "ready", value } }));
     }
     if (body.truncated) throw new Error("The body is larger than Lens shows");
     await backend.clipboard.writeText(body.text);

@@ -370,4 +370,48 @@ describe("NetworkPanel", () => {
     expect(within(detail).getByText("script")).toBeInTheDocument();
     expect(within(detail).getByText("index.bundle:42")).toBeInTheDocument();
   });
+
+  it("shows the error in the Response tab when Copy response could not fetch the body", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.addRequest({ url: "https://x/gone", state: "complete", status: 200, endTime: 2 }); // no body set: fetch fails
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /gone/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy response" }));
+    expect(await screen.findByRole("button", { name: "Copy response" })).toHaveTextContent(
+      "Copy failed",
+    );
+    await user.click(screen.getByRole("tab", { name: "Response" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("network: no body");
+  });
+
+  it("jumps to the first and last request with Home and End", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(3));
+    within(table).getAllByRole("row")[1].focus();
+    await user.keyboard("{End}");
+    const last = within(table).getByRole("row", { name: /json/ });
+    expect(last).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(last).toHaveFocus());
+    await user.keyboard("{Home}");
+    expect(within(table).getByRole("row", { name: /logo\.png/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("keeps an earlier notice when Copy as cURL includes everything", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(3));
+    await user.click(screen.getByRole("button", { name: "Export HAR" }));
+    expect(await screen.findByText("Saved /Users/me/lens.har")).toBeInTheDocument();
+    await user.click(within(table).getByRole("row", { name: /json/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy as cURL" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Copy as cURL" })).toHaveTextContent("Copied"),
+    );
+    expect(screen.getByText("Saved /Users/me/lens.har")).toBeInTheDocument();
+  });
 });

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -121,5 +122,16 @@ func TestExportHARStopsFetchingBodiesAtItsBudget(t *testing.T) {
 	}
 	if second.Text != "" || second.Comment == "" {
 		t.Fatalf("second body = %+v, want it left out with a comment", second)
+	}
+}
+
+func TestExportHARReportsACanceledExport(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{})
+	h.finished(t, "1", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := h.svc.ExportHAR(ctx, "dev"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExportHAR(canceled) err = %v, want context.Canceled", err)
 	}
 }
