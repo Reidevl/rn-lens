@@ -24,6 +24,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/perf"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
+	"github.com/Reidevl/rn-lens/internal/plugins"
 	"github.com/Reidevl/rn-lens/internal/protocol"
 	"github.com/Reidevl/rn-lens/internal/queries"
 	"github.com/Reidevl/rn-lens/internal/storage"
@@ -39,6 +40,7 @@ const (
 	TopicQueriesChanged = "queries:changed"
 	TopicNetworkChanged = "network:changed"
 	TopicStorageChanged = "storage:changed"
+	TopicPluginsChanged = "plugins:changed"
 	// TopicPerformanceChanged covers the recordings and the Fast Refresh
 	// status.
 	TopicPerformanceChanged = "performance:changed"
@@ -89,6 +91,7 @@ type App struct {
 	queries   *queries.Service
 	storage   *storage.Service
 	perf      *perf.Service
+	plugins   *plugins.Service
 	refresh   *fastrefresh.Tracker
 	sdk       *sdkws.Server
 
@@ -148,6 +151,7 @@ func New(cfg Config) *App {
 	a.refresh = fastrefresh.New(metro.HMRDialer{}, a.session, fastrefresh.Options{OnChange: notifyPerf, Logger: cfg.Logger})
 	a.queries = queries.NewService(func() { a.bus.Publish(TopicQueriesChanged, nil) })
 	a.storage = storage.NewService(func() { a.bus.Publish(TopicStorageChanged, nil) })
+	a.plugins = plugins.NewService(func() { a.bus.Publish(TopicPluginsChanged, nil) })
 	if cfg.SDKAddr != "off" {
 		a.sdk = sdkws.New(sdkws.Options{
 			Addr:        cfg.SDKAddr,
@@ -159,22 +163,26 @@ func New(cfg Config) *App {
 	return a
 }
 
-// sdkHandler adapts SDK sessions to the queries and storage features without
-// the features knowing about WebSockets. storage.* frames go to storage,
-// everything else to queries.
+// sdkHandler adapts SDK sessions to the queries, storage and plugins features
+// without the features knowing about WebSockets. storage.* frames go to
+// storage, plugin.* frames to plugins, everything else to queries.
 type sdkHandler struct{ a *App }
 
 func (h sdkHandler) OnConnect(s *sdkws.Session) {
 	h.a.queries.Connect(s.ID, s.Hello, s)
 	h.a.storage.Connect(s.ID, s.Hello, s)
+	h.a.plugins.Connect(s.ID, s.Hello, s)
 }
 
 func (h sdkHandler) OnMessage(s *sdkws.Session, msg protocol.Message) {
 	key := queries.DeviceKey(s.Key.AppID, s.Key.DeviceID)
 	var err error
-	if strings.HasPrefix(msg.Type, "storage.") {
+	switch {
+	case strings.HasPrefix(msg.Type, "storage."):
 		err = h.a.storage.Message(key, s.ID, msg)
-	} else {
+	case strings.HasPrefix(msg.Type, "plugin."):
+		err = h.a.plugins.Message(key, s.ID, msg)
+	default:
 		err = h.a.queries.Message(key, s.ID, msg)
 	}
 	if err != nil {
@@ -186,7 +194,11 @@ func (h sdkHandler) OnDisconnect(s *sdkws.Session, _ error) {
 	key := queries.DeviceKey(s.Key.AppID, s.Key.DeviceID)
 	h.a.queries.Disconnect(key, s.ID)
 	h.a.storage.Disconnect(key, s.ID)
+	h.a.plugins.Disconnect(key, s.ID)
 }
+
+// Plugins exposes the plugins feature to UI adapters.
+func (a *App) Plugins() *plugins.Service { return a.plugins }
 
 // Storage exposes the storage feature to UI adapters.
 func (a *App) Storage() *storage.Service { return a.storage }
