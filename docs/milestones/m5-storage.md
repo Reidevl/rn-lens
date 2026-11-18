@@ -17,11 +17,11 @@ base64, edit, add, delete, export and import.
 
 ## Acceptance checks
 
-- [ ] Edit an AsyncStorage key in Lens → `getItem` in the app returns the new value (`TestE2E_StorageEditReachesTheApp`)
+- [x] Edit an AsyncStorage key in Lens → `getItem` in the app returns the new value (`TestE2E_StorageEditReachesTheApp`, green on an RN 0.88.1 development build)
 - [x] MMKV changes made by the app appear without a refresh
 - [x] SecureStore lists only the declared keys
 - [x] Export then import restores a store
-- [ ] Independent review of the protocol contract and the action round-trip
+- [x] Independent review of the protocol contract and the action round-trip
 
 ## Out of scope
 

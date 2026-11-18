@@ -56,8 +56,9 @@ Values are read when you open a key, never in bulk. The views:
 | Hex    | offset, bytes in hex and printable ASCII                 |
 | Base64 | the bytes as base64                                      |
 
-MMKV keeps the value's type: string, number, boolean or bytes (shown in Hex
-first). AsyncStorage and SecureStore store strings. Values above 1 MiB are
+MMKV does not record a value's type, so the SDK infers it from what the
+getters return: string, number, boolean or bytes (bytes show in Hex first).
+A string holding control characters is shown as bytes. AsyncStorage and SecureStore store strings. Values above 1 MiB are
 not sent; the panel shows their size.
 
 ## Editing
@@ -85,5 +86,6 @@ state between simulators.
   check the Queries panel to confirm the SDK is connected at all.
 - **MMKV is missing in Expo Go**: Expo Go does not ship MMKV; use a
   development build.
-- **A key you expect is missing**: it may match `exclude`, or the store has
-  more than 10,000 keys.
+- **A key you expect is missing**: it may match `exclude`, the store may have
+  more than 10,000 keys, or the keys are so long that the snapshot was trimmed
+  to fit 8 MiB (the store is marked truncated and the SDK logs a warning).
