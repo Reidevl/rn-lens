@@ -3,12 +3,12 @@ import { useMemo } from "react";
 
 import { useBackend, type QueryLabel } from "@/backend";
 import { cn } from "@/shared/lib/cn";
-import { useNow } from "@/shared/lib/useNow";
 import { Button } from "@/shared/ui/atoms/Button";
+import { RelativeTime } from "@/shared/ui/atoms/RelativeTime";
 
 import { DevicePicker } from "./DevicePicker";
 import { NoSdk } from "./NoSdk";
-import { ago, keyText, labelDot, labelText } from "./presentation";
+import { keyText, labelDot, labelText } from "./presentation";
 import { QueryDetail } from "./QueryDetail";
 import { runQueriesAction, useQueriesStore, visibleQueries } from "./queriesStore";
 import { useQueriesSync } from "./useQueriesSync";
@@ -30,7 +30,6 @@ export function QueriesPanel() {
   const toggleLabel = useQueriesStore((s) => s.toggleLabel);
   const error = useQueriesStore((s) => s.error);
   const busy = useQueriesStore((s) => s.busy);
-  const now = useNow();
 
   const visible = useMemo(() => visibleQueries(queries, labels, filter), [queries, labels, filter]);
   const selected = queries.find((q) => q.queryHash === selectedHash) ?? null;
@@ -144,7 +143,7 @@ export function QueriesPanel() {
                         {q.observersCount}
                       </span>
                       <span className="shrink-0 text-xs text-muted-foreground">
-                        {ago(q.state.dataUpdatedAt, now)}
+                        <RelativeTime ms={q.state.dataUpdatedAt} />
                       </span>
                     </button>
                   </li>

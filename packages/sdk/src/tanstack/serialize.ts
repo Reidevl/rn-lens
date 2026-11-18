@@ -274,8 +274,12 @@ export function capSnapshot(
   candidates.sort((a, b) => b.bytes - a.bytes);
   for (const candidate of candidates) {
     if (bytes <= maxBytes) break;
+    const markerBytes = jsonByteLength(JSON.stringify(truncationMarker(candidate.bytes)));
+    // Candidates are sorted largest first: once a value is no bigger than its
+    // marker, cutting it (or anything after it) can only grow the frame.
+    if (candidate.bytes <= markerBytes) break;
     candidate.cut();
-    bytes -= candidate.bytes - jsonByteLength(JSON.stringify(truncationMarker(candidate.bytes)));
+    bytes -= candidate.bytes - markerBytes;
   }
   json = JSON.stringify(message);
   return {

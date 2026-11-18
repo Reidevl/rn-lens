@@ -86,7 +86,7 @@ export async function runQueryAction(
         if (action.data === undefined) {
           return { id: action.id, ok: false, error: "SET_QUERY_DATA requires data" };
         }
-        queryClient.setQueryData(query.queryKey, action.data, { updatedAt: Date.now() });
+        queryClient.setQueryData(query.queryKey, action.data);
         return ok;
       case "TRIGGER_LOADING":
         triggerLoading(query);
