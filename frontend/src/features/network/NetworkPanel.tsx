@@ -2,7 +2,7 @@ import { Download, Search, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 
 import { useBackend } from "@/backend";
-import { errorMessage } from "@/features/console/consoleStore";
+import { errorMessage } from "@/shared/lib/errorMessage";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/atoms/Button";
 
