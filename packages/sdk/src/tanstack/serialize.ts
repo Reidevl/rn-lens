@@ -19,11 +19,19 @@ export interface SerializeLimits {
 }
 
 /**
- * Budget for a whole `queries.snapshot` frame. Lens reads frames of at most
- * 8 MiB; a snapshot above this budget has the `data` of its largest queries
- * replaced by the truncation marker until it fits, every query stays listed.
+ * Budget for a whole `queries.snapshot` frame. A snapshot above this budget
+ * has the largest `data` of its queries and `variables`, `data` and `context`
+ * of its mutations replaced by the truncation marker until it fits; every
+ * query and mutation stays listed.
  */
 export const SNAPSHOT_MAX_BYTES = 6 * 1024 * 1024;
+
+/**
+ * Largest frame Lens reads (`internal/adapters/sdkws`, 8 MiB). A snapshot
+ * still above it after capping is not sent: Lens would close the socket with
+ * 1009 and the reconnect would resend the same frame.
+ */
+export const SNAPSHOT_FRAME_MAX_BYTES = 8 * 1024 * 1024;
 
 /**
  * The generated `JsonValue` type is an object index signature, while the schema
@@ -186,18 +194,43 @@ export function mutationDelta(mutation: Mutation, limits: SerializeLimits): Muta
 }
 
 export interface CapSnapshotResult {
-  /** Serialized frame, at most `maxBytes` when enough query data could be dropped. */
+  /** Serialized frame, at most `maxBytes` when enough payload could be dropped. */
   json: string;
   bytes: number;
   /** Hashes whose `data` became the truncation marker to fit the budget. */
   truncated: string[];
+  /** Ids of mutations whose `variables`, `data` or `context` became the marker. */
+  truncatedMutations: number[];
+}
+
+/** Mutation state fields the snapshot cap may replace with the marker. */
+const CAPPED_MUTATION_KEYS = ["variables", "data", "context"] as const;
+
+/** One value the cap may replace, with the bytes its replacement saves. */
+interface CapCandidate {
+  bytes: number;
+  cut(): void;
+}
+
+function isTruncationMarker(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { __lensTruncated?: unknown }).__lensTruncated === true
+  );
+}
+
+function truncationMarker(bytes: number): JsonValue {
+  const marker: TruncationMarker = { __lensTruncated: true, bytes };
+  return asJson(marker);
 }
 
 /**
  * Serializes a `queries.snapshot` frame within `maxBytes`: while the frame is
- * too large, the query holding the most data bytes has its `data` replaced by
- * `{ "__lensTruncated": true, "bytes": n }` and gets `dataTruncated: true`.
- * Queries are never dropped. Mutates the queries of `message` in place.
+ * too large, the largest value among query `data` and mutation `variables`,
+ * `data` and `context` is replaced by `{ "__lensTruncated": true, "bytes": n }`;
+ * a cut `data` also sets `dataTruncated: true`. Queries and mutations are
+ * never dropped. Mutates `message` in place.
  */
 export function capSnapshot(
   message: QueriesSnapshotMessage,
@@ -206,20 +239,49 @@ export function capSnapshot(
   let json = JSON.stringify(message);
   let bytes = jsonByteLength(json);
   const truncated: string[] = [];
-  if (bytes <= maxBytes) return { json, bytes, truncated };
+  const truncatedMutations = new Set<number>();
+  if (bytes <= maxBytes) return { json, bytes, truncated, truncatedMutations: [] };
 
-  const candidates = message.payload.queries
-    .filter((query) => query.state.data !== undefined && query.dataTruncated !== true)
-    .map((query) => ({ query, dataBytes: jsonByteLength(JSON.stringify(query.state.data)) }))
-    .sort((a, b) => b.dataBytes - a.dataBytes);
-  for (const { query, dataBytes } of candidates) {
+  const candidates: CapCandidate[] = [];
+  for (const query of message.payload.queries) {
+    if (query.state.data === undefined || query.dataTruncated === true) continue;
+    const dataBytes = jsonByteLength(JSON.stringify(query.state.data));
+    candidates.push({
+      bytes: dataBytes,
+      cut: () => {
+        query.state.data = truncationMarker(dataBytes);
+        query.dataTruncated = true;
+        truncated.push(query.queryHash);
+      },
+    });
+  }
+  for (const mutation of message.payload.mutations) {
+    const state = mutation.state as unknown as Record<string, unknown>;
+    for (const key of CAPPED_MUTATION_KEYS) {
+      const value = state[key];
+      if (value === undefined || isTruncationMarker(value)) continue;
+      const valueBytes = jsonByteLength(JSON.stringify(value));
+      candidates.push({
+        bytes: valueBytes,
+        cut: () => {
+          state[key] = truncationMarker(valueBytes);
+          if (key === "data") mutation.dataTruncated = true;
+          truncatedMutations.add(mutation.mutationId);
+        },
+      });
+    }
+  }
+  candidates.sort((a, b) => b.bytes - a.bytes);
+  for (const candidate of candidates) {
     if (bytes <= maxBytes) break;
-    const marker: TruncationMarker = { __lensTruncated: true, bytes: dataBytes };
-    query.state.data = asJson(marker);
-    query.dataTruncated = true;
-    truncated.push(query.queryHash);
-    bytes -= dataBytes - jsonByteLength(JSON.stringify(marker));
+    candidate.cut();
+    bytes -= candidate.bytes - jsonByteLength(JSON.stringify(truncationMarker(candidate.bytes)));
   }
   json = JSON.stringify(message);
-  return { json, bytes: jsonByteLength(json), truncated };
+  return {
+    json,
+    bytes: jsonByteLength(json),
+    truncated,
+    truncatedMutations: [...truncatedMutations],
+  };
 }

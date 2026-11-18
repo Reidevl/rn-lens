@@ -1,8 +1,9 @@
 import { onlineManager, QueryClient, QueryObserver } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLensClient, type LensClient } from "../client";
-import { SNAPSHOT_MAX_BYTES } from "./adapter";
+import type { LensLogger } from "../logger";
+import { SNAPSHOT_FRAME_MAX_BYTES, SNAPSHOT_MAX_BYTES } from "./adapter";
 import { FakeLens, waitFor } from "../testing/fake-lens";
 
 let lens: FakeLens;
@@ -11,13 +12,14 @@ let queryClient: QueryClient;
 
 const defaultOptions = { queries: { retry: 0, gcTime: Infinity, staleTime: 0 } };
 
-async function connect(): Promise<void> {
+async function connect(logger?: LensLogger): Promise<void> {
   client = createLensClient({
     url: lens.url,
     enabled: true,
     queryClient,
     onlineManager,
     backoff: { minMs: 20, maxMs: 40 },
+    logger,
   });
   client.connect();
   await lens.welcome();
@@ -138,6 +140,74 @@ describe("snapshot", () => {
     for (const q of snapshot.payload.queries.filter((q) => !q.dataTruncated)) {
       expect(typeof q.state.data).toBe("string");
     }
+  });
+
+  it("caps mutation variables, data and context with the marker to fit SNAPSHOT_MAX_BYTES", async () => {
+    const warn = vi.fn();
+    await connect({ warn });
+    const sizes = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => 1_000_000 + i * 1000);
+    const ids: number[] = [];
+    for (const [i, size] of sizes.entries()) {
+      const mutation = queryClient.getMutationCache().build(queryClient, {
+        mutationKey: ["m", i],
+        mutationFn: async (variables: string) => variables.length,
+        onMutate: () => ({ ctx: i }),
+      });
+      await mutation.execute("x".repeat(size));
+      ids.push(mutation.mutationId);
+    }
+    await lens.sync();
+    lens.drain("mutation.event");
+    lens.send({ v: 1, type: "snapshot.request", payload: {} });
+    const snapshot = await lens.next("queries.snapshot", 10_000);
+
+    expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES);
+    expect(snapshot.payload.mutations.map((m) => m.mutationId).sort()).toEqual([...ids].sort());
+    const cut = snapshot.payload.mutations.filter(
+      (m) => typeof m.state.variables === "object" && m.state.variables !== null,
+    );
+    expect(cut.map((m) => m.mutationId).sort()).toEqual([ids[6], ids[7]].sort());
+    for (const m of cut) {
+      expect(m.state.variables).toEqual({ __lensTruncated: true, bytes: expect.any(Number) });
+      expect(m.state.data).toEqual(expect.any(Number));
+      expect(m.state.context).toEqual({ ctx: expect.any(Number) });
+      expect(m.dataTruncated).toBeUndefined();
+    }
+    for (const m of snapshot.payload.mutations.filter((m) => !cut.includes(m))) {
+      expect(typeof m.state.variables).toBe("string");
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("2 mutations");
+  });
+
+  it("skips a snapshot above SNAPSHOT_FRAME_MAX_BYTES after capping and warns once", async () => {
+    const warn = vi.fn();
+    await connect({ warn });
+    // Query keys are not capped per field: five 1 MiB keys (each repeated in queryHash)
+    // exceed the 8 MiB frame limit even after every data value is truncated.
+    for (let i = 0; i < 5; i++) {
+      await queryClient.fetchQuery({
+        queryKey: ["k", i, "x".repeat(1024 * 1024)],
+        queryFn: () => "x".repeat(1024 * 1024 + 10),
+      });
+    }
+    await lens.sync();
+    lens.drain("query.event");
+    lens.send({ v: 1, type: "snapshot.request", payload: {} });
+    await lens.sync();
+
+    expect(lens.drain("queries.snapshot")).toEqual([]);
+    const skipped = warn.mock.calls
+      .map((c) => String(c[0]))
+      .filter((m) => m.includes(String(SNAPSHOT_FRAME_MAX_BYTES)));
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatch(/snapshot skipped: \d+ bytes/);
+
+    // Cache events keep flowing after the skipped snapshot.
+    await queryClient.fetchQuery({ queryKey: ["small"], queryFn: () => 1 });
+    const event = await lens.next("query.event");
+    expect(event.payload).toMatchObject({ kind: "added", queryHash: '["small"]' });
+    expect(client.state).toBe("connected");
   });
 });
 

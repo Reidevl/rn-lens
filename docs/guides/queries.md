@@ -34,16 +34,16 @@ The SDK is a no-op in production bundles, so the hook can stay in place.
 
 Selecting a query opens its key, timestamps, data as a tree and the actions:
 
-| Action                            | What runs in the app                                                                   |
-| --------------------------------- | -------------------------------------------------------------------------------------- |
-| Refetch                           | `query.fetch()`                                                                        |
-| Invalidate                        | `queryClient.invalidateQueries({ queryKey, exact: true })`                             |
-| Reset                             | `queryClient.resetQueries(...)`                                                        |
-| Remove                            | `queryClient.removeQueries(...)`                                                       |
-| Trigger loading / Restore loading | A never-resolving `queryFn` is swapped in and the previous options are kept to restore |
-| Trigger error / Restore error     | The state is set to `error`; restore resets the query                                  |
-| Edit data                         | `query.setState({ data })` with the JSON you typed                                     |
-| Clear cache                       | `queryCache.clear()` or `mutationCache.clear()`                                        |
+| Action                            | What runs in the app                                                                                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Refetch                           | `query.fetch()`                                                                                                                                            |
+| Invalidate                        | `queryClient.invalidateQueries({ queryKey, exact: true })`                                                                                                 |
+| Reset                             | `queryClient.resetQueries(...)`                                                                                                                            |
+| Remove                            | `queryClient.removeQueries(...)`                                                                                                                           |
+| Trigger loading / Restore loading | A never-resolving `queryFn` is swapped in and the previous options are kept to restore                                                                     |
+| Trigger error / Restore error     | The state is set to `error`; restore resets the query                                                                                                      |
+| Edit data                         | `queryClient.setQueryData(queryKey, data)` with the JSON you typed, as the official devtools do: observers re-render and the query's updated time advances |
+| Clear cache                       | `queryCache.clear()` or `mutationCache.clear()`                                                                                                            |
 
 Mutations list every mutation with its status, variables, data and error.
 
@@ -59,8 +59,11 @@ The wire format is documented in [`protocol/README.md`](../../protocol/README.md
 Only cache changes travel: after an initial snapshot the SDK sends per-action
 deltas. Payloads larger than 1 MiB are replaced by a marker, by the SDK before
 sending and again by Lens on receipt (the panel says "data truncated").
-The snapshot as a whole is capped at 6 MiB: above that, the largest queries
-arrive with their data truncated so the snapshot still fits in one frame.
+The snapshot as a whole is capped at 6 MiB: above that, the largest query data
+and mutation variables, data and context arrive truncated so the snapshot still
+fits in one frame. A snapshot that cannot fit in Lens's 8 MiB frame even then
+is skipped with a warning in the app's logs; cache events keep flowing and the
+next snapshot request tries again.
 
 ## Options
 
@@ -78,3 +81,4 @@ arrive with their data truncated so the snapshot still fits in one frame.
 - **Physical device on another network.** Pass `url: "ws://<your computer's IP>:7420/lens"`.
 - **Token mismatch.** The socket closes with code 4003; pass the same `token` to `useLens`. The SDK logs a warning and stops reconnecting until the app reloads or calls `connect()` again.
 - **Older protocol.** Code 4002 means the SDK and Lens disagree on the protocol major; update both. Like 4003, it is fatal for the SDK: no reconnect until `connect()` runs again.
+- **Hello timeout.** Code 4001 means Lens never received `hello` in time. After three such closes in a row the SDK logs a warning and stops reconnecting until `connect()` runs again; a successful `welcome` resets the count.

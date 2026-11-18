@@ -22,11 +22,12 @@ import {
   QUERY_DELTA_KEYS,
   serializeMutation,
   serializeQuery,
+  SNAPSHOT_FRAME_MAX_BYTES,
   SNAPSHOT_MAX_BYTES,
   type SerializeLimits,
 } from "./serialize";
 
-export { SNAPSHOT_MAX_BYTES };
+export { SNAPSHOT_FRAME_MAX_BYTES, SNAPSHOT_MAX_BYTES };
 
 export type OnlineManagerLike = Pick<typeof OnlineManager, "subscribe" | "setOnline" | "isOnline">;
 
@@ -174,14 +175,22 @@ export function createQueryAdapter(
         online: onlineManager ? onlineManager.isOnline() : true,
       },
     };
-    const { json, bytes, truncated } = capSnapshot(message, SNAPSHOT_MAX_BYTES);
-    if (truncated.length > 0) {
+    const { json, bytes, truncated, truncatedMutations } = capSnapshot(message, SNAPSHOT_MAX_BYTES);
+    if (truncated.length > 0 || truncatedMutations.length > 0) {
       host.log.warn(
-        `snapshot over ${SNAPSHOT_MAX_BYTES} bytes; data of ${truncated.length} queries truncated`,
+        `snapshot over ${SNAPSHOT_MAX_BYTES} bytes; data of ${truncated.length} queries and ` +
+          `${truncatedMutations.length} mutations truncated`,
       );
     }
-    if (bytes > SNAPSHOT_MAX_BYTES) {
-      host.log.warn(`snapshot still ${bytes} bytes after truncating every query; Lens may drop it`);
+    if (bytes > SNAPSHOT_FRAME_MAX_BYTES) {
+      // Lens would close the socket with 1009 and the reconnect would resend
+      // the same frame. Cache events still flow; the next `snapshot.request`
+      // or reconnect tries again, once keys, meta or errors shrink.
+      host.log.warn(
+        `snapshot skipped: ${bytes} bytes exceed the ${SNAPSHOT_FRAME_MAX_BYTES}-byte frame ` +
+          "limit after truncating every query and mutation; Lens keeps receiving cache events",
+      );
+      return;
     }
     host.sendRaw(json);
   }
