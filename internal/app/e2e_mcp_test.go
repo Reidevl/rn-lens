@@ -73,14 +73,20 @@ func TestE2E_MCPManagesTheApp(t *testing.T) {
 	}
 
 	var list []struct {
-		ID         string `json:"id"`
-		Reloadable bool   `json:"reloadable"`
+		ID    string `json:"id"`
+		AppID string `json:"appId"`
 	}
-	waitFor("a target", func() bool {
+	target := ""
+	waitFor("the example app's target", func() bool {
 		_ = json.Unmarshal([]byte(must("list_targets", nil)), &list)
-		return len(list) > 0
+		for _, tg := range list {
+			if tg.AppID == "dev.rnlens.example" {
+				target = tg.ID
+			}
+		}
+		return target != ""
 	})
-	must("attach_target", map[string]any{"targetId": list[0].ID})
+	must("attach_target", map[string]any{"targetId": target})
 	waitFor("the attach", func() bool { return strings.Contains(must("status", nil), `"state": "attached"`) })
 	if out := must("evaluate_js", map[string]any{"expression": "6 * 7"}); !strings.Contains(out, `"value": 42`) {
 		t.Fatalf("evaluate_js = %s", out)

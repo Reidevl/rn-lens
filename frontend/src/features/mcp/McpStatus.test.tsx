@@ -13,7 +13,11 @@ describe("mcpCommand", () => {
       "claude mcp add --transport http lens http://127.0.0.1:7431/mcp",
     );
     expect(mcpCommand({ url: "http://127.0.0.1:7431/mcp", token: "s3cret" })).toBe(
-      'claude mcp add --transport http lens http://127.0.0.1:7431/mcp --header "Authorization: Bearer s3cret"',
+      "claude mcp add --transport http lens http://127.0.0.1:7431/mcp --header 'Authorization: Bearer s3cret'",
+    );
+    // A token with quotes or $( stays one literal shell word.
+    expect(mcpCommand({ url: "http://127.0.0.1:7431/mcp", token: `a'b"$(x)` })).toBe(
+      `claude mcp add --transport http lens http://127.0.0.1:7431/mcp --header 'Authorization: Bearer a'\\''b"$(x)'`,
     );
   });
 });
@@ -32,6 +36,15 @@ describe("MCP status bar item", () => {
       "claude mcp add --transport http lens http://127.0.0.1:7431/mcp",
     );
     expect(await screen.findByText("Copied")).toBeInTheDocument();
+  });
+
+  it("keeps the token out of the tooltip", async () => {
+    const backend = createMockBackend({
+      mcp: { url: "http://127.0.0.1:7431/mcp", token: "s3cret" },
+    });
+    render(<App backend={backend} />);
+    const button = await screen.findByRole("button", { name: /connects Claude/ });
+    expect(button.getAttribute("title")).not.toContain("s3cret");
   });
 
   it("is hidden when MCP is off", async () => {

@@ -64,7 +64,7 @@ func run(args []string) int {
 	sdkToken := fs.String("sdk-token", "", "pairing token the SDK must present (optional)")
 	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro base URLs to poll")
 	mcpPort := fs.Int("mcp-port", mcpserver.DefaultPort, "port of the MCP endpoint for AI clients (0 disables it)")
-	mcpToken := fs.String("mcp-token", "", "bearer token AI clients must send to the MCP endpoint (optional)")
+	mcpTokenFlag := fs.String("mcp-token", "", "bearer token AI clients must send to the MCP endpoint (prefer "+mcpTokenEnv+")")
 	mode := registerModeFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -91,16 +91,18 @@ func run(args []string) int {
 	defer core.Stop()
 
 	opts := mode.options()
-	if *mcpPort != 0 {
-		// Lens works without MCP: a busy port (another Lens) only disables it.
-		ep, err := mcpserver.Start(mcpserver.AppLens{App: core}, *mcpPort, mcpserver.Options{Token: *mcpToken, Version: buildVersion()})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "rnlens: MCP is off: %v\n", err)
-		} else {
-			defer func() { _ = ep.Close() }()
-			opts.MCP = wailsui.MCPInfo{URL: ep.URL, Token: *mcpToken}
-			fmt.Fprintf(os.Stderr, "MCP for AI clients at %s\n", ep.URL)
-		}
+	token, warning := mcpToken(*mcpTokenFlag, os.Getenv(mcpTokenEnv))
+	if warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
+	ep, msg := startMCP(core, *mcpPort, token)
+	if msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+	}
+	if ep != nil {
+		defer func() { _ = ep.Close() }()
+		opts.MCP = wailsui.MCPInfo{URL: ep.URL, Token: token}
+		fmt.Fprintf(os.Stderr, "MCP for AI clients at %s\n", ep.URL)
 	}
 	if err := wailsui.Run(core, frontend.Dist, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "rnlens: %v\n", err)
@@ -119,7 +121,9 @@ Usage:
     --sdk-token T        Pairing token the SDK must present (optional)
     --mcp-port N         Port of the MCP endpoint for AI clients (default 7431;
                          0 disables it)
-    --mcp-token T        Bearer token AI clients must send (optional)
+    --mcp-token T        Bearer token AI clients must send (optional; prefer
+                         the RNLENS_MCP_TOKEN environment variable, which
+                         other users cannot read)
   rnlens targets         Print discovered targets as JSON and exit
   rnlens record          Record a target's CDP traffic to a JSONL file
   rnlens --version       Print the build version

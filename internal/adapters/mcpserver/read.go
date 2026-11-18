@@ -23,7 +23,7 @@ type deviceArg struct {
 }
 
 type consoleArgs struct {
-	Level  string `json:"level,omitempty" jsonschema:"only entries of this level: debug, log, info, warning or error"`
+	Level  string `json:"level,omitempty" jsonschema:"only entries of this level: verbose (console.debug), info (console.log and console.info), warning, error or system (Lens's own notes and evaluate_js commands and results); debug, log and warn are accepted too"`
 	Search string `json:"search,omitempty" jsonschema:"only entries whose text contains this (case-insensitive)"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"how many of the newest matching entries to return (default 100, at most 1000)"`
 }
@@ -50,7 +50,7 @@ type queryArgs struct {
 type storageGetArgs struct {
 	deviceArg
 	Store string `json:"store" jsonschema:"store id from list_stores, for example async-storage or mmkv:default"`
-	Key   string `json:"key"`
+	Key   string `json:"key" jsonschema:"a key list_stores shows for that store"`
 }
 
 type screenshotArgs struct {
@@ -96,6 +96,10 @@ func addReadTools(s *mcp.Server, lens Lens) {
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in consoleArgs) (*mcp.CallToolResult, any, error) {
 			limit := clamp(in.Limit, 100, 1000)
+			level, ok := levelAliases[strings.ToLower(in.Level)]
+			if !ok {
+				return nil, nil, fmt.Errorf("unknown level %q: use verbose, info, warning, error or system", in.Level)
+			}
 			search := strings.ToLower(in.Search)
 			type line struct {
 				Seq   uint64    `json:"seq"`
@@ -107,7 +111,7 @@ func addReadTools(s *mcp.Server, lens Lens) {
 			}
 			out := []line{}
 			for _, e := range lens.ConsoleTail(10000) {
-				if in.Level != "" && string(e.Level) != in.Level {
+				if level != "" && e.Level != level {
 					continue
 				}
 				if search != "" && !strings.Contains(strings.ToLower(e.Text), search) {
@@ -307,7 +311,18 @@ func cut(s string) string {
 	if len(s) <= bodyLimit {
 		return s
 	}
-	return s[:bodyLimit] + "… (cut at 64 KiB)"
+	return truncateUTF8(s, bodyLimit) + "… (cut at 64 KiB)"
+}
+
+// levelAliases maps the level names an AI may use to the console store's
+// buckets; "" means every level.
+var levelAliases = map[string]console.Level{
+	"":        "",
+	"verbose": console.LevelVerbose, "debug": console.LevelVerbose,
+	"info": console.LevelInfo, "log": console.LevelInfo,
+	"warning": console.LevelWarning, "warn": console.LevelWarning,
+	"error":  console.LevelError,
+	"system": console.LevelSystem,
 }
 
 func stackOf(e console.Entry) string {

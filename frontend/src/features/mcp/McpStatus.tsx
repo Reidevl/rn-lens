@@ -37,7 +37,8 @@ export function McpStatus() {
     <button
       type="button"
       aria-label="Copy the command that connects Claude to Lens (MCP)"
-      title={`MCP at ${info.url}. Click to copy: ${mcpCommand(info)}`}
+      // The command can hold the token; the tooltip never shows it.
+      title={`MCP at ${info.url}. Click to copy the claude mcp add command${info.token ? " (with the token)" : ""}.`}
       onClick={() =>
         void backend.clipboard
           .writeText(mcpCommand(info))

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -32,9 +33,9 @@ type Options struct {
 // NewServer returns the MCP server with every Lens tool.
 func NewServer(lens Lens, opts Options) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "lens", Title: "Lens — React Native DevTools", Version: opts.Version}, &mcp.ServerOptions{
-		Instructions: "Lens is attached to a React Native app. Start with `status` to see the app, " +
-			"its Metro targets and the devices running @rnlens/sdk. Device arguments are optional " +
-			"when one device is connected. Tools that change the app are marked destructive.",
+		Instructions: "Lens is attached to a React Native app. Start with `status` to see the attached app " +
+			"and the devices running @rnlens/sdk, and `list_targets` for the apps Metro lists. Device " +
+			"arguments are optional when one device is connected. Tools that change the app are marked destructive.",
 	})
 	addReadTools(s, lens)
 	addWriteTools(s, lens)
@@ -46,13 +47,18 @@ func NewServer(lens Lens, opts Options) *mcp.Server {
 // rebinding), and checks the token when one is set.
 func Handler(server *mcp.Server, opts Options) http.Handler {
 	h := http.NewCrossOriginProtection().Handler(
-		mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
+		mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
+			// Free the sessions of clients that went away without closing.
+			SessionTimeout: 30 * time.Minute,
+		}))
 	if opts.Token == "" {
 		return h
 	}
-	want := []byte("Bearer " + opts.Token)
+	want := []byte(opts.Token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
+		scheme, token, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+		// The scheme is case-insensitive (RFC 7235); the token is not.
+		if !strings.EqualFold(scheme, "Bearer") || subtle.ConstantTimeCompare([]byte(token), want) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="lens"`)
 			http.Error(w, "lens: missing or wrong token", http.StatusUnauthorized)
 			return
@@ -81,9 +87,10 @@ func Start(lens Lens, port int, opts Options) (*Endpoint, error) {
 	return &Endpoint{URL: fmt.Sprintf("http://%s/mcp", ln.Addr()), srv: srv}, nil
 }
 
-// Close stops the endpoint, ending open sessions.
+// Close stops the endpoint, ending open sessions. A connected client keeps a
+// stream open, so the graceful wait is short before connections are cut.
 func (e *Endpoint) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	if err := e.srv.Shutdown(ctx); err != nil {
 		return e.srv.Close()
@@ -99,9 +106,20 @@ func result(v any) (*mcp.CallToolResult, any, error) {
 	}
 	text := string(raw)
 	if len(text) > maxResultBytes {
-		text = text[:maxResultBytes] + "\n… (cut at 256 KiB; narrow the request with search or limit)"
+		text = truncateUTF8(text, maxResultBytes) + "\n… (cut at 256 KiB, so this is not valid JSON; ask for less: search or limit where the tool has them)"
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+// truncateUTF8 cuts s to at most n bytes without splitting a character.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // message renders a short confirmation.
@@ -136,14 +154,18 @@ func pickDevice(arg string, keys []string) (string, error) {
 	if len(byApp) == 1 {
 		return byApp[0], nil
 	}
+	if len(byApp) > 1 {
+		return "", fmt.Errorf("app id %q matches several devices; pass one of: %s", arg, strings.Join(byApp, ", "))
+	}
 	return "", fmt.Errorf("unknown device %q; connected: %s", arg, strings.Join(keys, ", "))
 }
 
 func ptr[T any](v T) *T { return &v }
 
-// readOnly and destructive annotate tools for the client's permission UI.
+// readOnly, changes and destructive annotate tools for the client's
+// permission UI. Every tool acts on the attached app only (closed world).
 var (
-	readOnly    = &mcp.ToolAnnotations{ReadOnlyHint: true}
-	changes     = &mcp.ToolAnnotations{DestructiveHint: ptr(false)}
-	destructive = &mcp.ToolAnnotations{DestructiveHint: ptr(true)}
+	readOnly    = &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
+	changes     = &mcp.ToolAnnotations{DestructiveHint: ptr(false), OpenWorldHint: ptr(false)}
+	destructive = &mcp.ToolAnnotations{DestructiveHint: ptr(true), OpenWorldHint: ptr(false)}
 )

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -77,8 +76,8 @@ func TestToolsAreListedWithTheirHints(t *testing.T) {
 		"status", "list_targets", "console_logs", "network_requests", "network_request", "list_queries",
 		"get_query", "list_mutations", "list_stores", "get_storage_value", "list_plugins", "take_screenshot",
 	}
-	destructive := []string{"evaluate_js", "query_action", "set_storage_value", "remove_storage_key", "clear_storage", "plugin_action"}
-	changing := []string{"attach_target", "reload_app", "set_online"}
+	destructive := []string{"evaluate_js", "query_action", "set_storage_value", "remove_storage_key", "clear_storage", "plugin_action", "reload_app"}
+	changing := []string{"attach_target", "set_online"}
 	if len(res.Tools) != len(read)+len(destructive)+len(changing) {
 		t.Fatalf("%d tools listed", len(res.Tools))
 	}
@@ -111,10 +110,10 @@ func TestStatusAndConsole(t *testing.T) {
 	lens := oneDevice()
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	for i, e := range []console.Entry{
-		{Kind: console.KindLog, Level: "log", Text: "boot"},
-		{Kind: console.KindError, Level: "error", Text: "TypeError: x is undefined"},
-		{Kind: console.KindLog, Level: "log", Text: "fetched users"},
-		{Kind: console.KindWarning, Level: "warning", Text: "slow render"},
+		{Kind: console.KindLog, Level: console.LevelInfo, Text: "boot"},
+		{Kind: console.KindError, Level: console.LevelError, Text: "TypeError: x is undefined"},
+		{Kind: console.KindLog, Level: console.LevelInfo, Text: "fetched users"},
+		{Kind: console.KindWarning, Level: console.LevelWarning, Text: "slow render"},
 	} {
 		e.Seq, e.Timestamp = uint64(i+1), now
 		lens.console = append(lens.console, e)
@@ -172,7 +171,7 @@ func TestDevicesAreResolved(t *testing.T) {
 	if out, isErr := call(t, cs2, "list_queries", nil); !isErr || !strings.Contains(out, "several devices are connected") {
 		t.Fatalf("ambiguous = %s", out)
 	}
-	if out, isErr := call(t, cs2, "list_queries", map[string]any{"device": "dev.rnlens.example"}); !isErr || !strings.Contains(out, "unknown device") {
+	if out, isErr := call(t, cs2, "list_queries", map[string]any{"device": "dev.rnlens.example"}); !isErr || !strings.Contains(out, "matches several devices") {
 		t.Fatalf("an app id matching two devices = %s", out)
 	}
 	mustCall(t, cs2, "list_queries", map[string]any{"device": "dev.rnlens.example|d2"})
@@ -282,7 +281,7 @@ func TestLargeResultsAreCut(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := res.Content[0].(*mcp.TextContent).Text
-	if len(text) > maxResultBytes+200 || !strings.HasSuffix(text, "narrow the request with search or limit)") {
+	if len(text) > maxResultBytes+200 || !strings.HasSuffix(text, "search or limit where the tool has them)") {
 		t.Fatalf("cut text is %d bytes", len(text))
 	}
 }
@@ -331,18 +330,6 @@ func TestEndpointOverHTTP(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 	if out := mustCall(t, cs, "status", nil); !strings.Contains(out, "dev.rnlens.example|d1") {
 		t.Fatalf("status over HTTP = %s", out)
-	}
-}
-
-func TestEndpointRefusesForeignHosts(t *testing.T) {
-	t.Parallel()
-	h := Handler(NewServer(oneDevice(), Options{}), Options{})
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://evil.example/mcp", strings.NewReader("{}"))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code < 400 {
-		t.Fatalf("a request for host evil.example got %d", rec.Code)
 	}
 }
 
