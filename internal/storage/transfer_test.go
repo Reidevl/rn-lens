@@ -98,3 +98,87 @@ func TestImportRefusesFilesThatAreNotLensExports(t *testing.T) {
 		}
 	}
 }
+
+func TestImportStopsOnAMissingDeviceOrStore(t *testing.T) {
+	t.Parallel()
+	svc, key := memoryDevice(t, map[string]protocol.StorageValue{})
+	file := storage.ExportFile{Format: storage.ExportFormat, Version: 1, Entries: map[string]protocol.StorageValue{"a": {Type: "string", Value: "x"}}}
+	if _, err := storage.Import(context.Background(), svc, "nobody|1", "async-storage", file); !errors.Is(err, storage.ErrUnknownDevice) {
+		t.Fatalf("Import(unknown device) err = %v, want ErrUnknownDevice", err)
+	}
+	if _, err := storage.Import(context.Background(), svc, key, "nope", file); !errors.Is(err, storage.ErrUnknownStore) {
+		t.Fatalf("Import(unknown store) err = %v, want ErrUnknownStore", err)
+	}
+}
+
+func TestImportChecksValuesLikeSet(t *testing.T) {
+	t.Parallel()
+	values := map[string]protocol.StorageValue{}
+	svc, key := memoryDevice(t, values)
+	file := storage.ExportFile{Format: storage.ExportFormat, Version: 1, Entries: map[string]protocol.StorageValue{
+		"n":    {Type: protocol.StorageValueNumber, Value: "abc"},
+		"nan":  {Type: protocol.StorageValueNumber, Value: "NaN"},
+		"hex":  {Type: protocol.StorageValueNumber, Value: "0x10"},
+		"b":    {Type: protocol.StorageValueBytes, Value: "%%%"},
+		"ok":   {Type: protocol.StorageValueNumber, Value: " 42 "},
+		"flag": {Type: protocol.StorageValueBoolean, Value: "TRUE"},
+	}}
+	res, err := storage.Import(context.Background(), svc, key, "async-storage", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Written != 2 || values["ok"].Value != "42" || values["flag"].Value != "true" {
+		t.Fatalf("result = %+v values = %+v", res, values)
+	}
+	for _, k := range []string{"n", "nan", "hex", "b"} {
+		if res.Skipped[k] == "" {
+			t.Fatalf("%s was not skipped: %+v", k, res.Skipped)
+		}
+	}
+}
+
+func TestExportStopsWhenTheDeviceGoesAway(t *testing.T) {
+	t.Parallel()
+	svc, dev, _ := connected(t)
+	key := "dev.rnlens.example|d1"
+	_ = svc.Message(key, "s1", frame(protocol.TypeStorageSnapshot, "", protocol.StorageSnapshot{Stores: []protocol.StorageStore{
+		{ID: "async-storage", Kind: protocol.StorageKindAsyncStorage, Name: "AsyncStorage", Keys: []protocol.StorageKey{{Key: "a"}, {Key: "b"}}},
+	}}))
+	dev.answer = func(a protocol.StorageAction) *protocol.StorageResult {
+		go svc.Disconnect(key, "s1")
+		return nil
+	}
+	if _, err := storage.Export(context.Background(), svc, key, "async-storage"); !errors.Is(err, storage.ErrDisconnected) && !errors.Is(err, storage.ErrUnknownDevice) {
+		t.Fatalf("Export after disconnect err = %v, want the device to be reported gone", err)
+	}
+}
+
+func TestNormalizeValue(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in      protocol.StorageValue
+		want    string
+		invalid bool
+	}{
+		{in: protocol.StorageValue{Type: "number", Value: "1.50"}, want: "1.5"},
+		{in: protocol.StorageValue{Type: "number", Value: "1e3"}, want: "1000"},
+		{in: protocol.StorageValue{Type: "number", Value: "Inf"}, invalid: true},
+		{in: protocol.StorageValue{Type: "boolean", Value: "false"}, want: "false"},
+		{in: protocol.StorageValue{Type: "boolean", Value: "yes"}, invalid: true},
+		{in: protocol.StorageValue{Type: "bytes", Value: " AAH/ "}, want: "AAH/"},
+		{in: protocol.StorageValue{Type: "string", Value: " keep "}, want: " keep "},
+		{in: protocol.StorageValue{Type: "date", Value: "x"}, invalid: true},
+	}
+	for _, tt := range tests {
+		got, err := storage.NormalizeValue(tt.in)
+		if tt.invalid {
+			if !errors.Is(err, storage.ErrInvalidValue) && !errors.Is(err, storage.ErrInvalidAction) {
+				t.Errorf("NormalizeValue(%+v) err = %v, want invalid", tt.in, err)
+			}
+			continue
+		}
+		if err != nil || got.Value != tt.want {
+			t.Errorf("NormalizeValue(%+v) = %+v, %v; want %q", tt.in, got, err, tt.want)
+		}
+	}
+}

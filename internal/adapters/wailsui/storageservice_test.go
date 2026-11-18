@@ -32,38 +32,40 @@ func TestStorageSetValidatesTheValueBeforeTheDevice(t *testing.T) {
 	if err := svc.Set("nobody|1", "async-storage", "k", "date", "x"); !errors.Is(err, storage.ErrInvalidAction) {
 		t.Fatalf("Set(bad type) err = %v, want ErrInvalidAction", err)
 	}
-	if err := svc.Set("nobody|1", "async-storage", "k", "number", "not a number"); !errors.Is(err, errInvalidValue) {
-		t.Fatalf("Set(bad number) err = %v, want errInvalidValue", err)
+	if err := svc.Set("nobody|1", "async-storage", "k", "number", "not a number"); !errors.Is(err, storage.ErrInvalidValue) {
+		t.Fatalf("Set(bad number) err = %v, want ErrInvalidValue", err)
 	}
-	if err := svc.Set("nobody|1", "async-storage", "k", "bytes", "%%%"); !errors.Is(err, errInvalidValue) {
-		t.Fatalf("Set(bad base64) err = %v, want errInvalidValue", err)
+	if err := svc.Set("nobody|1", "async-storage", "k", "bytes", "%%%"); !errors.Is(err, storage.ErrInvalidValue) {
+		t.Fatalf("Set(bad base64) err = %v, want ErrInvalidValue", err)
 	}
 }
 
 func TestStorageExportAndImportNeedAKnownDeviceAndRespectCancel(t *testing.T) {
 	t.Parallel()
 	asked := false
-	svc := newStorageService(t, func(string) (string, error) { asked = true; return "", nil }, func(string) (string, error) { return "", nil })
+	ask := func(string) (string, error) { asked = true; return "", nil }
+	svc := newStorageService(t, ask, ask)
 	if _, err := svc.Export("nobody|1", "async-storage"); !errors.Is(err, storage.ErrUnknownDevice) {
 		t.Fatalf("Export err = %v", err)
 	}
-	if asked {
-		t.Fatal("the save dialog opened for an unknown device")
+	if _, err := svc.Import("nobody|1", "async-storage"); !errors.Is(err, storage.ErrUnknownDevice) {
+		t.Fatalf("Import err = %v, want ErrUnknownDevice before any dialog", err)
 	}
-	res, err := svc.Import("nobody|1", "async-storage")
-	if err != nil || res.Path != "" {
-		t.Fatalf("Import after cancel = %+v, %v; want nothing done", res, err)
+	if asked {
+		t.Fatal("a dialog opened for an unknown device")
 	}
 }
 
-func TestStorageImportRejectsFilesThatAreNotExports(t *testing.T) {
+func TestReadLimitedRefusesLargeFiles(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "notes.json")
-	if err := os.WriteFile(path, []byte(`{"hello":"world"}`), 0o600); err != nil {
+	path := filepath.Join(t.TempDir(), "big.json")
+	if err := os.WriteFile(path, make([]byte, 2<<20+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	svc := newStorageService(t, nil, func(string) (string, error) { return path, nil })
-	if _, err := svc.Import("nobody|1", "async-storage"); !errors.Is(err, storage.ErrInvalidExport) {
-		t.Fatalf("Import(non-export) err = %v, want ErrInvalidExport", err)
+	if _, err := readLimited(path, 2<<20); !errors.Is(err, storage.ErrInvalidExport) {
+		t.Fatalf("readLimited(over limit) err = %v, want ErrInvalidExport", err)
+	}
+	if raw, err := readLimited(path, 4<<20); err != nil || len(raw) != 2<<20+1 {
+		t.Fatalf("readLimited(under limit) = %d bytes, %v", len(raw), err)
 	}
 }

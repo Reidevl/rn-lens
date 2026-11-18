@@ -6,10 +6,14 @@ package storage
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,6 +45,7 @@ var (
 	ErrInvalidAction = errors.New("storage: invalid action")
 	ErrActionFailed  = errors.New("storage: action failed on the device")
 	ErrDisconnected  = errors.New("storage: device disconnected before answering")
+	ErrInvalidValue  = errors.New("storage: value does not match its type")
 )
 
 type deviceState struct {
@@ -57,7 +62,8 @@ type Service struct {
 	devices map[string]*deviceState
 	notify  func()
 	nextID  atomic.Uint64
-	// ActionTimeout bounds an action when the context has no deadline.
+	// ActionTimeout bounds an action when the context has no deadline. Set it
+	// before the service is used; it is read without locking.
 	ActionTimeout time.Duration
 }
 
@@ -148,8 +154,16 @@ func (d *deviceState) apply(msg protocol.Message) (bool, error) {
 		if snap.StoreID == "" {
 			d.stores = make(map[string]*protocol.StorageStore)
 			d.order = nil
+		} else {
+			// A one-store snapshot replaces that store only; without it, the
+			// store is gone.
+			delete(d.stores, snap.StoreID)
+			d.order = slices.DeleteFunc(d.order, func(id string) bool { return id == snap.StoreID })
 		}
 		for _, st := range snap.Stores {
+			if snap.StoreID != "" && st.ID != snap.StoreID {
+				continue
+			}
 			st.Keys = sortedKeys(st.Keys)
 			if _, known := d.stores[st.ID]; !known {
 				d.order = append(d.order, st.ID)
@@ -273,6 +287,41 @@ func (s *Service) Refresh(ctx context.Context, key, storeID string) error {
 	return err
 }
 
+// NormalizeValue checks that a value's text matches its type and returns it
+// in canonical form: numbers as JSON numbers (no NaN, Inf or hex), booleans
+// as true or false, bytes as trimmed base64; strings are kept as they are.
+func NormalizeValue(v protocol.StorageValue) (protocol.StorageValue, error) {
+	switch v.Type {
+	case protocol.StorageValueString:
+		return v, nil
+	case protocol.StorageValueNumber:
+		text := strings.TrimSpace(v.Value)
+		var f float64
+		if !json.Valid([]byte(text)) || json.Unmarshal([]byte(text), &f) != nil {
+			return v, fmt.Errorf("%w: %q is not a number", ErrInvalidValue, v.Value)
+		}
+		v.Value = strconv.FormatFloat(f, 'g', -1, 64)
+	case protocol.StorageValueBoolean:
+		switch strings.ToLower(strings.TrimSpace(v.Value)) {
+		case "true":
+			v.Value = "true"
+		case "false":
+			v.Value = "false"
+		default:
+			return v, fmt.Errorf("%w: %q is not true or false", ErrInvalidValue, v.Value)
+		}
+	case protocol.StorageValueBytes:
+		text := strings.TrimSpace(v.Value)
+		if _, err := base64.StdEncoding.DecodeString(text); err != nil {
+			return v, fmt.Errorf("%w: bytes must be base64", ErrInvalidValue)
+		}
+		v.Value = text
+	default:
+		return v, fmt.Errorf("%w: unknown value type %q", ErrInvalidAction, v.Type)
+	}
+	return v, nil
+}
+
 func validate(a protocol.StorageAction) error {
 	needsKey := a.Type == protocol.StorageGet || a.Type == protocol.StorageSet || a.Type == protocol.StorageRemove
 	switch {
@@ -282,10 +331,6 @@ func validate(a protocol.StorageAction) error {
 		return fmt.Errorf("%w: %s needs a key", ErrInvalidAction, a.Type)
 	case a.Type == protocol.StorageSet && a.Value == nil:
 		return fmt.Errorf("%w: SET needs a value", ErrInvalidAction)
-	case a.Value != nil && !slices.Contains([]string{
-		protocol.StorageValueString, protocol.StorageValueNumber, protocol.StorageValueBoolean, protocol.StorageValueBytes,
-	}, a.Value.Type):
-		return fmt.Errorf("%w: unknown value type %q", ErrInvalidAction, a.Value.Type)
 	}
 	return nil
 }
@@ -295,6 +340,13 @@ func validate(a protocol.StorageAction) error {
 func (s *Service) action(ctx context.Context, key string, a protocol.StorageAction) (protocol.StorageResult, error) {
 	if err := validate(a); err != nil {
 		return protocol.StorageResult{}, err
+	}
+	if a.Value != nil {
+		v, err := NormalizeValue(*a.Value)
+		if err != nil {
+			return protocol.StorageResult{}, err
+		}
+		a.Value = &v
 	}
 	s.mu.Lock()
 	d, ok := s.devices[key]
