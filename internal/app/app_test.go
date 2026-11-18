@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
 	"github.com/Reidevl/rn-lens/internal/protocol"
 	"github.com/Reidevl/rn-lens/internal/queries"
+	"github.com/Reidevl/rn-lens/internal/storage"
 	"github.com/Reidevl/rn-lens/internal/targets"
 )
 
@@ -382,5 +384,81 @@ func TestSDKServerFeedsTheQueriesFeature(t *testing.T) {
 	list, _, err := a.Queries().Queries(queries.DeviceKey("com.example.app", "d1"))
 	if err != nil || len(list) != 1 {
 		t.Fatalf("queries = %+v err = %v", list, err)
+	}
+}
+
+func TestSDKServerFeedsTheStorageFeature(t *testing.T) {
+	t.Parallel()
+	a := app.New(app.Config{MetroEndpoints: []string{"http://127.0.0.1:1"}, PollInterval: time.Hour, SDKAddr: "127.0.0.1:0"})
+	storageCh, cancelS := a.Bus().Subscribe(app.TopicStorageChanged, 16)
+	defer cancelS()
+	a.Start()
+	t.Cleanup(a.Stop)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, resp, err := websocket.Dial(ctx, "ws://"+a.SDKAddr()+sdkws.Path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	t.Cleanup(func() { _ = c.CloseNow() })
+	hello, _ := protocol.Encode(protocol.TypeHello, "", protocol.Hello{
+		SDKVersion: "0.1.0", ProtocolVersion: 1,
+		App: protocol.AppInfo{ID: "com.example.app", Platform: "ios"}, Device: protocol.DeviceInfo{ID: "d1"},
+		Features: []string{protocol.FeatureStorage},
+	})
+	if err := c.Write(ctx, websocket.MessageText, hello); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Read(ctx); err != nil { // welcome
+		t.Fatal(err)
+	}
+	waitTopic(t, storageCh, "storage:changed after connect")
+
+	snapshot, err := os.ReadFile("../../protocol/fixtures/storage.snapshot.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Write(ctx, websocket.MessageText, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	waitTopic(t, storageCh, "storage:changed after snapshot")
+	key := storage.DeviceKey("com.example.app", "d1")
+	stores, err := a.Storage().Stores(key)
+	if err != nil || len(stores) != 3 {
+		t.Fatalf("stores = %+v err = %v", stores, err)
+	}
+
+	// A GET goes out as storage.action and its storage.result answers it.
+	got := make(chan error, 1)
+	go func() {
+		v, err := a.Storage().Get(ctx, key, "async-storage", "theme")
+		if err == nil && v.Value != `"dark"` {
+			err = fmt.Errorf("value = %+v", v)
+		}
+		got <- err
+	}()
+	_, raw, err := c.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := protocol.Decode(raw)
+	if err != nil || msg.Type != protocol.TypeStorageAction {
+		t.Fatalf("frame = %s (%v)", raw, err)
+	}
+	reply, _ := protocol.Encode(protocol.TypeStorageResult, msg.ID, protocol.StorageResult{
+		ID: msg.ID, OK: true, Value: &protocol.StorageValue{Type: protocol.StorageValueString, Value: `"dark"`},
+	})
+	if err := c.Write(ctx, websocket.MessageText, reply); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-got; err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if devs := a.Queries().Devices(); len(devs) != 1 {
+		t.Fatalf("queries devices = %+v; connect still reaches the queries feature", devs)
 	}
 }

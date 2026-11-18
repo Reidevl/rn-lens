@@ -24,6 +24,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 	"github.com/Reidevl/rn-lens/internal/protocol"
 	"github.com/Reidevl/rn-lens/internal/queries"
+	"github.com/Reidevl/rn-lens/internal/storage"
 	"github.com/Reidevl/rn-lens/internal/targets"
 )
 
@@ -35,6 +36,7 @@ const (
 	TopicConsoleChanged = "console:changed"
 	TopicQueriesChanged = "queries:changed"
 	TopicNetworkChanged = "network:changed"
+	TopicStorageChanged = "storage:changed"
 )
 
 // Config holds the values the composition root needs from its caller.
@@ -80,6 +82,7 @@ type App struct {
 	console   *console.Service
 	network   *network.Service
 	queries   *queries.Service
+	storage   *storage.Service
 	sdk       *sdkws.Server
 
 	startOnce sync.Once
@@ -131,6 +134,7 @@ func New(cfg Config) *App {
 	})
 	a.session.OnEvent(a.network.HandleEvent)
 	a.queries = queries.NewService(func() { a.bus.Publish(TopicQueriesChanged, nil) })
+	a.storage = storage.NewService(func() { a.bus.Publish(TopicStorageChanged, nil) })
 	if cfg.SDKAddr != "off" {
 		a.sdk = sdkws.New(sdkws.Options{
 			Addr:        cfg.SDKAddr,
@@ -142,23 +146,37 @@ func New(cfg Config) *App {
 	return a
 }
 
-// sdkHandler adapts SDK sessions to the queries feature without the feature
-// knowing about WebSockets.
+// sdkHandler adapts SDK sessions to the queries and storage features without
+// the features knowing about WebSockets. storage.* frames go to storage,
+// everything else to queries.
 type sdkHandler struct{ a *App }
 
 func (h sdkHandler) OnConnect(s *sdkws.Session) {
 	h.a.queries.Connect(s.ID, s.Hello, s)
+	h.a.storage.Connect(s.ID, s.Hello, s)
 }
 
 func (h sdkHandler) OnMessage(s *sdkws.Session, msg protocol.Message) {
-	if err := h.a.queries.Message(queries.DeviceKey(s.Key.AppID, s.Key.DeviceID), s.ID, msg); err != nil {
+	key := queries.DeviceKey(s.Key.AppID, s.Key.DeviceID)
+	var err error
+	if strings.HasPrefix(msg.Type, "storage.") {
+		err = h.a.storage.Message(key, s.ID, msg)
+	} else {
+		err = h.a.queries.Message(key, s.ID, msg)
+	}
+	if err != nil {
 		h.a.cfg.Logger.Debug("sdk message rejected", "type", msg.Type, "err", err)
 	}
 }
 
 func (h sdkHandler) OnDisconnect(s *sdkws.Session, _ error) {
-	h.a.queries.Disconnect(queries.DeviceKey(s.Key.AppID, s.Key.DeviceID), s.ID)
+	key := queries.DeviceKey(s.Key.AppID, s.Key.DeviceID)
+	h.a.queries.Disconnect(key, s.ID)
+	h.a.storage.Disconnect(key, s.ID)
 }
+
+// Storage exposes the storage feature to UI adapters.
+func (a *App) Storage() *storage.Service { return a.storage }
 
 // Queries exposes the queries feature to UI adapters.
 func (a *App) Queries() *queries.Service { return a.queries }
