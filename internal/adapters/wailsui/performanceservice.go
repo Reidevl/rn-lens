@@ -1,12 +1,14 @@
 package wailsui
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -177,24 +179,35 @@ func (s *PerformanceService) SaveProfile() (string, error) {
 }
 
 // SaveHeapSnapshot asks where to save, then streams a heap snapshot there.
+// It writes a temporary file next to the chosen one and renames it on
+// success, so a failed snapshot leaves an existing file untouched.
 func (s *PerformanceService) SaveHeapSnapshot() (HeapSnapshotResult, error) {
 	path, err := s.ask("lens-"+stamp()+".heapsnapshot", "Heap snapshot", "*.heapsnapshot")
 	if err != nil || path == "" {
 		return HeapSnapshotResult{}, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec // the user picked this path in the save dialog
+	f, err := os.CreateTemp(filepath.Dir(path), ".lens-*.heapsnapshot")
 	if err != nil {
 		return HeapSnapshotResult{}, fmt.Errorf("performance: %w", err)
 	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }() // a no-op after the rename
+	// Chunks are small; buffering keeps each event's disk work cheap.
+	w := bufio.NewWriterSize(f, 1<<20)
 	ctx, cancel := context.WithTimeout(context.Background(), heapTimeout)
 	defer cancel()
-	n, err := s.core.Performance().HeapSnapshot(ctx, f)
-	if cerr := f.Close(); err == nil && cerr != nil {
-		err = fmt.Errorf("performance: %w", cerr)
+	n, err := s.core.Performance().HeapSnapshot(ctx, w)
+	if err == nil {
+		err = w.Flush()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
 	}
 	if err != nil {
-		_ = os.Remove(path) // a partial snapshot does not open anywhere
-		return HeapSnapshotResult{}, err
+		return HeapSnapshotResult{}, fmt.Errorf("performance: %w", err)
 	}
 	return HeapSnapshotResult{Path: path, Bytes: n}, nil
 }

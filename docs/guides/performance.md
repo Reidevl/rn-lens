@@ -76,6 +76,10 @@ status bar then shows:
 
 Lens reconnects when Metro restarts and stops when you detach.
 
+A recording ends when the debugger connection does: detaching, a reload
+that reconnects, or a dropped connection all stop it, and its data is lost.
+Stop and save before reloading the app.
+
 ## Troubleshooting
 
 | Symptom                                                                             | Fix                                                                                                                |

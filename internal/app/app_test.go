@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/adapters/metro"
 	"github.com/Reidevl/rn-lens/internal/adapters/sdkws"
 	"github.com/Reidevl/rn-lens/internal/app"
+	"github.com/Reidevl/rn-lens/internal/perf"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
 	"github.com/Reidevl/rn-lens/internal/protocol"
 	"github.com/Reidevl/rn-lens/internal/queries"
@@ -460,5 +462,47 @@ func TestSDKServerFeedsTheStorageFeature(t *testing.T) {
 	}
 	if devs := a.Queries().Devices(); len(devs) != 1 {
 		t.Fatalf("queries devices = %+v; connect still reaches the queries feature", devs)
+	}
+}
+
+func TestDetachReleasesARecordingInProgress(t *testing.T) {
+	t.Parallel()
+	debugger := cdptest.New(t)
+	debugger.Handle("Tracing.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	// The app never reports tracingComplete: only a detach can end the wait.
+	debugger.Handle("Tracing.end", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	m := newFakeMetro(t, debugger)
+	a := app.New(app.Config{MetroEndpoints: []string{m.srv.URL}, PollInterval: 10 * time.Millisecond, SDKAddr: "off"})
+	targetsCh, cancelTargets := a.Bus().Subscribe(app.TopicTargetsChanged, 8)
+	defer cancelTargets()
+	a.Start()
+	t.Cleanup(a.Stop)
+	waitTopic(t, targetsCh, "targets:changed")
+	if err := a.Attach(a.Targets()[0].ID); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	for a.SessionSnapshot().State != targets.StateAttached {
+		time.Sleep(5 * time.Millisecond)
+	}
+	ctx := context.Background()
+	if err := a.Performance().StartTrace(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() { _, err := a.Performance().StopTrace(ctx); errc <- err }()
+	for !slices.Contains(debugger.Methods(), "Tracing.end") {
+		time.Sleep(5 * time.Millisecond)
+	}
+	a.Detach()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, perf.ErrSessionEnded) {
+			t.Fatalf("StopTrace after detach = %v, want ErrSessionEnded", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("StopTrace kept waiting after the detach")
+	}
+	if a.Performance().Status().Tracing {
+		t.Fatal("still tracing after the detach")
 	}
 }

@@ -87,6 +87,7 @@ type Service struct {
 	ended     chan struct{}
 	trace     *traceRec
 	profiling bool
+	stopping  bool // a Profiler.stop is in flight
 	heap      *heapRec
 	barriers  map[string]chan struct{}
 	nextToken uint64
@@ -100,10 +101,32 @@ type traceRec struct {
 	complete bool
 }
 
+// heapRec has its own lock so chunks are written without holding the
+// service lock: Status and the other recordings never wait for the disk.
 type heapRec struct {
-	w   io.Writer
-	n   int64
-	err error
+	mu   sync.Mutex
+	w    io.Writer
+	n    int64
+	err  error
+	done bool // HeapSnapshot returned; w may be closed
+}
+
+func (h *heapRec) write(chunk string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.done || h.err != nil {
+		return
+	}
+	n, err := io.WriteString(h.w, chunk)
+	h.n += int64(n)
+	h.err = err
+}
+
+func (h *heapRec) finish() (int64, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.done = true
+	return h.n, h.err
 }
 
 // NewService returns a Service that sends commands through caller.
@@ -140,7 +163,7 @@ func (s *Service) BeginSession() {
 	s.gen++
 	close(s.ended)
 	s.ended = make(chan struct{})
-	s.trace, s.profiling, s.heap = nil, false, nil
+	s.trace, s.profiling, s.stopping, s.heap = nil, false, false, nil
 	s.barriers = map[string]chan struct{}{}
 	s.mu.Unlock()
 	s.notify()
@@ -182,12 +205,11 @@ func (s *Service) HandleEvent(ev cdp.Event) {
 			return
 		}
 		s.mu.Lock()
-		if h := s.heap; h != nil && h.err == nil {
-			n, err := io.WriteString(h.w, p.Chunk)
-			h.n += int64(n)
-			h.err = err
-		}
+		h := s.heap
 		s.mu.Unlock()
+		if h != nil {
+			h.write(p.Chunk)
+		}
 	case cdp.EventLensBarrier:
 		var token string
 		if json.Unmarshal(ev.Params, &token) != nil {
@@ -326,6 +348,11 @@ func (s *Service) StopProfile(ctx context.Context) (json.RawMessage, error) {
 		s.mu.Unlock()
 		return nil, ErrNotRecording
 	}
+	if s.stopping {
+		s.mu.Unlock()
+		return nil, ErrBusy
+	}
+	s.stopping = true
 	gen := s.gen
 	s.mu.Unlock()
 	defer s.endProfile(gen)
@@ -346,7 +373,7 @@ func (s *Service) endProfile(gen uint64) {
 	s.mu.Lock()
 	changed := s.gen == gen && s.profiling
 	if changed {
-		s.profiling = false
+		s.profiling, s.stopping = false, false
 	}
 	s.mu.Unlock()
 	if changed {
@@ -372,6 +399,7 @@ func (s *Service) HeapSnapshot(ctx context.Context, w io.Writer) (int64, error) 
 	s.mu.Unlock()
 	s.notify()
 	defer func() {
+		_, _ = rec.finish() // no write may follow the return
 		s.mu.Lock()
 		changed := s.heap == rec
 		if changed {
@@ -398,12 +426,11 @@ func (s *Service) HeapSnapshot(ctx context.Context, w io.Writer) (int64, error) 
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if rec.err != nil {
-		return rec.n, fmt.Errorf("perf: heap snapshot: %w", rec.err)
+	n, err := rec.finish()
+	if err != nil {
+		return n, fmt.Errorf("perf: heap snapshot: %w", err)
 	}
-	return rec.n, nil
+	return n, nil
 }
 
 func joinCategories(c []string) string { return strings.Join(c, ",") }

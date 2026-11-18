@@ -219,8 +219,15 @@ func TestTrackerWaitsForTheAppToReloadAfterAMetroRestart(t *testing.T) {
 // every rebuild: update-done must not hide the error.
 func TestBundlingErrorSurvivesUpdateDone(t *testing.T) {
 	t.Parallel()
+	var mu sync.Mutex
+	var phases []fastrefresh.Phase
 	d := newDialer()
-	tr := fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{})
+	var tr *fastrefresh.Tracker
+	tr = fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{OnChange: func() {
+		mu.Lock()
+		phases = append(phases, tr.State().Phase)
+		mu.Unlock()
+	}})
 	t.Cleanup(tr.Stop)
 	tr.Attached("http://127.0.0.1:8081")
 	s := next(t, d.streams)
@@ -229,9 +236,41 @@ func TestBundlingErrorSurvivesUpdateDone(t *testing.T) {
 	s.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":false}}`)
 	s.in <- []byte(`{"type":"error","body":{"type":"TransformError","message":"SyntaxError: boom","errors":[]}}`)
 	s.in <- []byte(`{"type":"update-done","body":{}}`)
-	s.in <- []byte(`{"type":"bundle-registered"}`) // a later message proves update-done was handled
-	time.Sleep(100 * time.Millisecond)
-	if st := tr.State(); st.Phase != fastrefresh.PhaseError || st.Message != "SyntaxError: boom" {
-		t.Fatalf("after update-start, error, update-done: state = %+v, want PhaseError", st)
+	// The next rebuild proves update-done was handled before it.
+	s.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":false}}`)
+	waitState(t, tr, func(st fastrefresh.State) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(phases) > 0 && phases[len(phases)-1] == fastrefresh.PhaseUpdating && st.Phase == fastrefresh.PhaseUpdating
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for i, p := range phases {
+		if p == fastrefresh.PhaseError {
+			if rest := phases[i+1:]; len(rest) != 1 || rest[0] != fastrefresh.PhaseUpdating {
+				t.Fatalf("phases after the error = %v, want only updating", rest)
+			}
+			return
+		}
+	}
+	t.Fatalf("phases = %v, no error", phases)
+}
+
+// A registration that was replaced or stopped never changes the state.
+func TestAStaleRegistrationCannotChangeTheState(t *testing.T) {
+	t.Parallel()
+	d := newDialer()
+	tr := fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{})
+	t.Cleanup(tr.Stop)
+	tr.Attached("http://127.0.0.1:8081")
+	old := next(t, d.streams)
+	next(t, old.sent)
+	waitState(t, tr, phase(fastrefresh.PhaseReady))
+	tr.Detached()
+	old.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":false}}`)
+	old.in <- []byte(`{"type":"error","body":{"type":"TransformError","message":"late"}}`)
+	time.Sleep(50 * time.Millisecond)
+	if st := tr.State(); st.Phase != fastrefresh.PhaseOff {
+		t.Fatalf("state after a late message of a stopped registration = %+v", st)
 	}
 }

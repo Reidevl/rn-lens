@@ -70,3 +70,22 @@ func TestSaveCanceledWritesNothing(t *testing.T) {
 		t.Fatalf("SaveHeapSnapshot after cancel = %+v, %v", res, err)
 	}
 }
+
+// A failed snapshot leaves the file the user picked as it was.
+func TestFailedHeapSnapshotKeepsTheExistingFile(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "old.heapsnapshot")
+	if err := os.WriteFile(path, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewPerformanceService(app.New(app.Config{SDKAddr: "off"}), func(string, string, string) (string, error) { return path, nil })
+	if _, err := svc.SaveHeapSnapshot(); err == nil {
+		t.Fatal("SaveHeapSnapshot without an app succeeded")
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "keep" {
+		t.Fatalf("file after a failed snapshot = %q, %v", got, err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
+		t.Fatalf("leftover files: %v", entries)
+	}
+}
