@@ -91,6 +91,20 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
     await backend.clipboard.writeText(toCurl(r, body));
   };
 
+  // Uses the body a tab already loaded, or fetches it once.
+  const copyResponse = async () => {
+    const cached = responses[key];
+    let body: NetworkBody;
+    if (cached?.state === "ready") {
+      body = cached.value;
+    } else {
+      body = await backend.network.responseBody(row.seq, row.epoch);
+      setResponses((m) => ({ ...m, [key]: { state: "ready", value: body } }));
+    }
+    if (body.truncated) throw new Error("The body is larger than Lens shows");
+    await backend.clipboard.writeText(body.text);
+  };
+
   const onTabKey = (e: React.KeyboardEvent, index: number) => {
     const last = TABS.length - 1;
     const next =
@@ -140,6 +154,9 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
             </button>
           ))}
         </div>
+        {row.state === "complete" ? (
+          <CopyButton label="Copy response" text="Copy response" copy={copyResponse} />
+        ) : null}
         {request ? (
           <CopyButton label="Copy as cURL" text="Copy as cURL" copy={() => curl(request)} />
         ) : null}
@@ -318,17 +335,9 @@ function BodyTab({
   }
   return (
     <>
-      <div className="mb-2 flex justify-end">
-        <CopyButtonForText text={b.text} />
-      </div>
       <pre className="font-mono break-all whitespace-pre-wrap select-text">{b.text}</pre>
     </>
   );
-}
-
-function CopyButtonForText({ text }: { text: string }) {
-  const backend = useBackend();
-  return <CopyButton label="Copy response" copy={() => backend.clipboard.writeText(text)} />;
 }
 
 function TimingTab({ request: r }: { request: NetworkRequest }) {

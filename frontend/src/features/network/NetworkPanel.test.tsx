@@ -247,4 +247,24 @@ describe("NetworkPanel", () => {
     ).toEqual(["Name", "Status", "Time"]);
     expect(screen.getByRole("button", { name: "Copy as cURL" })).toHaveTextContent("Copy as cURL");
   });
+
+  it("copies the response body from any tab", async () => {
+    const user = userEvent.setup();
+    const backend = withRequests();
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /json/ }));
+
+    const copy = await screen.findByRole("button", { name: "Copy response" });
+    expect(copy).toHaveTextContent("Copy response");
+    await user.click(copy);
+    await waitFor(() => expect(backend.clipboardText).toBe('{"title":"Sample"}'));
+  });
+
+  it("offers no response copy for a request that failed", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await user.click(await within(table).findByRole("row", { name: /logo\.png/ }));
+    await screen.findByRole("button", { name: "Copy as cURL" });
+    expect(screen.queryByRole("button", { name: "Copy response" })).not.toBeInTheDocument();
+  });
 });

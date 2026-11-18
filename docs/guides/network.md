@@ -77,6 +77,9 @@ React Native on iOS sends every body base64-encoded; Lens decodes text bodies
 (JSON, XML, `text/*`, form data) so Preview and Response show them as text,
 and keeps images and other binary bodies as they are.
 
+**Copy response** puts the response body on the clipboard from any tab (text
+as received; base64 for binary bodies).
+
 **Copy as cURL** puts a POSIX shell command on the clipboard with the method,
 headers and body of the request.
 
