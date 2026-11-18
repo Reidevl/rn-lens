@@ -14,8 +14,8 @@ chosen.
 2. `pnpm install && task dev` opens Lens with hot reload.
 3. Create a branch from `main`: `git switch -c feat/<area>-<topic>`.
 4. Make one change, with its tests and docs, and run `task check`.
-5. Open a pull request. CI must be green and the diff should be about 400
-   authored lines or less.
+5. Open a pull request (collaborators; everyone else starts with an issue). CI
+   must be green and the diff should be about 400 authored lines or less.
 
 ## Project shape
 

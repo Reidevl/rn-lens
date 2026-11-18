@@ -5,11 +5,11 @@ and how to get more access.
 
 ## Roles
 
-| Role             | Who                                    | Can                                                                                      |
-| ---------------- | -------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Contributor**  | Anyone                                 | Open issues, report bugs, answer questions, discuss                                      |
-| **Collaborator** | People the maintainer invites          | Everything above, plus push branches and open PRs; each PR needs the maintainer's review |
-| **Maintainer**   | [@Reidevl](https://github.com/Reidevl) | Merge to `main`, release, invite and remove collaborators                                |
+| Role             | Who                                    | Can                                                            |
+| ---------------- | -------------------------------------- | -------------------------------------------------------------- |
+| **Contributor**  | Anyone                                 | Open issues, answer questions, join discussions                |
+| **Collaborator** | People the maintainer invites          | Everything above, plus push branches and open PRs              |
+| **Maintainer**   | [@Reidevl](https://github.com/Reidevl) | Review and merge PRs, release, invite and remove collaborators |
 
 Pull requests are open to collaborators only. If you are not a collaborator
 yet, start with an issue: a clear bug report or a well-argued proposal is the
@@ -34,6 +34,9 @@ enabled on their GitHub account.
   and docs, Conventional Commits, about 400 changed lines per PR.
 - Never push directly to `main` or force-push a shared branch. `main` changes
   only through pull requests.
+- Do not merge pull requests, including your own: the maintainer reviews and
+  merges every PR. GitHub gives collaborators write access, so this is an
+  agreement, and the `main` ruleset enforces it as far as GitHub allows.
 - Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 - Report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes.
 
