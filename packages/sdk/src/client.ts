@@ -10,6 +10,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { getDeviceId } from "./device-id";
 import { defaultEnabled, readRuntimeEnv, resolveLensUrl } from "./env";
 import { makeLog, type LensLogger, type Log } from "./logger";
+import { createPanelsAdapter, type PanelsAdapter } from "./panels/adapter";
+import type { LensPanel } from "./panels/panel";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_DEPTH } from "./serialize";
 import { createStorageAdapter, type StorageAdapter } from "./storage/adapter";
 import type { LensStorageOptions } from "./storage/types";
@@ -47,6 +49,8 @@ export interface LensClientOptions {
   queryClient?: QueryClient;
   /** Storage instances to mirror; without it the Storage feature is off. */
   storage?: LensStorageOptions;
+  /** Panels Lens draws in its Plugins panel (see `createLensPanel`). */
+  panels?: LensPanel[];
   /** Full WebSocket URL; derived from the Metro bundle host when omitted. */
   url?: string;
   /** Pairing token when Lens runs with `--sdk-token`. */
@@ -185,8 +189,11 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
   const storageAdapter: StorageAdapter | undefined = options.storage
     ? createStorageAdapter(options.storage, host)
     : undefined;
+  const panelsAdapter: PanelsAdapter | undefined = options.panels?.length
+    ? createPanelsAdapter(options.panels, host)
+    : undefined;
   const features: HelloPayload["features"] = [];
-  const adapters: Array<QueryAdapter | StorageAdapter> = [];
+  const adapters: Array<QueryAdapter | StorageAdapter | PanelsAdapter> = [];
   if (queryAdapter) {
     features.push("queries");
     adapters.push(queryAdapter);
@@ -194,6 +201,10 @@ export function createLensClient(options: LensClientOptions = {}): LensClient {
   if (storageAdapter) {
     features.push("storage");
     adapters.push(storageAdapter);
+  }
+  if (panelsAdapter) {
+    features.push("plugins");
+    adapters.push(panelsAdapter);
   }
 
   async function buildHello(): Promise<HelloMessage> {

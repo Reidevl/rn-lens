@@ -57,6 +57,7 @@ lens.disconnect();
 | --------------- | ---------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
 | `queryClient`   | `QueryClient`          | —                                           | TanStack client to mirror; enables the Queries and Mutations panels.   |
 | `storage`       | `LensStorageOptions`   | —                                           | Storage instances to mirror; enables the Storage panel (see Storage).  |
+| `panels`        | `LensPanel[]`          | —                                           | Panels Lens draws in its Plugins panel (see Panels).                   |
 | `url`           | `string`               | derived, see below                          | Full WebSocket URL of Lens.                                            |
 | `token`         | `string`               | —                                           | Pairing token when Lens runs with `--sdk-token`.                       |
 | `deviceName`    | `string`               | device model                                | Name shown in the Lens device list.                                    |
@@ -122,6 +123,59 @@ useLens({
 - Every `storage.action` is answered with one `storage.result`
   (`{ id, ok, error?, value? }`); a missing key reads as `ok: false, "not set"`.
 
+## Panels
+
+A panel adds your own tab to Lens's Plugins panel: feature flags, a Redux or
+Zustand store, a job queue, anything the app knows. You describe it with
+building blocks and Lens draws it; no UI code of yours runs in Lens, and it
+works the same in the desktop app and in browser mode.
+
+```tsx
+import { createLensPanel, useLens } from "@rnlens/sdk";
+
+const flags = { newCheckout: true, darkMode: false };
+
+const flagsPanel = createLensPanel({
+  id: "feature-flags",
+  name: "Feature flags",
+  render: () => [
+    {
+      type: "table",
+      id: "flags",
+      columns: [
+        { key: "name", label: "Flag" },
+        { key: "on", label: "On" },
+      ],
+      rows: Object.entries(flags).map(([name, on]) => ({ id: name, cells: { name, on } })),
+      rowActions: [{ id: "toggle", label: "Toggle" }],
+    },
+  ],
+  onAction: ({ rowId }) => {
+    flags[rowId as keyof typeof flags] = !flags[rowId as keyof typeof flags];
+    return `${rowId} toggled`;
+  },
+});
+
+useLens({ panels: [flagsPanel] });
+```
+
+| Block      | Fields                                                              |
+| ---------- | ------------------------------------------------------------------- |
+| `text`     | `text`, `tone?` (`default`, `muted`, `warning`, `error`)            |
+| `keyValue` | `items: [{ key, label?, value }]`                                   |
+| `table`    | `columns: [{ key, label }]`, `rows: [{ id, cells }]`, `rowActions?` |
+| `json`     | `value` (any JSON value, shown as a tree)                           |
+| `log`      | `entries: [{ text, level?, time? }]`, newest last                   |
+| `actions`  | `actions: [{ id, label, destructive?, confirm? }]`                  |
+
+Every block has an `id` and an optional `title`. Actions call `onAction` with
+`{ blockId, actionId, rowId? }`: return a short message to show in Lens, or
+throw to report a failure. The panel re-renders after each action; call
+`panel.refresh()` when its data changes for another reason (refreshes within
+16 ms send one view). Values are sent like query data (BigInt and Date as
+strings). A view larger than 1 MiB (`PANEL_VIEW_MAX_BYTES`) or a `render` that
+throws shows an error block instead.
+
 ## How the URL is derived
 
 When `url` is not set the SDK connects to `ws://<host>:7420/lens`, where
@@ -139,7 +193,7 @@ alias for the host machine.
 
 - `hello` with the SDK version, protocol version 1, app and device identity,
   the Metro script URL and the feature list (`"queries"` when a
-  `queryClient` is given, `"storage"` when `storage` is given). The device id is persisted with
+  `queryClient` is given, `"storage"` when `storage` is given, `"plugins"` when `panels` are given). The device id is persisted with
   `@react-native-async-storage/async-storage` when that package is installed,
   otherwise it is stable for the process.
 - `queries.snapshot` right after Lens answers `welcome`, and again on

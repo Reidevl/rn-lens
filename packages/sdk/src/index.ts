@@ -20,6 +20,9 @@ export type {
   MMKVValue,
   SecureStoreLike,
 } from "./storage/types";
+export { createLensPanel } from "./panels/panel";
+export type { LensPanel, LensPanelAction, LensPanelDefinition } from "./panels/panel";
+export { PANEL_VIEW_MAX_BYTES } from "./panels/adapter";
 export type { LensLogger } from "./logger";
 export { safeSerialize, toSafeJson, DEFAULT_MAX_BYTES, DEFAULT_MAX_DEPTH } from "./serialize";
 export { SNAPSHOT_FRAME_MAX_BYTES, SNAPSHOT_MAX_BYTES } from "./tanstack/serialize";
@@ -37,4 +40,6 @@ export type {
   StorageActionType,
   StorageKind,
   StorageValue,
+  PluginAction as LensPanelButton,
+  PluginBlock as LensPanelBlock,
 } from "@rnlens/protocol";
