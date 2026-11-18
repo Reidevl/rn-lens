@@ -5,7 +5,7 @@ import { createLensClient, type LensClient } from "../client";
 import { FakeLens, waitFor } from "../testing/fake-lens";
 import { STORAGE_SNAPSHOT_MAX_KEYS, STORAGE_VALUE_MAX_BYTES } from "./adapter";
 import { FakeAsyncStorage, FakeMMKV, FakeSecureStore } from "./fakes";
-import type { LensStorageOptions } from "./types";
+import type { LensStorageOptions, MMKVLike } from "./types";
 
 let lens: FakeLens;
 let client: LensClient | undefined;
@@ -446,5 +446,45 @@ describe("MMKV v4", () => {
     await connect({ mmkv: { m: mmkv } });
     expect((await act({ type: "REMOVE", storeId: "mmkv:m", key: "gone" })).ok).toBe(true);
     expect(mmkv.data.has("gone")).toBe(false);
+  });
+});
+
+describe("MMKV v4 value types (observed on a device)", () => {
+  // Each key answers every getter the way react-native-mmkv 4.3 did on an
+  // iOS simulator: MMKV keeps no type, so getString returns "" for numbers and
+  // for bytes that are not UTF-8, and undefined for booleans.
+  const observed: Record<string, { s?: string; n?: number; b?: boolean; buf?: number[] }> = {
+    num: { s: "", n: 7, b: false, buf: [] },
+    bool: { b: true },
+    str: { s: "hi", b: true, buf: [104, 105] },
+    empty: { s: "", b: false, buf: [] },
+    ctrl: { s: "\u0001\u0002\u0003", b: true, buf: [1, 2, 3] },
+    png: { s: "", n: 3.0655721352393715e-183, b: true, buf: [137, 80, 78, 71, 13, 10, 26, 10] },
+  };
+  const device: MMKVLike = {
+    getAllKeys: () => Object.keys(observed),
+    getString: (k) => observed[k]?.s,
+    getNumber: (k) => observed[k]?.n,
+    getBoolean: (k) => observed[k]?.b,
+    getBuffer: (k) => (observed[k]?.buf ? new Uint8Array(observed[k].buf).buffer : undefined),
+    contains: (k) => k in observed,
+    set: () => {},
+    remove: () => true,
+    clearAll: () => {},
+    addOnValueChangedListener: () => ({ remove: () => {} }),
+  };
+
+  it.each([
+    ["num", { type: "number", value: "7" }],
+    ["bool", { type: "boolean", value: "true" }],
+    ["str", { type: "string", value: "hi" }],
+    ["empty", { type: "string", value: "" }],
+    ["ctrl", { type: "bytes", value: "AQID" }],
+    ["png", { type: "bytes", value: "iVBORw0KGgo=" }],
+  ])("reads %s with its type", async (key, want) => {
+    await connect({ mmkv: { m: device } });
+    const res = await act({ type: "GET", storeId: "mmkv:m", key });
+    expect(res.ok).toBe(true);
+    expect(res.value).toMatchObject(want);
   });
 });

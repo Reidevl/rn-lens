@@ -123,26 +123,73 @@ function asyncStorageDriver(storage: AsyncStorageLike): StoreDriver {
  * entries, but a number or boolean entry can still be read by the other
  * numeric getter, so number wins over boolean.
  */
-function readMMKV(mmkv: MMKVLike, key: string): StorageValue | undefined {
+// MMKV stores raw bytes and keeps no type. These rules come from what
+// react-native-mmkv returns on a device (v4) and from v3, where getString is
+// undefined for anything that is not a string:
+// - getString undefined: a boolean (v4), or a number or boolean (v3);
+// - getString "" with no bytes: a number when getNumber answers, else "";
+// - getString "" with bytes: bytes that are not UTF-8 text;
+// - getString with control characters: bytes that happen to decode;
+// - otherwise: a string.
+/** Control characters other than tab, line feed and carriage return. */
+function hasControlChars(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if ((c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) || c === 0x7f) return true;
+  }
+  return false;
+}
+
+type MMKVEntry =
+  | { type: "string"; text: string }
+  | { type: "number"; number: number }
+  | { type: "boolean"; boolean: boolean }
+  | { type: "bytes"; bytes: ArrayBuffer | Uint8Array };
+
+function classifyMMKV(mmkv: MMKVLike, key: string): MMKVEntry | undefined {
   const text = mmkv.getString(key);
-  if (text !== undefined) return stringValue(text);
-  if (!mmkv.contains(key)) return undefined;
-  const number = mmkv.getNumber(key);
-  if (number !== undefined) return { type: "number", value: JSON.stringify(number) };
-  const boolean = mmkv.getBoolean(key);
-  if (boolean !== undefined) return { type: "boolean", value: String(boolean) };
-  const buffer = mmkv.getBuffer(key);
-  if (buffer !== undefined) return bytesValue(buffer);
-  return undefined;
+  if (text === undefined) {
+    if (!mmkv.contains(key)) return undefined;
+    const number = mmkv.getNumber(key);
+    if (number !== undefined) return { type: "number", number };
+    const boolean = mmkv.getBoolean(key);
+    if (boolean !== undefined) return { type: "boolean", boolean };
+    const bytes = mmkv.getBuffer(key);
+    return bytes === undefined ? undefined : { type: "bytes", bytes };
+  }
+  const bytes = mmkv.getBuffer(key);
+  const length = bytes?.byteLength ?? 0;
+  if (text === "") {
+    if (length > 0 && bytes) return { type: "bytes", bytes };
+    const number = mmkv.getNumber(key);
+    return number !== undefined ? { type: "number", number } : { type: "string", text };
+  }
+  if (hasControlChars(text) && bytes) return { type: "bytes", bytes };
+  return { type: "string", text };
+}
+
+function readMMKV(mmkv: MMKVLike, key: string): StorageValue | undefined {
+  const entry = classifyMMKV(mmkv, key);
+  switch (entry?.type) {
+    case undefined:
+      return undefined;
+    case "string":
+      return stringValue(entry.text);
+    case "number":
+      return { type: "number", value: JSON.stringify(entry.number) };
+    case "boolean":
+      return { type: "boolean", value: String(entry.boolean) };
+    case "bytes":
+      return bytesValue(entry.bytes);
+  }
 }
 
 /** Size of a string (UTF-8) or bytes entry; numbers and booleans have none. */
 function mmkvSize(mmkv: MMKVLike, key: string): number | undefined {
-  const text = mmkv.getString(key);
-  if (text !== undefined) return utf8(text);
-  if (!mmkv.contains(key)) return undefined;
-  if (mmkv.getNumber(key) !== undefined || mmkv.getBoolean(key) !== undefined) return undefined;
-  return mmkv.getBuffer(key)?.byteLength;
+  const entry = classifyMMKV(mmkv, key);
+  if (entry?.type === "string") return utf8(entry.text);
+  if (entry?.type === "bytes") return entry.bytes.byteLength;
+  return undefined;
 }
 
 function parseMMKVValue(

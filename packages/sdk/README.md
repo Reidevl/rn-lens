@@ -71,15 +71,15 @@ lens.disconnect();
 
 Pass the storage instances the app already uses; the SDK imports none of
 these libraries and only relies on the methods listed in its exported
-`AsyncStorageLike`, `MMKVLike` (react-native-mmkv v3) and `SecureStoreLike`
-(expo-secure-store) types.
+`AsyncStorageLike`, `MMKVLike` (react-native-mmkv v3 `new MMKV()` or v4
+`createMMKV()`) and `SecureStoreLike` (expo-secure-store) types.
 
 ```ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import { MMKV } from "react-native-mmkv";
+import { createMMKV } from "react-native-mmkv"; // v3: new MMKV()
 
-const storage = new MMKV();
+const storage = createMMKV();
 
 useLens({
   queryClient,
