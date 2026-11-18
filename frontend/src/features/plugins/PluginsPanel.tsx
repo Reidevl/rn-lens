@@ -23,7 +23,7 @@ export function PluginsPanel() {
   if (devices.length === 0) return <NoPlugins />;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center gap-3 border-b border-border px-3 py-2">
         {devices.length > 1 ? (
           <select
@@ -154,7 +154,7 @@ export function App() {
 
 function NoPlugins() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
       <p className="font-medium text-foreground">No app has added a panel to Lens yet.</p>
       <p>Describe one with building blocks; Lens draws it:</p>
       <pre className="rounded-md border border-border bg-card p-3 font-mono text-xs text-foreground">

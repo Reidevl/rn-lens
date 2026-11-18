@@ -21,13 +21,13 @@ export function PerformancePanel() {
   const attached = useTargetsStore((s) => s.session.state === "attached");
   if (!attached) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center text-sm text-muted-foreground">
         Attach to an app on the Targets panel to record its performance.
       </div>
     );
   }
   return (
-    <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-auto p-3 lg:grid-cols-2">
+    <div className="grid h-full min-h-0 auto-rows-min grid-cols-1 gap-3 overflow-auto p-3 lg:grid-cols-2">
       <ScreenshotCard />
       <TraceCard />
       <ProfileCard />
