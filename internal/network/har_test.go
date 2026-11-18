@@ -97,3 +97,29 @@ func TestExportHARFetchesBodiesOfTheCurrentSession(t *testing.T) {
 		t.Fatalf("content text = %q, want the fetched body", got)
 	}
 }
+
+func TestExportHARStopsFetchingBodiesAtItsBudget(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{HARBodyBytes: 10})
+	h.srv.Handle(cdp.MethodNetworkGetResponseBody, func(cdptest.Request) (any, *cdptest.Error) {
+		return cdp.GetResponseBodyResult{Body: "0123456789"}, nil // 10 bytes
+	})
+	h.finished(t, "1", nil)
+	h.finished(t, "2", nil)
+
+	raw, err := h.svc.ExportHAR(context.Background(), "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var har network.HAR
+	if err := json.Unmarshal(raw, &har); err != nil {
+		t.Fatal(err)
+	}
+	first, second := har.Log.Entries[0].Response.Content, har.Log.Entries[1].Response.Content
+	if first.Text != "0123456789" {
+		t.Fatalf("first body = %+v, want it exported", first)
+	}
+	if second.Text != "" || second.Comment == "" {
+		t.Fatalf("second body = %+v, want it left out with a comment", second)
+	}
+}

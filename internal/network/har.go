@@ -106,10 +106,15 @@ type HARTimings struct {
 }
 
 // HARBodies holds the bodies fetched for an export, keyed by request seq.
+// Omitted lists responses left out because the export reached its budget.
 type HARBodies struct {
 	Responses map[uint64]Body
 	Requests  map[uint64]string
+	Omitted   map[uint64]bool
 }
+
+// harFetchTimeout bounds each body fetch of an export.
+const harFetchTimeout = 5 * time.Second
 
 // BuildHAR converts requests into a HAR 1.2 archive. It is pure: bodies are
 // fetched beforehand (see Service.ExportHAR).
@@ -163,6 +168,9 @@ func harEntry(r Request, bodies HARBodies) HAREntry {
 		e.Request.BodySize = len(post)
 	} else if r.HasPostData {
 		e.Request.BodySize = -1 // a body was sent but could not be fetched
+	}
+	if bodies.Omitted[r.Seq] {
+		e.Response.Content.Comment = "body omitted: the export reached its body size budget"
 	}
 	if b, ok := bodies.Responses[r.Seq]; ok {
 		switch {
@@ -308,21 +316,30 @@ func hostOnly(addr string) string {
 // longer has is left out).
 func (s *Service) ExportHAR(ctx context.Context, lensVersion string) ([]byte, error) {
 	reqs := s.store.All()
-	bodies := HARBodies{Responses: map[uint64]Body{}, Requests: map[uint64]string{}}
+	bodies := HARBodies{Responses: map[uint64]Body{}, Requests: map[uint64]string{}, Omitted: map[uint64]bool{}}
 	epoch := s.store.Epoch()
+	budget := s.opts.HARBodyBytes
 	for _, r := range reqs {
-		if r.Epoch != epoch {
+		if r.Epoch != epoch || ctx.Err() != nil {
 			continue
 		}
 		if r.HasPostData {
-			if post, err := s.RequestBody(ctx, r.Seq, r.Epoch); err == nil {
+			if post, err := harFetch(ctx, func(c context.Context) (string, error) { return s.RequestBody(c, r.Seq, r.Epoch) }); err == nil {
 				bodies.Requests[r.Seq] = post
+				budget -= len(post)
 			}
 		}
-		if r.State == StateComplete && !r.Redirected {
-			if b, err := s.ResponseBody(ctx, r.Seq, r.Epoch); err == nil {
-				bodies.Responses[r.Seq] = b
-			}
+		if r.State != StateComplete || r.Redirected {
+			continue
+		}
+		if budget <= 0 {
+			bodies.Omitted[r.Seq] = true
+			continue
+		}
+		b, err := harFetch(ctx, func(c context.Context) (Body, error) { return s.ResponseBody(c, r.Seq, r.Epoch) })
+		if err == nil {
+			bodies.Responses[r.Seq] = b
+			budget -= len(b.Text)
 		}
 	}
 	return EncodeHAR(BuildHAR(reqs, lensVersion, bodies))
@@ -339,4 +356,12 @@ func EncodeHAR(h HAR) ([]byte, error) {
 		return nil, fmt.Errorf("network: encode HAR: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// harFetch runs one body fetch of an export under its own timeout, so one
+// slow body cannot use up the whole export.
+func harFetch[T any](ctx context.Context, fetch func(context.Context) (T, error)) (T, error) {
+	c, cancel := context.WithTimeout(ctx, harFetchTimeout)
+	defer cancel()
+	return fetch(c)
 }
