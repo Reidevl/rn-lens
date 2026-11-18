@@ -2,6 +2,7 @@ import { ConsolePanel } from "@/features/console/ConsolePanel";
 import { NetworkPanel } from "@/features/network/NetworkPanel";
 import { MutationsPanel } from "@/features/queries/MutationsPanel";
 import { QueriesPanel } from "@/features/queries/QueriesPanel";
+import { StoragePanel } from "@/features/storage/StoragePanel";
 import { TargetsPanel } from "@/features/targets/TargetsPanel";
 import { useTargetsSync } from "@/features/targets/useTargetsSync";
 
@@ -28,6 +29,8 @@ export function Shell() {
           <ConsolePanel />
         ) : panel.id === "network" ? (
           <NetworkPanel />
+        ) : panel.id === "storage" ? (
+          <StoragePanel />
         ) : panel.id === "queries" ? (
           <QueriesPanel />
         ) : panel.id === "mutations" ? (
