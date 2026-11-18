@@ -8,6 +8,7 @@ import { useTargetsSync } from "@/features/targets/useTargetsSync";
 
 import { PlaceholderPanel } from "../panels/PlaceholderPanel";
 import { LeftRail } from "./LeftRail";
+import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { PANELS } from "./panels";
 import { useShellStore } from "./shellStore";
 import { StatusBar } from "./StatusBar";
@@ -23,21 +24,23 @@ export function Shell() {
         <LeftRail />
       </aside>
       <main className="min-w-0 overflow-hidden">
-        {panel.id === "targets" ? (
-          <TargetsPanel />
-        ) : panel.id === "console" ? (
-          <ConsolePanel />
-        ) : panel.id === "network" ? (
-          <NetworkPanel />
-        ) : panel.id === "storage" ? (
-          <StoragePanel />
-        ) : panel.id === "queries" ? (
-          <QueriesPanel />
-        ) : panel.id === "mutations" ? (
-          <MutationsPanel />
-        ) : (
-          <PlaceholderPanel panel={panel} />
-        )}
+        <PanelErrorBoundary key={panel.id} panel={panel.label}>
+          {panel.id === "targets" ? (
+            <TargetsPanel />
+          ) : panel.id === "console" ? (
+            <ConsolePanel />
+          ) : panel.id === "network" ? (
+            <NetworkPanel />
+          ) : panel.id === "storage" ? (
+            <StoragePanel />
+          ) : panel.id === "queries" ? (
+            <QueriesPanel />
+          ) : panel.id === "mutations" ? (
+            <MutationsPanel />
+          ) : (
+            <PlaceholderPanel panel={panel} />
+          )}
+        </PanelErrorBoundary>
       </main>
       <div className="col-span-2">
         <StatusBar />
