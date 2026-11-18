@@ -10,3 +10,7 @@ odd/
 examples/
 CHANGELOG.md
 .atl/
+# Docs site: Astro's generated types and the pages synced from docs/guides
+docs/site/.astro
+docs/site/src/content/docs/guides
+docs/site/src/content/docs/reference

@@ -1,0 +1,5 @@
+# Built and synced output
+dist/
+.astro/
+src/content/docs/guides/
+src/content/docs/reference/

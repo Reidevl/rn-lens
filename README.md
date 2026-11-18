@@ -56,7 +56,11 @@ the Wails v3 CLI (`go install github.com/wailsapp/wails/v3/cmd/wails3@latest`).
 ```bash
 task dev     # run Lens with hot reload
 task check   # lint, typecheck and test everything
+task docs    # the documentation site (Astro Starlight) at localhost:4321
 ```
+
+The site in `docs/site` is built from `docs/guides`, the protocol README and
+the SDK README, plus its own use cases; edit the guides, not the synced pages.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) once it lands.
 

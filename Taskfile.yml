@@ -106,6 +106,18 @@ tasks:
     cmds:
       - pnpm run test
 
+  docs:
+    summary: Serves the documentation site with live reload (docs/site)
+    dir: docs/site
+    cmds:
+      - pnpm dev
+
+  docs:build:
+    summary: Builds the documentation site into docs/site/dist
+    dir: docs/site
+    cmds:
+      - pnpm build
+
   test:npm:
     summary: Tests the rnlens npm launcher (outside the pnpm workspace)
     dir: packages/rnlens
