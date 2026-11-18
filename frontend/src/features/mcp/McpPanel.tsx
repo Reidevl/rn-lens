@@ -93,8 +93,8 @@ function Header() {
           >
             <span
               className={cn(
-                "absolute top-0.5 size-4 rounded-full bg-foreground transition-transform duration-150",
-                readOnly ? "translate-x-4.5" : "translate-x-0.5",
+                "absolute top-0.5 left-0.5 size-4 rounded-full bg-foreground transition-transform duration-150",
+                readOnly ? "translate-x-4" : "translate-x-0",
               )}
             />
           </span>
