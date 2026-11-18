@@ -194,10 +194,11 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          task darwin:package
+          # One app for Apple silicon and Intel Macs.
+          task darwin:package:universal
           mkdir -p out
           ditto bin/rnlens.app out/Lens.app
-          ditto -c -k --keepParent out/Lens.app "out/Lens_${TAG}_macos_$(uname -m).zip"
+          ditto -c -k --keepParent out/Lens.app "out/Lens_${TAG}_macos_universal.zip"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'

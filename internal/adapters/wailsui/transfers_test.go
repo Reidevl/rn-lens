@@ -124,3 +124,61 @@ func (zeros) Read(p []byte) (int, error) {
 	clear(p)
 	return len(p), nil
 }
+
+// Any page open in the browser can POST to localhost; only Lens's own page
+// may upload.
+func TestUploadRejectsCrossOriginRequests(t *testing.T) {
+	t.Parallel()
+	tr := newTestTransfers(t)
+	upload := func(set func(*http.Request)) int {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/lens/uploads", strings.NewReader("data"))
+		req.Host = "localhost:7430"
+		set(req)
+		rec := httptest.NewRecorder()
+		tr.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for name, set := range map[string]func(*http.Request){
+		"foreign Origin":        func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") },
+		"other localhost port":  func(r *http.Request) { r.Header.Set("Origin", "http://localhost:3000") },
+		"cross-site, no Origin": func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") },
+		"same-site, no Origin":  func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-site") },
+	} {
+		if code := upload(set); code != http.StatusForbidden {
+			t.Errorf("%s: status %d, want 403", name, code)
+		}
+	}
+	if entries, _ := os.ReadDir(tr.dir); len(entries) != 0 {
+		t.Fatalf("cross-origin uploads stored %d files", len(entries))
+	}
+	if code := upload(func(r *http.Request) {
+		r.Header.Set("Origin", "http://localhost:7430")
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+	}); code != http.StatusOK {
+		t.Fatalf("same-origin upload: status %d", code)
+	}
+}
+
+func TestOnlyTheLatestUploadsAreKept(t *testing.T) {
+	t.Parallel()
+	tr := newTestTransfers(t)
+	tokens := make([]string, 0, maxPendingUploads+2)
+	for range maxPendingUploads + 2 {
+		rec := httptest.NewRecorder()
+		tr.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/lens/uploads", strings.NewReader("{}")))
+		var reply struct{ Token string }
+		if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, reply.Token)
+	}
+	for i, tok := range tokens {
+		_, err := tr.uploadPath(tok)
+		if kept := i >= 2; kept != (err == nil) {
+			t.Fatalf("upload %d: kept=%v err=%v", i, kept, err)
+		}
+	}
+	if entries, _ := os.ReadDir(tr.dir); len(entries) != maxPendingUploads {
+		t.Fatalf("%d uploads on disk, want %d", len(entries), maxPendingUploads)
+	}
+}

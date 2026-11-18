@@ -41,6 +41,9 @@ export function createLensPanel(definition: LensPanelDefinition): LensPanel {
       `@rnlens/sdk: invalid panel id "${definition.id}": use lowercase letters, digits, ".", "_" or "-"`,
     );
   }
+  if (!definition.name || definition.name.length > 64) {
+    throw new Error(`@rnlens/sdk: panel "${definition.id}" needs a name of 1 to 64 characters`);
+  }
   const listeners = new Set<() => void>();
   return {
     ...definition,

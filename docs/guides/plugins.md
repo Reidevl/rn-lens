@@ -41,6 +41,9 @@ in [browser mode](browser-mode.md).
    useLens({ panels: [flagsPanel] });
    ```
 
+   `useLens` reads its options once, so create panels at module level (as
+   above) and pass every panel on the first render.
+
 3. Open **Plugins** in Lens. Each panel is a tab; with several apps or
    devices, pick one in the device menu.
 

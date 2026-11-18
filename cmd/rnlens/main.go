@@ -77,11 +77,16 @@ func run(args []string) int {
 		sdkAddr = "off"
 	}
 
+	// Before anything listens: a busy UI port must not leave the SDK server
+	// of this process running against another Lens.
+	if err := mode.start(); err != nil {
+		fmt.Fprintf(os.Stderr, "rnlens: %v\n", err)
+		return 1
+	}
 	core := app.New(app.Config{Version: buildVersion(), SDKAddr: sdkAddr, SDKToken: *sdkToken, MetroEndpoints: splitList(*endpoints)})
 	core.Start()
 	defer core.Stop()
 
-	mode.started()
 	if err := wailsui.Run(core, frontend.Dist, mode.options()); err != nil {
 		fmt.Fprintf(os.Stderr, "rnlens: %v\n", err)
 		return 1

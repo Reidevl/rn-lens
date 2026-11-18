@@ -168,6 +168,10 @@ useLens({ panels: [flagsPanel] });
 | `log`      | `entries: [{ text, level?, time? }]`, newest last                   |
 | `actions`  | `actions: [{ id, label, destructive?, confirm? }]`                  |
 
+`useLens` reads its options once: create panels at module level and pass
+every panel on the first render. A panel needs a `name` of 1 to 64
+characters and an `id` of lowercase letters, digits, `.`, `_` or `-`.
+
 Every block has an `id` and an optional `title`. Actions call `onAction` with
 `{ blockId, actionId, rowId? }`: return a short message to show in Lens, or
 throw to report a failure. The panel re-renders after each action; call

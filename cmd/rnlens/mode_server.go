@@ -44,8 +44,12 @@ func (m modeFlags) options() wailsui.RunOptions {
 	return wailsui.RunOptions{Host: *m.host, Port: *m.port}
 }
 
-// started prints the URL and opens it once the server accepts connections.
-func (m modeFlags) started() {
+// start checks the port, prints the URL and opens it once the server
+// accepts connections.
+func (m modeFlags) start() error {
+	if err := checkPort(*m.host, *m.port); err != nil {
+		return err
+	}
 	host := *m.host
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "localhost"
@@ -56,7 +60,7 @@ func (m modeFlags) started() {
 		fmt.Fprintf(os.Stderr, "warning: listening on %s; anyone who can reach it can read your app's data\n", *m.host)
 	}
 	if *m.noOpen {
-		return
+		return nil
 	}
 	go func() {
 		addr := net.JoinHostPort(host, strconv.Itoa(*m.port))
@@ -70,6 +74,28 @@ func (m modeFlags) started() {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}()
+	return nil
+}
+
+// checkPort fails when something already answers on the port, or the port
+// cannot be bound. Answering counts because on macOS a bind to localhost can
+// succeed next to a process holding the port on every IPv6 address.
+func checkPort(host string, port int) error {
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid port %d", port)
+	}
+	d := net.Dialer{Timeout: 200 * time.Millisecond}
+	for _, h := range []string{"127.0.0.1", "::1"} {
+		if c, err := d.DialContext(context.Background(), "tcp", net.JoinHostPort(h, strconv.Itoa(port))); err == nil {
+			_ = c.Close()
+			return fmt.Errorf("port %d is already in use; pick another with --port", port)
+		}
+	}
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return fmt.Errorf("cannot listen on %s: %w", net.JoinHostPort(host, strconv.Itoa(port)), err)
+	}
+	return ln.Close()
 }
 
 func openBrowser(url string) error {

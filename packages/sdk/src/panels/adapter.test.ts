@@ -218,3 +218,41 @@ describe("panels", () => {
     expect(lens.drain("plugin.register")).toEqual([]);
   });
 });
+
+describe("panel edge cases", () => {
+  it("refuses a panel without a name, which Lens would ignore", () => {
+    expect(() => createLensPanel({ id: "nameless", name: "", render: () => [] })).toThrow(
+      /needs a name/,
+    );
+    expect(() => createLensPanel({ id: "long", name: "x".repeat(65), render: () => [] })).toThrow(
+      /needs a name/,
+    );
+  });
+
+  it("never sends an older render after a newer one", async () => {
+    const releases: Array<() => void> = [];
+    let n = 0;
+    const panel = createLensPanel({
+      id: "slow",
+      name: "Slow",
+      render: async () => {
+        const mine = ++n;
+        if (mine === 2) await new Promise<void>((r) => releases.push(r)); // the second render is slow
+        return [{ type: "text", id: "n", text: String(mine) }];
+      },
+    });
+    await connect(panel);
+    expect((await lens.next("plugin.view")).payload.blocks).toEqual([
+      { type: "text", id: "n", text: "1" },
+    ]);
+    panel.refresh(); // render 2 starts and waits
+    await new Promise((r) => setTimeout(r, 40));
+    panel.refresh(); // render 3 finishes first
+    expect((await lens.next("plugin.view")).payload.blocks).toEqual([
+      { type: "text", id: "n", text: "3" },
+    ]);
+    releases[0]();
+    await lens.sync();
+    expect(lens.drain("plugin.view")).toEqual([]);
+  });
+});

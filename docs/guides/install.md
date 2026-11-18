@@ -45,7 +45,10 @@ Each [GitHub release](https://github.com/Reidevl/rn-lens/releases) has
 
 ## Desktop app
 
-Download the app for your OS from the release.
+Download the app for your OS from the release: `Lens_<version>_macos_universal.zip`
+(Apple silicon and Intel), `Lens_<version>_windows_amd64_setup.exe`, or
+`Lens_<version>_linux_x86_64.AppImage`. Homebrew and Scoop install
+`rnlens` (browser mode), not the desktop app.
 
 **macOS:** the app is not notarized by Apple yet, so macOS says it "is
 damaged" or "cannot be opened". After moving it to Applications, clear the
@@ -67,11 +70,12 @@ Every release has `checksums.txt` (SHA-256 of each archive), its keyless
 # The archive matches the published checksum
 shasum -a 256 --ignore-missing -c checksums.txt
 
-# checksums.txt was signed by this repository's release workflow
+# checksums.txt was signed by this repository's release workflow. It runs
+# from main (release-please calls it after tagging) or by hand on a tag.
 cosign verify-blob \
   --certificate checksums.txt.pem \
   --signature checksums.txt.sig \
-  --certificate-identity-regexp '^https://github.com/Reidevl/rn-lens/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/Reidevl/rn-lens/\.github/workflows/release\.yml@refs/(heads/main|tags/v.+)$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
 

@@ -18,4 +18,4 @@ func registerModeFlags(*flag.FlagSet) modeFlags { return modeFlags{} }
 
 func (modeFlags) options() wailsui.RunOptions { return wailsui.RunOptions{} }
 
-func (modeFlags) started() {}
+func (modeFlags) start() error { return nil }

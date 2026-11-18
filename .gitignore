@@ -1,5 +1,7 @@
 # Go
 bin/
+# The npm launcher's entry point is source, not build output.
+!packages/rnlens/bin/
 *.test
 *.out
 coverage/
