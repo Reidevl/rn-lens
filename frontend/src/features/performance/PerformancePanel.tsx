@@ -21,7 +21,7 @@ export function PerformancePanel() {
   const attached = useTargetsStore((s) => s.session.state === "attached");
   if (!attached) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center text-sm text-muted-foreground">
         Attach to an app on the Targets panel to record its performance.
       </div>
     );

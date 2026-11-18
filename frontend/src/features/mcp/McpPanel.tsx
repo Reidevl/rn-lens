@@ -18,7 +18,7 @@ export function McpPanel() {
 
   if (status && !status.enabled) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
         <p className="font-medium text-foreground">MCP is off.</p>
         <p>
           Lens was started with <code className="font-mono">--mcp-port 0</code>, or the port was
@@ -248,7 +248,7 @@ function Activity() {
           No AI tool calls yet. Connect a client and ask it about your app.
         </p>
       ) : (
-        <div data-testid="activity-scroll" className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto">
           <table aria-label="Tool calls" className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-card text-muted-foreground">
               <tr>

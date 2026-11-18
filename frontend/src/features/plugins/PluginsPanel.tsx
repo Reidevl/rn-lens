@@ -154,7 +154,7 @@ export function App() {
 
 function NoPlugins() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
       <p className="font-medium text-foreground">No app has added a panel to Lens yet.</p>
       <p>Describe one with building blocks; Lens draws it:</p>
       <pre className="rounded-md border border-border bg-card p-3 font-mono text-xs text-foreground">
