@@ -148,10 +148,11 @@ func (s *Server) Addr() string {
 
 // Stop closes every session and the listener, refuses connections that
 // arrive from now on and returns once every session goroutine has delivered
-// its OnDisconnect, or once ctx expires. On expiry it cuts the sockets still
-// open (a peer that has not answered its close frame, a connection still
-// waiting for its hello) without waiting for their goroutines, and returns
-// ctx.Err().
+// its OnDisconnect, or once ctx expires. On expiry it stops waiting for the
+// remaining goroutines, asks the library to cut the sockets still open and
+// returns ctx.Err(). A socket already inside its close handshake is not cut
+// by CloseNow (coder/websocket only waits for it); it still ends within the
+// library's own close budget, after Stop has returned.
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	s.closed = true
