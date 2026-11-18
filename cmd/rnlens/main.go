@@ -1,8 +1,9 @@
-// Command rnlens starts Lens, the React Native DevTools desktop application.
+// Command rnlens starts Lens, React Native DevTools: a desktop window, or in
+// the server build (-tags server) a local web server opened in the browser.
 //
 // Usage:
 //
-//	rnlens [--sdk-port N] [--sdk-token T]   open the desktop app
+//	rnlens [--sdk-port N] [--sdk-token T]   open Lens
 //	rnlens targets         print discovered targets as JSON and exit
 //	rnlens record ...      record the CDP traffic of a target to a JSONL file
 //	rnlens --version       print the build version
@@ -13,9 +14,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Reidevl/rn-lens/build"
 	"github.com/Reidevl/rn-lens/frontend"
+	"github.com/Reidevl/rn-lens/internal/adapters/metro"
 	"github.com/Reidevl/rn-lens/internal/adapters/wailsui"
 	"github.com/Reidevl/rn-lens/internal/app"
 )
@@ -58,6 +61,8 @@ func run(args []string) int {
 	fs.Usage = func() {}
 	sdkPort := fs.Int("sdk-port", 7420, "port the @rnlens/sdk WebSocket server listens on (0 disables it)")
 	sdkToken := fs.String("sdk-token", "", "pairing token the SDK must present (optional)")
+	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro base URLs to poll")
+	mode := registerModeFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage()
@@ -72,11 +77,12 @@ func run(args []string) int {
 		sdkAddr = "off"
 	}
 
-	core := app.New(app.Config{Version: buildVersion(), SDKAddr: sdkAddr, SDKToken: *sdkToken})
+	core := app.New(app.Config{Version: buildVersion(), SDKAddr: sdkAddr, SDKToken: *sdkToken, MetroEndpoints: splitList(*endpoints)})
 	core.Start()
 	defer core.Stop()
 
-	if err := wailsui.Run(core, frontend.Dist); err != nil {
+	mode.started()
+	if err := wailsui.Run(core, frontend.Dist, mode.options()); err != nil {
 		fmt.Fprintf(os.Stderr, "rnlens: %v\n", err)
 		return 1
 	}
@@ -87,7 +93,8 @@ func printUsage() {
 	fmt.Print(`Lens - React Native DevTools
 
 Usage:
-  rnlens                 Open the desktop app
+` + runUsage + `    --metro URLS         Comma-separated Metro base URLs to poll (default
+                         localhost:8081, 8082 and 19000)
     --sdk-port N         Port for the @rnlens/sdk server (default 7420; 0 disables it)
     --sdk-token T        Pairing token the SDK must present (optional)
   rnlens targets         Print discovered targets as JSON and exit
