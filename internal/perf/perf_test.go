@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/adapters/cdpws"
 	"github.com/Reidevl/rn-lens/internal/adapters/cdpws/cdptest"
 	"github.com/Reidevl/rn-lens/internal/perf"
+	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 )
 
 // conn adapts a cdpws connection to perf.Caller and feeds its events to the
@@ -29,6 +31,14 @@ func (c conn) Barrier(token string) error {
 
 func newService(t *testing.T, opts perf.Options) (*perf.Service, *cdptest.Server) {
 	t.Helper()
+	svc, srv, _ := newServiceWithFlush(t, opts)
+	return svc, srv
+}
+
+// newServiceWithFlush also returns flush, which returns once the service
+// has handled every event the server sent before the call.
+func newServiceWithFlush(t *testing.T, opts perf.Options) (*perf.Service, *cdptest.Server, func()) {
+	t.Helper()
 	srv := cdptest.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -38,12 +48,32 @@ func newService(t *testing.T, opts perf.Options) (*perf.Service, *cdptest.Server
 	}
 	t.Cleanup(func() { _ = c.Close() })
 	svc := perf.NewService(conn{c}, opts)
+	flushed := make(chan struct{}, 1)
 	go func() {
 		for ev := range c.Events() {
 			svc.HandleEvent(ev)
+			if ev.Method == cdp.EventLensBarrier && string(ev.Params) == `"test-flush"` {
+				flushed <- struct{}{}
+			}
 		}
 	}()
-	return svc, srv
+	flush := func() {
+		t.Helper()
+		// The reply (an unknown-method error) follows every event sent
+		// before it, so the barrier lands behind them all.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = c.Call(ctx, "Lens.testFlush", nil)
+		if !c.Barrier("test-flush") {
+			t.Fatal("connection closed")
+		}
+		select {
+		case <-flushed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("events not handled")
+		}
+	}
+	return svc, srv, flush
 }
 
 func params(t *testing.T, raw json.RawMessage) map[string]any {
@@ -268,7 +298,7 @@ func TestANewSessionReleasesAWaitingStop(t *testing.T) {
 // timed-out recording must not join the next one.
 func TestLateChunksOfATimedOutTraceStayOut(t *testing.T) {
 	t.Parallel()
-	svc, srv := newService(t, perf.Options{TraceTimeout: 50 * time.Millisecond})
+	svc, srv, flush := newServiceWithFlush(t, perf.Options{TraceTimeout: 50 * time.Millisecond})
 	srv.Handle("Tracing.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
 	srv.Handle("Tracing.end", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
 	ctx := context.Background()
@@ -282,10 +312,38 @@ func TestLateChunksOfATimedOutTraceStayOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.Emit("Tracing.dataCollected", map[string]any{"value": []map[string]any{{"name": "stale"}}})
-	time.Sleep(50 * time.Millisecond)
+	flush()
 	traceTarget(t, srv, [][]map[string]any{{{"name": "fresh", "ph": "I", "ts": 1}}}, false)
 	trace, err := svc.StopTrace(ctx)
 	if err != nil || len(trace.Events) != 1 || !strings.Contains(string(trace.Events[0]), "fresh") {
 		t.Fatalf("trace = %d events (%v), want only the fresh one", len(trace.Events), err)
+	}
+}
+
+func TestConcurrentStopProfileSendsOneStop(t *testing.T) {
+	t.Parallel()
+	svc, srv := newService(t, perf.Options{})
+	srv.Handle("Profiler.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	srv.Handle("Profiler.stop", func(cdptest.Request) (any, *cdptest.Error) {
+		time.Sleep(300 * time.Millisecond) // the second stop arrives meanwhile
+		return map[string]any{"profile": map[string]any{"nodes": []any{map[string]any{"id": 1}}}}, nil
+	})
+	ctx := context.Background()
+	if err := svc.StartProfile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := make(chan error, 1)
+	go func() { _, err := svc.StopProfile(ctx); first <- err }()
+	for !slices.Contains(srv.Methods(), "Profiler.stop") {
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := svc.StopProfile(ctx); !errors.Is(err, perf.ErrBusy) {
+		t.Fatalf("second StopProfile err = %v, want ErrBusy", err)
+	}
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(strings.Join(srv.Methods(), " "), "Profiler.stop"); n != 1 {
+		t.Fatalf("Profiler.stop sent %d times", n)
 	}
 }

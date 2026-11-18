@@ -26,6 +26,10 @@ describe("presentFastRefresh", () => {
     ).toBe("Fast Refresh: 3 modules 30 s ago");
   });
 
+  it("hides a phase it does not know, from a newer Lens core", () => {
+    expect(presentFastRefresh({ phase: "paused" as never }, now)).toBeNull();
+  });
+
   it("explains failures in the tooltip", () => {
     expect(presentFastRefresh({ phase: "error", message: "SyntaxError: App.tsx" }, now)).toEqual({
       label: "Fast Refresh failed",

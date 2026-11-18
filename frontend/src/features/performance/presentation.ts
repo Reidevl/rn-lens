@@ -46,6 +46,9 @@ export function presentFastRefresh(
     }
     case "error":
       return { label: "Fast Refresh failed", tone: "bad", title: state.message };
+    default:
+      // A phase this UI does not know yet: show nothing rather than guess.
+      return null;
   }
 }
 

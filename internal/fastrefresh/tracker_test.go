@@ -34,6 +34,10 @@ type stream struct {
 	sent   chan []byte
 	closed chan struct{}
 	once   sync.Once
+	// deaf makes Recv ignore its context, like a socket that delivers one
+	// more buffered message after the registration was stopped.
+	deaf bool
+	read chan struct{} // signaled after each message Recv returns
 }
 
 func (s *stream) Send(_ context.Context, v any) error {
@@ -43,8 +47,15 @@ func (s *stream) Send(_ context.Context, v any) error {
 }
 
 func (s *stream) Recv(ctx context.Context) ([]byte, error) {
+	if s.deaf {
+		ctx = context.Background()
+	}
 	select {
 	case b := <-s.in:
+		select {
+		case s.read <- struct{}{}:
+		default:
+		}
 		return b, nil
 	case <-s.closed:
 		return nil, errors.New("closed")
@@ -58,12 +69,13 @@ func (s *stream) Close() error { s.once.Do(func() { close(s.closed) }); return n
 type dialer struct {
 	urls    chan string
 	streams chan *stream
+	deaf    bool // streams ignore their context (see stream.deaf)
 }
 
 func newDialer() *dialer { return &dialer{urls: make(chan string, 8), streams: make(chan *stream, 8)} }
 
 func (d *dialer) DialHMR(_ context.Context, url string) (fastrefresh.Stream, error) {
-	s := &stream{in: make(chan []byte, 16), sent: make(chan []byte, 16), closed: make(chan struct{})}
+	s := &stream{in: make(chan []byte, 16), sent: make(chan []byte, 16), closed: make(chan struct{}), deaf: d.deaf, read: make(chan struct{}, 16)}
 	d.urls <- url
 	d.streams <- s
 	return s, nil
@@ -219,8 +231,15 @@ func TestTrackerWaitsForTheAppToReloadAfterAMetroRestart(t *testing.T) {
 // every rebuild: update-done must not hide the error.
 func TestBundlingErrorSurvivesUpdateDone(t *testing.T) {
 	t.Parallel()
+	var mu sync.Mutex
+	var phases []fastrefresh.Phase
 	d := newDialer()
-	tr := fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{})
+	var tr *fastrefresh.Tracker
+	tr = fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{OnChange: func() {
+		mu.Lock()
+		phases = append(phases, tr.State().Phase)
+		mu.Unlock()
+	}})
 	t.Cleanup(tr.Stop)
 	tr.Attached("http://127.0.0.1:8081")
 	s := next(t, d.streams)
@@ -229,9 +248,48 @@ func TestBundlingErrorSurvivesUpdateDone(t *testing.T) {
 	s.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":false}}`)
 	s.in <- []byte(`{"type":"error","body":{"type":"TransformError","message":"SyntaxError: boom","errors":[]}}`)
 	s.in <- []byte(`{"type":"update-done","body":{}}`)
-	s.in <- []byte(`{"type":"bundle-registered"}`) // a later message proves update-done was handled
-	time.Sleep(100 * time.Millisecond)
-	if st := tr.State(); st.Phase != fastrefresh.PhaseError || st.Message != "SyntaxError: boom" {
-		t.Fatalf("after update-start, error, update-done: state = %+v, want PhaseError", st)
+	// The next rebuild proves update-done was handled before it.
+	s.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":false}}`)
+	waitState(t, tr, func(st fastrefresh.State) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(phases) > 0 && phases[len(phases)-1] == fastrefresh.PhaseUpdating && st.Phase == fastrefresh.PhaseUpdating
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for i, p := range phases {
+		if p == fastrefresh.PhaseError {
+			if rest := phases[i+1:]; len(rest) != 1 || rest[0] != fastrefresh.PhaseUpdating {
+				t.Fatalf("phases after the error = %v, want only updating", rest)
+			}
+			return
+		}
+	}
+	t.Fatalf("phases = %v, no error", phases)
+}
+
+// A registration that was replaced or stopped never changes the state.
+func TestAStaleRegistrationCannotChangeTheState(t *testing.T) {
+	t.Parallel()
+	d := newDialer()
+	d.deaf = true
+	tr := fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{})
+	t.Cleanup(tr.Stop)
+	tr.Attached("http://127.0.0.1:8081")
+	old := next(t, d.streams)
+	t.Cleanup(func() { _ = old.Close() }) // runs before tr.Stop: lets the deaf Recv return
+	next(t, old.sent)
+	waitState(t, tr, phase(fastrefresh.PhaseReady))
+	tr.Detached()
+	old.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":false}}`)
+	old.in <- []byte(`{"type":"error","body":{"type":"TransformError","message":"late"}}`)
+	old.in <- []byte(`{"type":"bundle-registered"}`)
+	for range 3 {
+		next(t, old.read)
+	}
+	// The loop handles messages in order: the first two were handled before
+	// the third was read.
+	if st := tr.State(); st.Phase != fastrefresh.PhaseOff {
+		t.Fatalf("state after late messages of a stopped registration = %+v", st)
 	}
 }
