@@ -3,6 +3,7 @@ package sdkws_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -148,15 +149,44 @@ func read(t *testing.T, c *websocket.Conn) protocol.Message {
 	return msg
 }
 
-func closeStatus(t *testing.T, c *websocket.Conn) websocket.StatusCode {
-	t.Helper()
+// readClose waits for the server to close the socket and reports the close
+// status. It never fails the test, so goroutines other than the test's own
+// may call it and hand the result back over a channel.
+func readClose(c *websocket.Conn) (websocket.StatusCode, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_, _, err := c.Read(ctx)
 	if err == nil {
-		t.Fatal("expected the server to close the socket")
+		return 0, errors.New("expected the server to close the socket")
 	}
-	return websocket.CloseStatus(err)
+	return websocket.CloseStatus(err), nil
+}
+
+func closeStatus(t *testing.T, c *websocket.Conn) websocket.StatusCode {
+	t.Helper()
+	status, err := readClose(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return status
+}
+
+// closeResult carries a readClose outcome from a reader goroutine to the
+// test goroutine, which owns the assertions.
+type closeResult struct {
+	status websocket.StatusCode
+	err    error
+}
+
+// readCloseAsync reads the close frame on its own goroutine, so a Stop under
+// test can complete its close handshake while the test waits on it.
+func readCloseAsync(c *websocket.Conn) <-chan closeResult {
+	out := make(chan closeResult, 1)
+	go func() {
+		status, err := readClose(c)
+		out <- closeResult{status: status, err: err}
+	}()
+	return out
 }
 
 func hello(token string) protocol.Hello {
@@ -429,17 +459,53 @@ func TestStopClosesSessions(t *testing.T) {
 	read(t, c)
 	rec.next(t, "connect")
 
+	// The client reads while Stop runs, as a live SDK does, so the close
+	// handshake completes and Stop returns well within its context.
+	result := readCloseAsync(c)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := srv.Stop(ctx); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if got := closeStatus(t, c); got != sdkws.CloseServerShutdown {
-		t.Fatalf("close status = %d, want %d", got, sdkws.CloseServerShutdown)
+	res := <-result
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if res.status != sdkws.CloseServerShutdown {
+		t.Fatalf("close status = %d, want %d", res.status, sdkws.CloseServerShutdown)
 	}
 	rec.next(t, "disconnect")
 	if len(srv.Sessions()) != 0 {
 		t.Fatalf("sessions after Stop = %d", len(srv.Sessions()))
+	}
+}
+
+// Stop must return once ctx expires even while a connection is still waiting
+// for its hello, and cut that straggler instead of waiting out HelloTimeout.
+func TestStopIsBoundedByContextWhileAHandshakeIsPending(t *testing.T) {
+	t.Parallel()
+	srv, rec, url := startServer(t, sdkws.Options{HelloTimeout: 3 * time.Second})
+	c := dial(t, url)                  // never sends hello
+	time.Sleep(100 * time.Millisecond) // let the server pick the socket up
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := srv.Stop(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop = %v, want the context deadline", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("Stop took %s, want it bounded by ctx", d)
+	}
+
+	readCtx, readCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer readCancel()
+	if _, _, err := c.Read(readCtx); err == nil || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("straggler Read = %v, want the socket cut", err)
+	}
+	if n := rec.count("connect"); n != 0 {
+		t.Fatalf("handler saw %d connect events for a connection cut mid-handshake", n)
 	}
 }
 
@@ -502,13 +568,18 @@ func TestStopWaitsForSessionsAndRefusesLateConnections(t *testing.T) {
 		stopped <- srv.Stop(ctx)
 	}()
 	// Read the close frames concurrently: Stop closes sessions in map order.
-	statuses := make(chan websocket.StatusCode, len(clients))
+	// The readers only report; assertions stay on the test goroutine.
+	results := make([]<-chan closeResult, 0, len(clients))
 	for _, c := range clients {
-		go func(c *websocket.Conn) { statuses <- closeStatus(t, c) }(c)
+		results = append(results, readCloseAsync(c))
 	}
-	for range clients {
-		if got := <-statuses; got != sdkws.CloseServerShutdown {
-			t.Fatalf("close status = %d, want %d", got, sdkws.CloseServerShutdown)
+	for _, result := range results {
+		res := <-result
+		if res.err != nil {
+			t.Fatal(res.err)
+		}
+		if res.status != sdkws.CloseServerShutdown {
+			t.Fatalf("close status = %d, want %d", res.status, sdkws.CloseServerShutdown)
 		}
 	}
 	select {

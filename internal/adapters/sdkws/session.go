@@ -28,6 +28,8 @@ type Session struct {
 	conn        *websocket.Conn
 	remote      string
 	connectedAt time.Time
+	// seq orders sessions by acceptance; connectedAt alone can tie.
+	seq uint64
 
 	writeMu    sync.Mutex
 	closeOnce  sync.Once
