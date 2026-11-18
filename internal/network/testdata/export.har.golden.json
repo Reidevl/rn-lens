@@ -1,0 +1,178 @@
+{
+  "log": {
+    "version": "1.2",
+    "creator": {
+      "name": "Lens",
+      "version": "1.2.3"
+    },
+    "pages": [],
+    "entries": [
+      {
+        "startedDateTime": "2023-11-14T22:15:00.500Z",
+        "time": 249,
+        "request": {
+          "method": "GET",
+          "url": "https://httpbin.org/json?a=1&b=x%20y",
+          "httpVersion": "HTTP/2",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Retry",
+              "value": "2"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "a",
+              "value": "1"
+            },
+            {
+              "name": "b",
+              "value": "x y"
+            }
+          ],
+          "headersSize": -1,
+          "bodySize": 0
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "HTTP/2",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Content-Length",
+              "value": "16"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "content": {
+            "size": 16,
+            "mimeType": "application/json",
+            "text": "{\"slideshow\":{}}"
+          },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": 90
+        },
+        "cache": {},
+        "timings": {
+          "blocked": 2,
+          "dns": 3,
+          "connect": 25,
+          "ssl": 20,
+          "send": 1,
+          "wait": 148,
+          "receive": 70
+        },
+        "serverIPAddress": "2001:db8::1",
+        "_resourceType": "fetch"
+      },
+      {
+        "startedDateTime": "2023-11-14T22:15:01.000Z",
+        "time": 500,
+        "request": {
+          "method": "POST",
+          "url": "https://api.example.com/todos",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "queryString": [],
+          "postData": {
+            "mimeType": "application/json",
+            "text": "{\"title\":\"x\"}"
+          },
+          "headersSize": -1,
+          "bodySize": 13
+        },
+        "response": {
+          "status": 0,
+          "statusText": "",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [],
+          "content": {
+            "size": 0,
+            "mimeType": ""
+          },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": 0
+        },
+        "cache": {},
+        "timings": {
+          "blocked": -1,
+          "dns": -1,
+          "connect": -1,
+          "ssl": -1,
+          "send": 0,
+          "wait": 500,
+          "receive": 0
+        },
+        "_error": "net::ERR_CONNECTION_REFUSED"
+      },
+      {
+        "startedDateTime": "2023-11-14T22:15:00.500Z",
+        "time": 300,
+        "request": {
+          "method": "GET",
+          "url": "https://cdn.example.com/a.png",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Retry",
+              "value": "2"
+            }
+          ],
+          "queryString": [],
+          "headersSize": -1,
+          "bodySize": 0
+        },
+        "response": {
+          "status": 200,
+          "statusText": "",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [],
+          "content": {
+            "size": 0,
+            "mimeType": "image/png",
+            "text": "iVBORw0KGgo=",
+            "encoding": "base64"
+          },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": 8
+        },
+        "cache": {},
+        "timings": {
+          "blocked": -1,
+          "dns": -1,
+          "connect": -1,
+          "ssl": -1,
+          "send": 0,
+          "wait": 100,
+          "receive": 200
+        },
+        "_resourceType": "fetch"
+      }
+    ]
+  }
+}
