@@ -19,6 +19,7 @@ window.
 | App and device metadata, reload — [guide](docs/guides/connect.md)                                                         | CDP                                | No              |
 | Queries and Mutations (TanStack Query)                                                                                    | `@rnlens/sdk`                      | One hook        |
 | Storage (AsyncStorage, MMKV, SecureStore) — [guide](docs/guides/storage.md)                                               | `@rnlens/sdk`                      | One hook        |
+| Plugins: your own panels, drawn by Lens — [guide](docs/guides/plugins.md)                                                 | `@rnlens/sdk`                      | One panel       |
 | Performance: screenshot, trace (Perfetto), CPU profile, heap snapshot, Fast Refresh — [guide](docs/guides/performance.md) | CDP                                | No              |
 
 ## Install

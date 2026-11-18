@@ -10,6 +10,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { flagsPanel } from "./panels";
 import { seedStorage, storage } from "./storage";
 
 /**
@@ -126,7 +127,13 @@ function Demo() {
 export default function App() {
   // EXPO_PUBLIC_LENS_URL points the SDK at a Lens that is not on the default
   // port (the e2e suite uses it); unset, the host comes from the Metro bundle.
-  useLens({ queryClient, storage, appName: "Lens Example", url: process.env.EXPO_PUBLIC_LENS_URL });
+  useLens({
+    queryClient,
+    storage,
+    panels: [flagsPanel],
+    appName: "Lens Example",
+    url: process.env.EXPO_PUBLIC_LENS_URL,
+  });
   useEffect(() => {
     seedStorage().catch((err: unknown) => console.warn("seeding storage failed", err));
   }, []);
