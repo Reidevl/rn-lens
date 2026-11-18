@@ -1,0 +1,35 @@
+---
+title: Lens
+description: React Native DevTools written in Go.
+template: splash
+hero:
+  tagline: React Native DevTools written in Go. Console, network, TanStack Query, storage, performance, and panels your app adds — in a desktop app or a browser tab.
+  actions:
+    - text: Install
+      link: /guides/install/
+      icon: right-arrow
+    - text: Connect your app
+      link: /guides/connect/
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <Card title="No code for the basics" icon="rocket">
+    Console, network, metadata, screenshots and traces come from the Chrome
+    DevTools Protocol through Metro. Attach and go.
+  </Card>
+  <Card title="One hook for the rest" icon="puzzle">
+    `useLens({ queryClient, storage, panels })` adds TanStack Query, your
+    stores and your own panels.
+  </Card>
+  <Card title="Desktop or browser" icon="laptop">
+    A native window, or `npx rnlens` in any browser tab, on macOS, Linux and
+    Windows.
+  </Card>
+  <Card title="Your panels, drawn by Lens" icon="setting">
+    Describe a panel with tables, trees, logs and buttons. No UI code of yours
+    runs inside Lens.
+  </Card>
+</CardGrid>
