@@ -8,7 +8,7 @@ import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
 import { hexDump, jsonOf, toBase64, valueSize } from "./presentation";
-import { loadValue, runStorageAction, useStorageStore } from "./storageStore";
+import { loadValue, runStorageAction, useStorageStore, valueId } from "./storageStore";
 
 type View = "Text" | "JSON" | "Hex" | "Base64";
 
@@ -31,7 +31,9 @@ export function ValueView({
   const [confirming, setConfirming] = useState(false);
 
   const loaded =
-    value?.id === `${storeId}/${valueKey}` ? value.loaded : { state: "loading" as const };
+    value?.id === valueId(deviceKey, storeId, valueKey)
+      ? value.loaded
+      : { state: "loading" as const };
 
   const save = async (v: StorageValue) => {
     if (!editing) return;
