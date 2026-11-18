@@ -20,7 +20,7 @@
     ".": {
       "component": "rnlens",
       "extra-files": [
-        "build/config.yml",
+        { "type": "generic", "path": "build/config.yml" },
         {
           "type": "xml",
           "path": "build/darwin/Info.plist",
