@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Reidevl/rn-lens/internal/platform/cdp"
 )
@@ -221,6 +222,13 @@ func (s *Service) ResponseBody(ctx context.Context, seq, epoch uint64) (Body, er
 	body := Body{Text: res.Body, Base64: res.Base64Encoded, Size: len(res.Body)}
 	if body.Base64 {
 		body.Size = decodedLen(res.Body)
+		// React Native on iOS sends every body as base64, JSON included.
+		// Bodies above the limit are dropped below, so skip decoding them.
+		if len(res.Body) <= s.opts.MaxBodyBytes {
+			if text, ok := decodeText(res.Body, r.MimeType); ok {
+				body.Text, body.Base64 = text, false
+			}
+		}
 	}
 	if len(res.Body) > s.opts.MaxBodyBytes {
 		body.Text = ""
@@ -260,6 +268,35 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 		return "", fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(res.PostData))
 	}
 	return res.PostData, nil
+}
+
+// decodeText decodes a base64 body when its MIME type is textual and the
+// bytes are valid UTF-8.
+func decodeText(b64, mime string) (string, bool) {
+	if !isTextMime(mime) {
+		return "", false
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil || !utf8.Valid(raw) {
+		return "", false
+	}
+	return string(raw), true
+}
+
+func isTextMime(mime string) bool {
+	m := strings.ToLower(strings.TrimSpace(strings.SplitN(mime, ";", 2)[0]))
+	switch {
+	// Images stay base64 even when they are XML (SVG): Preview renders them.
+	case strings.HasPrefix(m, "image/"):
+		return false
+	case strings.HasPrefix(m, "text/"),
+		strings.HasSuffix(m, "+json"), strings.HasSuffix(m, "+xml"),
+		m == "application/json", m == "application/xml", m == "application/x-ndjson",
+		m == "application/javascript", m == "application/x-javascript", m == "application/ecmascript",
+		m == "application/x-www-form-urlencoded":
+		return true
+	}
+	return false
 }
 
 // decodedLen is the byte size of a base64 body.

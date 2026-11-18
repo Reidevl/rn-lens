@@ -45,6 +45,10 @@ shows that message instead.
 | Time      | From request start to the last byte                                |
 | Waterfall | When the request ran, on one time axis shared by every visible row |
 
+The newest request is on top. Click a column header to sort by it; click it
+again to reverse the order (the Waterfall header sorts by start time). While a
+request's details are open the table keeps only Name, Status and Time.
+
 Filter by type with the chips (Fetch/XHR, Doc, JS, Img, Media, Font, WS,
 Other) and by URL with the search box. Requests from earlier sessions (before
 a reload or re-attach) are hidden unless **Preserve log** is on. **Clear**
@@ -68,6 +72,13 @@ Bodies are fetched from the app only when you open a tab that needs them, and
 cached (up to 32 MiB). Bodies larger than 5 MiB are not shown. Bodies of
 requests from an earlier session cannot be fetched: React Native keeps them
 per debugger connection.
+
+React Native on iOS sends every body base64-encoded; Lens decodes text bodies
+(JSON, XML, `text/*`, form data) so Preview and Response show them as text,
+and keeps images and other binary bodies as they are.
+
+**Copy response** puts the response body on the clipboard from any tab (text
+as received; base64 for binary bodies).
 
 **Copy as cURL** puts a POSIX shell command on the clipboard with the method,
 headers and body of the request.
