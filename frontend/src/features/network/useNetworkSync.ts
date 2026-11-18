@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import { TOPICS, useBackend } from "@/backend";
-import { errorMessage } from "@/features/console/consoleStore";
+import { errorMessage } from "@/shared/lib/errorMessage";
 
 import { pullNetwork, useNetworkStore } from "./networkStore";
 

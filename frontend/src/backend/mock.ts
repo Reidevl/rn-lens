@@ -382,7 +382,10 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
         const body = responseBodies.get(seq);
         return body ? Promise.resolve(body) : Promise.reject(new Error("network: no body"));
       },
-      requestBody: (seq) => Promise.resolve(requests.get(seq)?.postData ?? ""),
+      requestBody: (seq, epoch) =>
+        epoch === netEpoch
+          ? Promise.resolve(requests.get(seq)?.postData ?? "")
+          : Promise.reject(new Error("network: earlier session")),
       clear: () => {
         calls.push("network.clear");
         requests.clear();

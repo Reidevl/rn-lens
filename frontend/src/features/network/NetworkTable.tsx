@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef } from "react";
+import { useRef, type KeyboardEvent } from "react";
 
 import type { NetworkSummary } from "@/backend";
 import { cn } from "@/shared/lib/cn";
@@ -7,6 +7,7 @@ import { cn } from "@/shared/lib/cn";
 import {
   formatBytes,
   formatDuration,
+  formatMillis,
   requestName,
   sizeOf,
   statusLabel,
@@ -50,11 +51,50 @@ export function NetworkTable({
     getItemKey: (index) => rows[index].seq,
   });
   const { start, span } = axis(rows);
+  // One tab stop: the selected row, or the first one.
+  const focusIndex = Math.max(
+    0,
+    rows.findIndex((r) => r.seq === selectedSeq),
+  );
+
+  const move = (e: KeyboardEvent, index: number) => {
+    const last = rows.length - 1;
+    const target =
+      e.key === "ArrowDown"
+        ? Math.min(index + 1, last)
+        : e.key === "ArrowUp"
+          ? Math.max(index - 1, 0)
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? last
+              : -1;
+    if (target < 0) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onSelect(rows[index].seq);
+      }
+      return;
+    }
+    e.preventDefault();
+    virtualizer.scrollToIndex(target);
+    parentRef.current?.querySelector<HTMLElement>(`[data-seq="${rows[target].seq}"]`)?.focus();
+    onSelect(rows[target].seq);
+  };
 
   return (
-    <div role="table" aria-label="Requests" className="flex min-h-0 flex-1 flex-col text-xs">
+    <div
+      role="grid"
+      aria-label="Requests"
+      aria-rowcount={rows.length + 1}
+      className="flex min-h-0 flex-1 flex-col text-xs"
+    >
       <div role="rowgroup" className="border-b border-border bg-card">
-        <div role="row" className={cn("grid gap-2 px-3 py-1 text-muted-foreground", COLUMNS)}>
+        <div
+          role="row"
+          aria-rowindex={1}
+          className={cn("grid gap-2 px-3 py-1 text-muted-foreground", COLUMNS)}
+        >
           {["Name", "Method", "Status", "Type", "Size", "Time", "Waterfall"].map((c) => (
             <span key={c} role="columnheader" className="truncate font-medium">
               {c}
@@ -74,15 +114,12 @@ export function NetworkTable({
               <div
                 key={item.key}
                 role="row"
+                data-seq={r.seq}
+                aria-rowindex={item.index + 2}
                 aria-selected={selected}
-                tabIndex={0}
+                tabIndex={item.index === focusIndex ? 0 : -1}
                 onClick={() => onSelect(r.seq)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelect(r.seq);
-                  }
-                }}
+                onKeyDown={(e) => move(e, item.index)}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -97,24 +134,28 @@ export function NetworkTable({
                   r.state === "failed" && "text-destructive",
                 )}
               >
-                <span role="cell" className="truncate font-mono" title={r.url}>
+                <span role="gridcell" className="truncate font-mono" title={r.url}>
                   {requestName(r.url)}
                 </span>
-                <span role="cell">{r.method}</span>
-                <span role="cell" className={cn("tabular-nums", statusTone(r))}>
+                <span role="gridcell">{r.method}</span>
+                <span role="gridcell" className={cn("tabular-nums", statusTone(r))}>
                   {statusLabel(r)}
                 </span>
-                <span role="cell" className="truncate text-muted-foreground">
+                <span role="gridcell" className="truncate text-muted-foreground">
                   {r.resourceType || "Other"}
                 </span>
-                <span role="cell" className="tabular-nums text-muted-foreground">
+                <span role="gridcell" className="tabular-nums text-muted-foreground">
                   {r.fromCache ? "(cache)" : formatBytes(sizeOf(r))}
                 </span>
-                <span role="cell" className="tabular-nums text-muted-foreground">
+                <span role="gridcell" className="tabular-nums text-muted-foreground">
                   {formatDuration(r)}
                 </span>
-                <span role="cell" aria-hidden="true" className="relative h-2">
+                <span role="gridcell" className="relative h-2">
+                  <span className="sr-only">
+                    {`Starts ${formatMillis((r.startTime - start) * 1000)} after the first request`}
+                  </span>
                   <span
+                    aria-hidden="true"
                     className={cn(
                       "absolute top-0 h-2 rounded-sm",
                       r.state === "failed"

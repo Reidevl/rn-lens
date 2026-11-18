@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { Backend, ConsoleEntry, ConsoleLevel } from "@/backend";
+import { errorMessage } from "@/shared/lib/errorMessage";
 
 /**
  * Entries kept in memory, matching Go's buffer capacity. The frontend may
@@ -135,10 +136,7 @@ export async function pullConsole(backend: Backend): Promise<void> {
   });
 }
 
-/** Message shown for a failed backend call. */
-export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
+export { errorMessage };
 
 /** Runs a console action and surfaces its error in the store. */
 export async function runConsoleAction(action: () => Promise<void>): Promise<void> {

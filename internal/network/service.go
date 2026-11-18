@@ -3,10 +3,12 @@ package network
 import (
 	"container/list"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,6 +28,8 @@ var (
 	ErrStale = errors.New("network: the request belongs to an earlier session; its body is no longer available")
 	// ErrNotFound means the request was evicted or cleared.
 	ErrNotFound = errors.New("network: request not found")
+	// ErrBodyTooLarge means a request body exceeds MaxBodyBytes.
+	ErrBodyTooLarge = errors.New("network: the request body is larger than Lens shows")
 )
 
 // ReasonNeedsNewerReactNative is the availability reason when the target has
@@ -50,8 +54,8 @@ type Availability struct {
 }
 
 // Body is a response body. Base64 is set for binary bodies (Text is then
-// base64). Truncated bodies were larger than the per-body limit: Text is
-// empty and Size tells how large they were.
+// base64). Size is the decoded byte count. Truncated bodies were larger than
+// the per-body limit (measured on the text as received): Text is empty.
 type Body struct {
 	Text      string `json:"text"`
 	Base64    bool   `json:"base64"`
@@ -113,18 +117,23 @@ func (s *Service) HandleEvent(ev cdp.Event) {
 	}
 }
 
-// OnAttached runs after every successful attach. A re-attach starts a new
-// epoch (bodies of earlier requests are gone with the old session). It then
-// enables the Network domain; a target without one is reported through
-// Availability, not as an error.
-func (s *Service) OnAttached(ctx context.Context) error {
+// BeginSession marks a new debugger session. Call it synchronously as soon as
+// the session is attached, before any request can reach it: a re-attach starts
+// a new epoch, so bodies of earlier requests (gone with the old session, and
+// whose requestIds the app may reuse) are refused from then on. It does no I/O.
+func (s *Service) BeginSession() {
 	if s.attachments.Add(1) > 1 {
 		s.store.NewEpoch()
 		s.mu.Lock()
 		s.cache.purge()
 		s.mu.Unlock()
+		s.notify()
 	}
+}
 
+// OnAttached enables the Network domain after BeginSession; a target without
+// one is reported through Availability, not as an error.
+func (s *Service) OnAttached(ctx context.Context) error {
 	callCtx, cancel := context.WithTimeout(ctx, s.opts.EnableTimeout)
 	defer cancel()
 	_, err := s.caller.Call(callCtx, cdp.MethodNetworkEnable, nil)
@@ -204,8 +213,16 @@ func (s *Service) ResponseBody(ctx context.Context, seq, epoch uint64) (Body, er
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return Body{}, fmt.Errorf("network: decode response body: %w", err)
 	}
+	// A re-attach while the app answered: the reply came from the new session
+	// and may describe another request that reused the requestId.
+	if s.store.Epoch() != epoch {
+		return Body{}, ErrStale
+	}
 	body := Body{Text: res.Body, Base64: res.Base64Encoded, Size: len(res.Body)}
-	if body.Size > s.opts.MaxBodyBytes {
+	if body.Base64 {
+		body.Size = decodedLen(res.Body)
+	}
+	if len(res.Body) > s.opts.MaxBodyBytes {
 		body.Text = ""
 		body.Truncated = true
 	}
@@ -222,6 +239,9 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 	if err != nil {
 		return "", err
 	}
+	if len(r.PostData) > s.opts.MaxBodyBytes {
+		return "", fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(r.PostData))
+	}
 	if r.PostData != "" || !r.HasPostData {
 		return r.PostData, nil
 	}
@@ -233,7 +253,19 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return "", fmt.Errorf("network: decode request body: %w", err)
 	}
+	if s.store.Epoch() != epoch {
+		return "", ErrStale
+	}
+	if len(res.PostData) > s.opts.MaxBodyBytes {
+		return "", fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(res.PostData))
+	}
 	return res.PostData, nil
+}
+
+// decodedLen is the byte size of a base64 body.
+func decodedLen(b64 string) int {
+	n := base64.StdEncoding.DecodedLen(len(b64))
+	return n - strings.Count(b64[max(0, len(b64)-2):], "=")
 }
 
 func (s *Service) notify() {

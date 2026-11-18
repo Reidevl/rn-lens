@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -153,15 +154,14 @@ func TestBodiesAreRefusedAfterReattachAndForUnknownRequests(t *testing.T) {
 	h.srv.Handle(cdp.MethodNetworkGetResponseBody, func(cdptest.Request) (any, *cdptest.Error) {
 		return cdp.GetResponseBodyResult{Body: "x"}, nil
 	})
+	h.svc.BeginSession()
 	if err := h.svc.OnAttached(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	seq := h.finished(t, "1", nil)
 	oldEpoch := h.svc.Store().Epoch()
 
-	if err := h.svc.OnAttached(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	h.svc.BeginSession()
 	if h.svc.Store().Epoch() != oldEpoch+1 {
 		t.Fatalf("re-attach did not start a new epoch")
 	}
@@ -251,5 +251,89 @@ func TestClearEmptiesTheStoreAndNotifies(t *testing.T) {
 	h.svc.Clear()
 	if h.svc.Store().Stats().Len != 0 || h.notified.Load() <= before {
 		t.Fatalf("Clear: len=%d notified=%v", h.svc.Store().Stats().Len, h.notified.Load() > before)
+	}
+}
+
+// gateCaller holds Network.getResponseBody until released, so a test can
+// re-attach while the app is answering.
+type gateCaller struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (g *gateCaller) Call(_ context.Context, method string, _ any) (json.RawMessage, error) {
+	if method == cdp.MethodNetworkGetResponseBody {
+		g.once.Do(func() { close(g.entered) })
+		<-g.release
+		return json.RawMessage(`{"body":"body of a NEW-session request","base64Encoded":false}`), nil
+	}
+	return json.RawMessage(`{}`), nil
+}
+
+// A body fetch that straddles a re-attach must not hand back what the new
+// session answered for a requestId the app may have reused.
+func TestResponseBodyRacingAReattachIsStale(t *testing.T) {
+	t.Parallel()
+	g := &gateCaller{entered: make(chan struct{}), release: make(chan struct{})}
+	svc := network.NewService(network.NewStore(0, nil), g, network.ServiceOptions{})
+	svc.BeginSession()
+	svc.HandleEvent(event(t, cdp.EventNetworkRequestWillBeSent, map[string]any{"requestId": "1", "request": map[string]any{"url": "https://x/old", "method": "GET", "headers": map[string]any{}}, "timestamp": 1}))
+	svc.HandleEvent(event(t, cdp.EventNetworkLoadingFinished, map[string]any{"requestId": "1", "timestamp": 2}))
+	row := svc.Store().Since(0, 0)[0]
+
+	type result struct {
+		body network.Body
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		b, err := svc.ResponseBody(context.Background(), row.Seq, row.Epoch)
+		done <- result{b, err}
+	}()
+	<-g.entered
+	svc.BeginSession()
+	close(g.release)
+	if r := <-done; !errors.Is(r.err, network.ErrStale) {
+		t.Fatalf("body fetched across a re-attach was returned: %+v, %v", r.body, r.err)
+	}
+}
+
+func TestPendingRequestsFailWhenTheSessionEnds(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{})
+	h.svc.BeginSession()
+	h.svc.HandleEvent(willBeSend(t, "1", "https://x/slow", 1))
+	h.svc.BeginSession()
+
+	rows := h.svc.Store().Since(0, 0)
+	if rows[0].State != network.StateFailed || rows[0].ErrorText != network.ErrorSessionEnded {
+		t.Fatalf("pending row after re-attach = %+v", rows[0])
+	}
+	// The new session may reuse the requestId; it must open a new row.
+	h.svc.HandleEvent(willBeSend(t, "1", "https://x/new", 2))
+	if rows := h.svc.Store().Since(0, 0); len(rows) != 2 || rows[1].URL != "https://x/new" || rows[0].URL != "https://x/slow" {
+		t.Fatalf("rows = %+v", rows)
+	}
+}
+
+func TestBinaryBodySizeIsTheDecodedSize(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{})
+	h.srv.Handle(cdp.MethodNetworkGetResponseBody, func(cdptest.Request) (any, *cdptest.Error) {
+		return cdp.GetResponseBodyResult{Body: "aGVsbG8=", Base64Encoded: true}, nil // "hello"
+	})
+	b, err := h.svc.ResponseBody(context.Background(), h.finished(t, "1", nil), h.svc.Store().Epoch())
+	if err != nil || b.Size != 5 {
+		t.Fatalf("size = %d, %v; want 5 decoded bytes", b.Size, err)
+	}
+}
+
+func TestRequestBodiesAboveTheLimitAreRefused(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{MaxBodyBytes: 4})
+	seq := h.finished(t, "1", map[string]any{"url": "https://x", "method": "POST", "headers": map[string]any{}, "postData": "12345", "hasPostData": true})
+	if _, err := h.svc.RequestBody(context.Background(), seq, h.svc.Store().Epoch()); !errors.Is(err, network.ErrBodyTooLarge) {
+		t.Fatalf("err = %v, want ErrBodyTooLarge", err)
 	}
 }

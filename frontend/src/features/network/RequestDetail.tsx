@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useBackend, type NetworkBody, type NetworkRequest, type NetworkSummary } from "@/backend";
-import { errorMessage } from "@/features/console/consoleStore";
+import { errorMessage } from "@/shared/lib/errorMessage";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/atoms/Button";
 import { CopyButton } from "@/shared/ui/molecules/CopyButton";
@@ -33,7 +33,10 @@ type Loaded<T> =
 export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: () => void }) {
   const backend = useBackend();
   const [tab, setTab] = useState<Tab>("Headers");
-  const [loadedRequest, setLoadedRequest] = useState<NetworkRequest | null>(null);
+  const [loaded, setLoaded] = useState<{ seq: number; request?: NetworkRequest; error?: string }>({
+    seq: -1,
+  });
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   // Bodies keyed by "seq:epoch" so switching rows never shows another row's body.
   const [responses, setResponses] = useState<Record<string, Loaded<NetworkBody>>>({});
   const [payloads, setPayloads] = useState<Record<string, Loaded<string>>>({});
@@ -43,14 +46,15 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
   useEffect(() => {
     let active = true;
     backend.network.request(row.seq).then(
-      (r) => active && setLoadedRequest(r),
-      () => active && setLoadedRequest(null),
+      (request) => active && setLoaded({ seq: row.seq, request }),
+      (err: unknown) => active && setLoaded({ seq: row.seq, error: errorMessage(err) }),
     );
     return () => {
       active = false;
     };
   }, [backend, row.seq, row.version]);
-  const request = loadedRequest?.seq === row.seq ? loadedRequest : null;
+  const request = loaded.seq === row.seq ? (loaded.request ?? null) : null;
+  const loadError = loaded.seq === row.seq ? loaded.error : undefined;
 
   const wantsResponse = (tab === "Response" || tab === "Preview") && row.state === "complete";
   useEffect(() => {
@@ -78,7 +82,32 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
 
   const response: Loaded<NetworkBody> = responses[key] ?? { state: "loading" };
   const payload: Loaded<string> = payloads[key] ?? { state: "loading" };
-  const body = payload.state === "ready" ? payload.value : "";
+  // The Payload tab may not have loaded the body yet; cURL needs it.
+  const curl = async (r: NetworkRequest) => {
+    let body = payload.state === "ready" ? payload.value : "";
+    if (!body && r.hasPostData) {
+      body = await backend.network.requestBody(r.seq, r.epoch).catch(() => "");
+    }
+    await backend.clipboard.writeText(toCurl(r, body));
+  };
+
+  const onTabKey = (e: React.KeyboardEvent, index: number) => {
+    const last = TABS.length - 1;
+    const next =
+      e.key === "ArrowRight"
+        ? (index + 1) % TABS.length
+        : e.key === "ArrowLeft"
+          ? (index - 1 + TABS.length) % TABS.length
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? last
+              : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    setTab(TABS[next]);
+    tabRefs.current[next]?.focus();
+  };
 
   return (
     <section aria-label="Request details" className="flex min-h-0 flex-col border-l border-border">
@@ -88,12 +117,19 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
           aria-label="Request detail tabs"
           className="flex flex-1 flex-wrap gap-1"
         >
-          {TABS.map((t) => (
+          {TABS.map((t, i) => (
             <button
               key={t}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              id={`network-tab-${t}`}
               type="button"
               role="tab"
               aria-selected={tab === t}
+              aria-controls="network-tabpanel"
+              tabIndex={tab === t ? 0 : -1}
+              onKeyDown={(e) => onTabKey(e, i)}
               onClick={() => setTab(t)}
               className={cn(
                 "h-7 cursor-pointer rounded-md px-2 text-xs transition-colors duration-150",
@@ -104,18 +140,22 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
             </button>
           ))}
         </div>
-        {request ? (
-          <CopyButton
-            label="Copy as cURL"
-            copy={() => backend.clipboard.writeText(toCurl(request, body))}
-          />
-        ) : null}
+        {request ? <CopyButton label="Copy as cURL" copy={() => curl(request)} /> : null}
         <Button size="icon" aria-label="Close details" onClick={onClose}>
           <X aria-hidden="true" className="size-4" />
         </Button>
       </div>
-      <div role="tabpanel" aria-label={tab} className="min-h-0 flex-1 overflow-auto p-3 text-xs">
-        {!request ? (
+      <div
+        id="network-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`network-tab-${tab}`}
+        className="min-h-0 flex-1 overflow-auto p-3 text-xs"
+      >
+        {loadError ? (
+          <p role="alert" className="text-destructive">
+            {loadError}
+          </p>
+        ) : !request ? (
           <p className="text-muted-foreground">Loading…</p>
         ) : tab === "Headers" ? (
           <HeadersTab request={request} />
@@ -138,9 +178,9 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mb-4">
-      <h3 className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+      <h2 className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {title}
-      </h3>
+      </h2>
       {children}
     </section>
   );

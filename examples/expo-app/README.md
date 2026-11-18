@@ -35,6 +35,20 @@ Set `EXPO_PUBLIC_LENS_URL=ws://127.0.0.1:7421/lens` before `expo start` to
 point the SDK at a Lens that is not listening on the default port 7420 (the
 Go end-to-end test does this so it does not fight the Lens window).
 
+## Network
+
+Expo Go does not report network traffic, so build the app once as a
+development build and run it from there:
+
+```sh
+npx expo run:ios      # or: npx expo run:android
+```
+
+Requests made with `XMLHttpRequest` (and axios) appear in the Network panel.
+Expo SDK 58+ replaces `fetch` with `expo/fetch`, which no debugger sees; start
+Metro with `EXPO_PUBLIC_USE_RN_FETCH=1` to use React Native's `fetch` instead.
+See the [Network guide](../../docs/guides/network.md).
+
 ## Record fixtures
 
 ```bash

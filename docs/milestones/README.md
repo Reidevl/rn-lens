@@ -10,7 +10,7 @@ checks, so contributors can see what is in flight and what is done.
 | M1  | [Connect](m1-connect.md)           | Discover apps from Metro, attach, metadata, reload, reconnect | Delivered |
 | M2  | [Console](m2-console.md)           | Logs, errors, object trees, eval                              | Delivered |
 | M3  | [SDK + Queries](m3-sdk-queries.md) | `@rnlens/sdk`, TanStack Query and Mutations panels            | Delivered |
-| M4  | Network                            | Requests, bodies, timing, cURL, HAR                           | Planned   |
+| M4  | [Network](m4-network.md)           | Requests, bodies, timing, cURL, HAR                           | Delivered |
 | M5  | Storage                            | AsyncStorage, MMKV, SecureStore                               | Planned   |
 | M6  | Performance                        | Traces, profiles, screenshots                                 | Planned   |
 | M7  | Plugins and distribution           | Plugin API, docs site, releases                               | Planned   |

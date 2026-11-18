@@ -20,6 +20,7 @@ vi.mock("@tanstack/react-virtual", () => ({
       })),
     getTotalSize: () => count * 24,
     measureElement: () => {},
+    scrollToIndex: () => {},
   }),
 }));
 
@@ -52,7 +53,7 @@ function withRequests(): MockBackend {
 
 async function openPanel(backend: MockBackend) {
   render(<App backend={backend} />);
-  return screen.findByRole("table", { name: "Requests" });
+  return screen.findByRole("grid", { name: "Requests" });
 }
 
 describe("NetworkPanel", () => {
@@ -142,5 +143,64 @@ describe("NetworkPanel", () => {
     await user.click(screen.getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(1));
     expect(backend.calls).toContain("network.clear");
+  });
+
+  it("says why the details of a request cannot load", async () => {
+    const user = userEvent.setup();
+    const backend = withRequests();
+    vi.spyOn(backend.network, "request").mockRejectedValue(new Error("network: request not found"));
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /json/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("network: request not found");
+  });
+
+  it("moves through the requests with the arrow keys from a single tab stop", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(3));
+    expect(table).toHaveAttribute("aria-rowcount", "3");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows.filter((r) => r.tabIndex === 0)).toHaveLength(1);
+
+    rows[0].focus();
+    await user.keyboard("{ArrowDown}");
+    const second = within(table).getByRole("row", { name: /logo\.png/ });
+    expect(second).toHaveAttribute("aria-selected", "true");
+    expect(second).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(within(table).getByRole("row", { name: /json/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("switches detail tabs with the arrow keys", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await user.click(await within(table).findByRole("row", { name: /json/ }));
+    const headers = await screen.findByRole("tab", { name: "Headers" });
+    expect(headers).toHaveAttribute("aria-controls");
+    headers.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Payload" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Payload" })).toHaveFocus();
+  });
+
+  it("includes the request body in Copy as cURL even before the Payload tab loads it", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.addRequest({
+      url: "https://api.example.com/todos",
+      method: "POST",
+      hasPostData: true,
+      postData: "a=1",
+      state: "complete",
+      status: 201,
+      endTime: 2,
+    });
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /todos/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy as cURL" }));
+    await waitFor(() => expect(backend.clipboardText).toContain("--data-raw 'a=1'"));
   });
 });

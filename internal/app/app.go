@@ -183,6 +183,10 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 	if !entered {
 		return
 	}
+	// As early as Lens learns about the new session (the session reports the
+	// attach right after connecting): bodies of the old one are refused from
+	// here on, and replies that straddle the switch are re-checked.
+	a.network.BeginSession()
 	name := ""
 	if snap.Target != nil {
 		name = snap.Target.Title
@@ -192,13 +196,16 @@ func (a *App) onSessionChange(snap targets.Snapshot) {
 	go func() {
 		a.attachMu.Lock()
 		defer a.attachMu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := a.console.OnAttached(ctx, name); err != nil {
+		consoleCtx, cancelConsole := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelConsole()
+		if err := a.console.OnAttached(consoleCtx, name); err != nil {
 			a.cfg.Logger.Warn("console domains not enabled", "err", err)
 		}
-		// Network reports an unsupported target through Availability.
-		_ = a.network.OnAttached(ctx)
+		// Its own budget: a slow console enable must not starve it. Network
+		// reports an unsupported target through Availability.
+		networkCtx, cancelNetwork := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelNetwork()
+		_ = a.network.OnAttached(networkCtx)
 	}()
 }
 
