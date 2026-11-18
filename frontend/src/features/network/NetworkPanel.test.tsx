@@ -167,7 +167,7 @@ describe("NetworkPanel", () => {
     await user.keyboard("{ArrowDown}");
     const second = within(table).getByRole("row", { name: /json/ });
     expect(second).toHaveAttribute("aria-selected", "true");
-    expect(second).toHaveFocus();
+    await waitFor(() => expect(second).toHaveFocus());
     await user.keyboard("{ArrowUp}");
     expect(within(table).getByRole("row", { name: /logo\.png/ })).toHaveAttribute(
       "aria-selected",
@@ -268,5 +268,150 @@ describe("NetworkPanel", () => {
     await user.click(await within(table).findByRole("row", { name: /logo\.png/ }));
     await screen.findByRole("button", { name: "Copy as cURL" });
     expect(screen.queryByRole("button", { name: "Copy response" })).not.toBeInTheDocument();
+  });
+
+  it("says when Copy as cURL could not include the request body", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.addRequest({
+      url: "https://x/upload",
+      method: "POST",
+      hasPostData: true,
+      state: "complete",
+      status: 201,
+      endTime: 2,
+    });
+    vi.spyOn(backend.network, "requestBody").mockRejectedValue(
+      new Error("network: the request body is larger than Lens shows"),
+    );
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /upload/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy as cURL" }));
+    expect(await screen.findByText(/without the request body/)).toBeInTheDocument();
+    expect(backend.clipboardText).toContain("curl 'https://x/upload'");
+  });
+
+  it("reports a failed copy when the response body is larger than Lens shows", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    const big = backend.addRequest({
+      url: "https://x/big",
+      state: "complete",
+      status: 200,
+      endTime: 2,
+    });
+    backend.setResponseBody(big.seq, { text: "", base64: false, truncated: true, size: 9_000_000 });
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /big/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy response" }));
+    expect(await screen.findByRole("button", { name: "Copy response" })).toHaveTextContent(
+      "Copy failed",
+    );
+  });
+
+  it("reuses the body Copy response fetched when the Response tab opens", async () => {
+    const user = userEvent.setup();
+    const backend = withRequests();
+    const table = await openPanel(backend);
+    const row = await within(table).findByRole("row", { name: /json/ });
+    await user.click(row);
+    await user.click(await screen.findByRole("button", { name: "Copy response" }));
+    await waitFor(() => expect(backend.clipboardText).toBe('{"title":"Sample"}'));
+    await user.click(screen.getByRole("tab", { name: "Response" }));
+    await screen.findByText('{"title":"Sample"}');
+    expect(backend.calls.filter((c) => c.startsWith("network.responseBody:"))).toHaveLength(1);
+  });
+
+  it("shows the query string, request body, timing and initiator", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.addRequest({
+      url: "https://api.example.com/todos?page=2&q=a%20b",
+      method: "POST",
+      hasPostData: true,
+      postData: '{"title":"x"}',
+      state: "complete",
+      status: 201,
+      startTime: 10,
+      responseTime: 10.2,
+      endTime: 10.3,
+      timing: {
+        requestTime: 10,
+        proxyStart: -1,
+        proxyEnd: -1,
+        dnsStart: 1,
+        dnsEnd: 4,
+        connectStart: 4,
+        connectEnd: 20,
+        sslStart: -1,
+        sslEnd: -1,
+        sendStart: 21,
+        sendEnd: 22,
+        receiveHeadersEnd: 200,
+      },
+      initiator: { type: "script", url: "index.bundle", lineNumber: 41 },
+    });
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /todos/ }));
+    const detail = await screen.findByRole("region", { name: "Request details" });
+
+    await user.click(within(detail).getByRole("tab", { name: "Payload" }));
+    expect(await within(detail).findByText("page")).toBeInTheDocument();
+    expect(within(detail).getByText("a b")).toBeInTheDocument();
+    expect(await within(detail).findByText('"x"')).toBeInTheDocument();
+
+    await user.click(within(detail).getByRole("tab", { name: "Timing" }));
+    expect(within(detail).getByText("DNS lookup")).toBeInTheDocument();
+    expect(within(detail).getByText("Waiting for server")).toBeInTheDocument();
+    expect(within(detail).queryByText("SSL")).not.toBeInTheDocument();
+    expect(within(detail).getByText("Total 300 ms")).toBeInTheDocument();
+
+    await user.click(within(detail).getByRole("tab", { name: "Initiator" }));
+    expect(within(detail).getByText("script")).toBeInTheDocument();
+    expect(within(detail).getByText("index.bundle:42")).toBeInTheDocument();
+  });
+
+  it("shows the error in the Response tab when Copy response could not fetch the body", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.addRequest({ url: "https://x/gone", state: "complete", status: 200, endTime: 2 }); // no body set: fetch fails
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /gone/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy response" }));
+    expect(await screen.findByRole("button", { name: "Copy response" })).toHaveTextContent(
+      "Copy failed",
+    );
+    await user.click(screen.getByRole("tab", { name: "Response" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("network: no body");
+  });
+
+  it("jumps to the first and last request with Home and End", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(3));
+    within(table).getAllByRole("row")[1].focus();
+    await user.keyboard("{End}");
+    const last = within(table).getByRole("row", { name: /json/ });
+    expect(last).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(last).toHaveFocus());
+    await user.keyboard("{Home}");
+    expect(within(table).getByRole("row", { name: /logo\.png/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("keeps an earlier notice when Copy as cURL includes everything", async () => {
+    const user = userEvent.setup();
+    const table = await openPanel(withRequests());
+    await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(3));
+    await user.click(screen.getByRole("button", { name: "Export HAR" }));
+    expect(await screen.findByText("Saved /Users/me/lens.har")).toBeInTheDocument();
+    await user.click(within(table).getByRole("row", { name: /json/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy as cURL" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Copy as cURL" })).toHaveTextContent("Copied"),
+    );
+    expect(screen.getByText("Saved /Users/me/lens.har")).toBeInTheDocument();
   });
 });

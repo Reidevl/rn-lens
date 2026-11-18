@@ -44,6 +44,7 @@ const cdpMethodNotFound = -32601
 const (
 	DefaultMaxBodyBytes = 5 << 20
 	DefaultCacheBytes   = 32 << 20
+	DefaultHARBodyBytes = 64 << 20
 )
 
 // Availability tells the UI whether network inspection works on the attached
@@ -75,6 +76,9 @@ type ServiceOptions struct {
 	MaxBodyBytes int
 	// CacheBytes caps the body cache. Zero means 32 MiB.
 	CacheBytes int
+	// HARBodyBytes caps the bodies one HAR export includes; later bodies are
+	// left out with a comment. Zero means 64 MiB.
+	HARBodyBytes int
 }
 
 // Service connects the store to a live session: it enables the Network
@@ -104,6 +108,9 @@ func NewService(store *Store, caller Caller, opts ServiceOptions) *Service {
 	}
 	if opts.CacheBytes <= 0 {
 		opts.CacheBytes = DefaultCacheBytes
+	}
+	if opts.HARBodyBytes <= 0 {
+		opts.HARBodyBytes = DefaultHARBodyBytes
 	}
 	return &Service{store: store, caller: caller, opts: opts, cache: newBodyCache(opts.CacheBytes)}
 }
@@ -253,6 +260,13 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 	if r.PostData != "" || !r.HasPostData {
 		return r.PostData, nil
 	}
+	key := cacheKey{seq: seq, epoch: epoch, request: true}
+	s.mu.Lock()
+	cached, hit := s.cache.get(key)
+	s.mu.Unlock()
+	if hit {
+		return cached.Text, nil
+	}
 	raw, err := s.caller.Call(ctx, cdp.MethodNetworkGetRequestPostData, cdp.GetRequestPostDataParams{RequestID: r.RequestID})
 	if err != nil {
 		return "", fmt.Errorf("network: get request body: %w", err)
@@ -267,6 +281,9 @@ func (s *Service) RequestBody(ctx context.Context, seq, epoch uint64) (string, e
 	if len(res.PostData) > s.opts.MaxBodyBytes {
 		return "", fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(res.PostData))
 	}
+	s.mu.Lock()
+	s.cache.put(key, Body{Text: res.PostData, Size: len(res.PostData)})
+	s.mu.Unlock()
 	return res.PostData, nil
 }
 
@@ -311,7 +328,11 @@ func (s *Service) notify() {
 	}
 }
 
-type cacheKey struct{ seq, epoch uint64 }
+// cacheKey identifies a cached body; request is set for request bodies.
+type cacheKey struct {
+	seq, epoch uint64
+	request    bool
+}
 
 type cacheItem struct {
 	key  cacheKey

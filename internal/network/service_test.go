@@ -388,3 +388,20 @@ func TestTextBodiesSentAsBase64AreDecoded(t *testing.T) {
 		t.Fatalf("ndjson body = %+v, %v; want decoded text", ndjson, err)
 	}
 }
+
+func TestFetchedRequestBodiesAreCached(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, network.ServiceOptions{})
+	h.srv.Handle(cdp.MethodNetworkGetRequestPostData, func(cdptest.Request) (any, *cdptest.Error) {
+		return cdp.GetRequestPostDataResult{PostData: "fetched=1"}, nil
+	})
+	seq := h.finished(t, "lazy", map[string]any{"url": "https://x", "method": "POST", "headers": map[string]any{}, "hasPostData": true})
+	for range 2 {
+		if got, err := h.svc.RequestBody(context.Background(), seq, h.svc.Store().Epoch()); err != nil || got != "fetched=1" {
+			t.Fatalf("RequestBody = %q, %v", got, err)
+		}
+	}
+	if n := h.count(cdp.MethodNetworkGetRequestPostData); n != 1 {
+		t.Fatalf("getRequestPostData called %d times, want 1", n)
+	}
+}

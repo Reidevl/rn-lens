@@ -8,6 +8,7 @@ import { Button } from "@/shared/ui/atoms/Button";
 import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
 
+import { useNetworkStore } from "./networkStore";
 import {
   formatBytes,
   formatMillis,
@@ -85,10 +86,19 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
   // The Payload tab may not have loaded the body yet; cURL needs it.
   const curl = async (r: NetworkRequest) => {
     let body = payload.state === "ready" ? payload.value : "";
+    let missing: string | null = null;
     if (!body && r.hasPostData) {
-      body = await backend.network.requestBody(r.seq, r.epoch).catch(() => "");
+      body = await backend.network.requestBody(r.seq, r.epoch).catch((err: unknown) => {
+        missing = errorMessage(err);
+        return "";
+      });
     }
     await backend.clipboard.writeText(toCurl(r, body));
+    if (missing) {
+      useNetworkStore
+        .getState()
+        .setNotice(`Copied the cURL command without the request body: ${missing}`);
+    }
   };
 
   // Uses the body a tab already loaded, or fetches it once.
@@ -98,8 +108,17 @@ export function RequestDetail({ row, onClose }: { row: NetworkSummary; onClose: 
     if (cached?.state === "ready") {
       body = cached.value;
     } else {
-      body = await backend.network.responseBody(row.seq, row.epoch);
-      setResponses((m) => ({ ...m, [key]: { state: "ready", value: body } }));
+      // The Response and Preview tabs reuse this fetch instead of repeating it.
+      // A failure is recorded too, so those tabs show it instead of waiting.
+      requested.current.add(`response:${key}`);
+      try {
+        body = await backend.network.responseBody(row.seq, row.epoch);
+      } catch (err) {
+        setResponses((m) => ({ ...m, [key]: { state: "error", message: errorMessage(err) } }));
+        throw err;
+      }
+      const value = body;
+      setResponses((m) => ({ ...m, [key]: { state: "ready", value } }));
     }
     if (body.truncated) throw new Error("The body is larger than Lens shows");
     await backend.clipboard.writeText(body.text);
@@ -333,11 +352,7 @@ function BodyTab({
     const parsed = parseJSON(b.text);
     if (parsed.ok) return <JsonTree value={parsed.value} label="Response preview" />;
   }
-  return (
-    <>
-      <pre className="font-mono break-all whitespace-pre-wrap select-text">{b.text}</pre>
-    </>
-  );
+  return <pre className="font-mono break-all whitespace-pre-wrap select-text">{b.text}</pre>;
 }
 
 function TimingTab({ request: r }: { request: NetworkRequest }) {
