@@ -76,13 +76,15 @@ reason, call `flagsPanel.refresh()`; refreshes within 16 ms send one view.
 
 ## Limits
 
-| Limit              | Value           | When exceeded                                |
-| ------------------ | --------------- | -------------------------------------------- |
-| View size          | 1 MiB           | The panel shows an error instead of its view |
-| Blocks per panel   | 100             | Same                                         |
-| Table rows         | 5,000 per table | The view is refused by the protocol schema   |
-| Log entries        | 1,000 per log   | Same                                         |
-| An action's answer | 10 s            | Lens shows a timeout                         |
+| Limit              | Value | When exceeded                                |
+| ------------------ | ----- | -------------------------------------------- |
+| View size          | 1 MiB | The panel shows an error instead of its view |
+| Blocks per panel   | 100   | Same                                         |
+| An action's answer | 15 s  | Lens shows a timeout error                   |
+
+The protocol schema also caps a table at 5,000 rows and a log at 1,000
+entries; Lens does not check those, but a view that large rarely fits in
+1 MiB anyway.
 
 `render` that throws shows "The panel failed to render" with its message.
 Values JSON cannot carry are sent like query data: BigInt and Date as
