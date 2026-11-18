@@ -501,3 +501,18 @@ describe("snapshot size", () => {
     expect(stores[0].keys.length).toBeGreaterThan(5_000);
   });
 });
+
+describe("storage.result", () => {
+  it("carries the action id on the envelope and in the payload", async () => {
+    await connect({ asyncStorage: new FakeAsyncStorage({ theme: "dark" }) });
+    lens.send({
+      v: 1,
+      type: "storage.action",
+      id: "s42",
+      payload: { id: "s42", type: "GET", storeId: "async-storage", key: "theme" },
+    });
+    const frame = await lens.next("storage.result");
+    expect(frame.id).toBe("s42");
+    expect(frame.type === "storage.result" && frame.payload.id).toBe("s42");
+  });
+});

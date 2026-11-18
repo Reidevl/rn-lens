@@ -419,7 +419,13 @@ export function createStorageAdapter(
     void run(action)
       .catch((err: unknown) => ({ ok: false, error: errorMessage(err) }))
       .then((result) => {
-        host.send({ v: 1, type: "storage.result", payload: { id: action.id, ...result } });
+        // The id goes on the envelope too, like action.result does.
+        host.send({
+          v: 1,
+          type: "storage.result",
+          id: action.id,
+          payload: { id: action.id, ...result },
+        });
       });
   }
 
