@@ -5,7 +5,7 @@ import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
-import { isLensMessage, MESSAGE_TYPES, PROTOCOL_VERSION } from "./runtime";
+import { isLensMessage, MESSAGE_TYPES, PLUGIN_BLOCK_TYPES, PROTOCOL_VERSION } from "./runtime";
 import type { LensMessage } from "./types";
 
 const root = resolve(__dirname, "..");
@@ -39,6 +39,13 @@ describe("lens protocol v1", () => {
   it("covers every message type with a fixture", () => {
     const types = new Set(valid.map(([, doc]) => (doc as LensMessage).type));
     for (const t of MESSAGE_TYPES) expect(types.has(t), `missing fixture for ${t}`).toBe(true);
+  });
+
+  it("lists exactly the plugin block kinds of the schema", () => {
+    const kinds = (schema.$defs.PluginBlock.oneOf as Array<{ $ref: string }>).map(
+      ({ $ref }) => schema.$defs[$ref.split("/").pop()!].properties.type.const as string,
+    );
+    expect([...PLUGIN_BLOCK_TYPES]).toEqual(kinds);
   });
 
   it("agrees with the schema on the version constant", () => {

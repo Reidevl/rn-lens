@@ -21,6 +21,10 @@ export const MESSAGE_TYPES = [
   "storage.event",
   "storage.action",
   "storage.result",
+  "plugin.register",
+  "plugin.view",
+  "plugin.action",
+  "plugin.result",
 ] as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[number];
@@ -48,6 +52,11 @@ export const STORAGE_ACTION_TYPES: readonly StorageActionType[] = [
   "CLEAR",
   "REFRESH",
 ];
+
+/** Every block kind a plugin panel can contain, in schema order. */
+export const PLUGIN_BLOCK_TYPES = ["text", "keyValue", "table", "json", "log", "actions"] as const;
+
+export type PluginBlockType = (typeof PLUGIN_BLOCK_TYPES)[number];
 
 /** Cheap structural check for the envelope; full validation is the schema's job. */
 export function isLensMessage(value: unknown): value is LensMessage {

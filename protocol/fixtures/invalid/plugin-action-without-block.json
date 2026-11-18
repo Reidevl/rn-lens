@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "plugin.action",
+  "payload": {
+    "id": "p1",
+    "pluginId": "x",
+    "actionId": "a"
+  }
+}

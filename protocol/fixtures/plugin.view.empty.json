@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "plugin.view",
+  "payload": {
+    "pluginId": "feature-flags",
+    "blocks": []
+  }
+}

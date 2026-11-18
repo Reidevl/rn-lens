@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "plugin.result",
+  "id": "p1",
+  "payload": {
+    "id": "p1",
+    "ok": true,
+    "message": "darkMode is on"
+  }
+}

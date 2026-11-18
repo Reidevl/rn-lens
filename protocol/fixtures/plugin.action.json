@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "plugin.action",
+  "id": "p1",
+  "payload": {
+    "id": "p1",
+    "pluginId": "feature-flags",
+    "blockId": "flags",
+    "actionId": "toggle",
+    "rowId": "darkMode"
+  }
+}

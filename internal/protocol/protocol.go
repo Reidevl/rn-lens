@@ -39,6 +39,10 @@ const (
 	TypeStorageEvent    = "storage.event"
 	TypeStorageAction   = "storage.action"
 	TypeStorageResult   = "storage.result"
+	TypePluginRegister  = "plugin.register"
+	TypePluginView      = "plugin.view"
+	TypePluginAction    = "plugin.action"
+	TypePluginResult    = "plugin.result"
 )
 
 // Message is the envelope of every frame.
@@ -440,6 +444,41 @@ type StorageResult struct {
 	Value *StorageValue `json:"value,omitempty"`
 }
 
+// PluginRegister declares a plugin of the app; Lens shows it as a tab.
+type PluginRegister struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Version     string `json:"version,omitempty"`
+}
+
+// PluginBlockTypes are the block kinds of a plugin panel, in schema order.
+// Lens keeps blocks as raw JSON: the UI draws the kinds it knows.
+var PluginBlockTypes = []string{"text", "keyValue", "table", "json", "log", "actions"}
+
+// PluginView is a plugin's whole panel; each one replaces the previous.
+type PluginView struct {
+	PluginID string            `json:"pluginId"`
+	Blocks   []json.RawMessage `json:"blocks"`
+}
+
+// PluginAction tells the app the user clicked an action of a plugin panel.
+type PluginAction struct {
+	ID       string `json:"id"`
+	PluginID string `json:"pluginId"`
+	BlockID  string `json:"blockId"`
+	ActionID string `json:"actionId"`
+	RowID    string `json:"rowId,omitempty"`
+}
+
+// PluginResult answers a PluginAction.
+type PluginResult struct {
+	ID      string `json:"id"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 // PayloadType returns a pointer to the Go type that decodes typ's payload,
 // or nil for unknown types.
 func PayloadType(typ string) any {
@@ -472,6 +511,14 @@ func PayloadType(typ string) any {
 		return &StorageAction{}
 	case TypeStorageResult:
 		return &StorageResult{}
+	case TypePluginRegister:
+		return &PluginRegister{}
+	case TypePluginView:
+		return &PluginView{}
+	case TypePluginAction:
+		return &PluginAction{}
+	case TypePluginResult:
+		return &PluginResult{}
 	default:
 		return nil
 	}

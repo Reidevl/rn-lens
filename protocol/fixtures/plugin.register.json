@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "plugin.register",
+  "payload": {
+    "id": "feature-flags",
+    "name": "Feature flags",
+    "description": "Flags from the app's remote config.",
+    "version": "1.0.0"
+  }
+}

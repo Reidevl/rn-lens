@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "type": "plugin.view",
+  "payload": {
+    "pluginId": "x",
+    "blocks": [
+      {
+        "type": "chart",
+        "id": "c"
+      }
+    ]
+  }
+}

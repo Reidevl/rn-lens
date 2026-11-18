@@ -23,7 +23,11 @@ export type LensMessage =
   | StorageSnapshotMessage
   | StorageEventMessage
   | StorageActionMessage
-  | StorageResultMessage;
+  | StorageResultMessage
+  | PluginRegisterMessage
+  | PluginViewMessage
+  | PluginActionMessage
+  | PluginResultMessage;
 /**
  * Any JSON value (object, array, string, number, boolean or null).
  */
@@ -51,6 +55,20 @@ export type QueryActionType =
   | "CLEAR_MUTATION_CACHE";
 export type StorageKind = "async-storage" | "mmkv" | "secure-store";
 export type StorageActionType = "GET" | "SET" | "REMOVE" | "CLEAR" | "REFRESH";
+/**
+ * Stable plugin identifier, unique per app: lowercase letters, digits, '.', '_' or '-'.
+ */
+export type PluginId = string;
+/**
+ * One piece of a plugin's panel. Lens draws each kind with its own components.
+ */
+export type PluginBlock =
+  | PluginTextBlock
+  | PluginKeyValueBlock
+  | PluginTableBlock
+  | PluginJsonBlock
+  | PluginLogBlock
+  | PluginActionsBlock;
 
 /**
  * First message the SDK sends after the socket opens.
@@ -520,4 +538,366 @@ export interface StorageValue1 {
    * Size in bytes of the full value.
    */
   size?: number;
+}
+/**
+ * The app declares a plugin; Lens shows it as a tab of the Plugins panel.
+ */
+export interface PluginRegisterMessage {
+  v: 1;
+  type: "plugin.register";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: PluginRegisterPayload;
+}
+export interface PluginRegisterPayload {
+  id: PluginId;
+  /**
+   * Shown as the panel's tab.
+   */
+  name: string;
+  description?: string;
+  version?: string;
+}
+/**
+ * The plugin's whole panel, replacing the previous view.
+ */
+export interface PluginViewMessage {
+  v: 1;
+  type: "plugin.view";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: PluginViewPayload;
+}
+export interface PluginViewPayload {
+  pluginId: PluginId;
+  /**
+   * The whole panel, top to bottom. Each plugin.view replaces the previous one.
+   *
+   * @maxItems 100
+   */
+  blocks: PluginBlock[];
+}
+export interface PluginTextBlock {
+  type: "text";
+  id: string;
+  text: string;
+  tone?: "default" | "muted" | "warning" | "error";
+}
+export interface PluginKeyValueBlock {
+  type: "keyValue";
+  id: string;
+  title?: string;
+  /**
+   * @maxItems 500
+   */
+  items: PluginKeyValueItem[];
+}
+export interface PluginKeyValueItem {
+  key: string;
+  label?: string;
+  value: JsonValue;
+}
+export interface PluginTableBlock {
+  type: "table";
+  id: string;
+  title?: string;
+  /**
+   * @minItems 1
+   * @maxItems 32
+   */
+  columns: [PluginTableColumn, ...PluginTableColumn[]];
+  /**
+   * @maxItems 5000
+   */
+  rows: PluginTableRow[];
+  /**
+   * Buttons on every row; the action carries the row id.
+   *
+   * @maxItems 8
+   */
+  rowActions?:
+    | []
+    | [PluginAction]
+    | [PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction, PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction, PluginAction, PluginAction, PluginAction]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ];
+}
+export interface PluginTableColumn {
+  key: string;
+  label: string;
+}
+export interface PluginTableRow {
+  id: string;
+  /**
+   * Values by column key; missing keys show as empty.
+   */
+  cells: {
+    [k: string]: JsonValue | undefined;
+  };
+}
+/**
+ * A button. Clicking it sends plugin.action to the app.
+ */
+export interface PluginAction {
+  id: string;
+  label: string;
+  /**
+   * Shown in the destructive style.
+   */
+  destructive?: boolean;
+  /**
+   * Lens asks the user to confirm this text before sending the action.
+   */
+  confirm?: string;
+}
+export interface PluginJsonBlock {
+  type: "json";
+  id: string;
+  title?: string;
+  value: JsonValue;
+}
+/**
+ * Newest entry last.
+ */
+export interface PluginLogBlock {
+  type: "log";
+  id: string;
+  title?: string;
+  /**
+   * @maxItems 1000
+   */
+  entries: PluginLogEntry[];
+}
+export interface PluginLogEntry {
+  /**
+   * ISO 8601 time.
+   */
+  time?: string;
+  level?: "debug" | "info" | "warn" | "error";
+  text: string;
+}
+export interface PluginActionsBlock {
+  type: "actions";
+  id: string;
+  title?: string;
+  /**
+   * @minItems 1
+   * @maxItems 16
+   */
+  actions:
+    | [PluginAction]
+    | [PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction, PluginAction, PluginAction]
+    | [PluginAction, PluginAction, PluginAction, PluginAction, PluginAction, PluginAction]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ]
+    | [
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+        PluginAction,
+      ];
+}
+/**
+ * The user clicked a plugin action in Lens.
+ */
+export interface PluginActionMessage {
+  v: 1;
+  type: "plugin.action";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: PluginActionPayload;
+}
+export interface PluginActionPayload {
+  /**
+   * Correlates with plugin.result.
+   */
+  id: string;
+  pluginId: PluginId;
+  blockId: string;
+  actionId: string;
+  /**
+   * The row, for a table row action.
+   */
+  rowId?: string;
+}
+/**
+ * Outcome of a plugin.action.
+ */
+export interface PluginResultMessage {
+  v: 1;
+  type: "plugin.result";
+  /**
+   * Optional correlation id.
+   */
+  id?: string;
+  payload: PluginResultPayload;
+}
+export interface PluginResultPayload {
+  /**
+   * The plugin.action id this answers.
+   */
+  id: string;
+  ok: boolean;
+  error?: string;
+  /**
+   * Shown to the user after a successful action.
+   */
+  message?: string;
 }
