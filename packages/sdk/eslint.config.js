@@ -19,6 +19,9 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2022,
       globals: { ...globals.browser, ...globals.node, __DEV__: "readonly" },
+      // Editors run one ESLint process for the whole workspace; without an
+      // explicit root, typescript-eslint sees both packages and refuses to parse.
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
     },
     rules: {
       "@typescript-eslint/consistent-type-imports": "error",
