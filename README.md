@@ -63,7 +63,7 @@ task docs    # the documentation site (Astro Starlight) at localhost:4321
 The site in `docs/site` is built from `docs/guides`, the protocol README and
 the SDK README, plus its own use cases; edit the guides, not the synced pages.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) once it lands.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [GOVERNANCE.md](GOVERNANCE.md) for how collaborators are chosen.
 
 ## License
 

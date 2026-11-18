@@ -3,15 +3,19 @@
 Thanks for helping build a React Native DevTools the community can rely on.
 This guide is short on purpose: the quick path first, details after.
 
+Pull requests are open to collaborators only. If you are not one yet, start
+with an issue; [GOVERNANCE.md](GOVERNANCE.md) explains how collaborators are
+chosen.
+
 ## Quick path
 
-1. Fork and clone, then install the toolchain: Go 1.26+, Node 22+, pnpm 10+,
+1. Clone the repository, then install the toolchain: Go 1.26+, Node 22+, pnpm 10+,
    [Task](https://taskfile.dev), and `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`.
 2. `pnpm install && task dev` opens Lens with hot reload.
 3. Create a branch from `main`: `git switch -c feat/<area>-<topic>`.
 4. Make one change, with its tests and docs, and run `task check`.
-5. Open a pull request. CI must be green and the diff should be about 400
-   authored lines or less.
+5. Open a pull request (collaborators; everyone else starts with an issue). CI
+   must be green and the diff should be about 400 authored lines or less.
 
 ## Project shape
 
@@ -40,7 +44,7 @@ Rules that keep the architecture honest:
 - One commit is one work unit: a behavior, fix or doc change together with its tests. Do not split "code", "tests" and "docs" into separate commits.
 - Keep PRs reviewable: about 400 authored changed lines. Bigger changes become a chain of PRs, each one green on its own.
 - Do not add AI attribution trailers to commits.
-- Squash-merge is used on `main`; the PR title becomes the commit subject, so give it a Conventional Commit title.
+- PRs are merged into `main` with a merge commit, so keep each commit in the PR clean and Conventional. `main` accepts changes only through pull requests.
 
 ## Testing
 
