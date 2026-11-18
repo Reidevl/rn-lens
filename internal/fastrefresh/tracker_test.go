@@ -187,3 +187,30 @@ func TestTrackerWithoutABundleURL(t *testing.T) {
 	default:
 	}
 }
+
+// After a Metro restart the app's bundle graph is gone until the app
+// reloads: Metro answers the registration with GraphNotFoundError.
+func TestTrackerWaitsForTheAppToReloadAfterAMetroRestart(t *testing.T) {
+	t.Parallel()
+	d := newDialer()
+	tr := fastrefresh.New(d, evaluator{url: bundle}, fastrefresh.Options{BackoffMin: time.Millisecond, BackoffMax: 5 * time.Millisecond})
+	t.Cleanup(tr.Stop)
+	tr.Attached("http://127.0.0.1:8081")
+	next(t, d.urls)
+	first := next(t, d.streams)
+	next(t, first.sent)
+	first.in <- []byte(`{"type":"error","body":{"type":"GraphNotFoundError","message":"The graph ` + "`{...}`" + ` was not found."}}`)
+	st := waitState(t, tr, phase(fastrefresh.PhaseUnavailable))
+	if st.Message != "Reload the app to resume Fast Refresh: Metro has not built its bundle since it restarted." {
+		t.Fatalf("state = %+v", st)
+	}
+	// Lens registers again until Metro knows the bundle.
+	next(t, d.urls)
+	second := next(t, d.streams)
+	next(t, second.sent)
+	if st := tr.State(); st.Phase != fastrefresh.PhaseUnavailable {
+		t.Fatalf("the hint went away before Metro answered: %+v", st)
+	}
+	second.in <- []byte(`{"type":"update-start","body":{"isInitialUpdate":true}}`)
+	waitState(t, tr, phase(fastrefresh.PhaseReady))
+}

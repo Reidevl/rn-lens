@@ -12,14 +12,14 @@ window.
 
 ## What Lens will do
 
-| Panel                                                                             | Source                             | Needs app code? |
-| --------------------------------------------------------------------------------- | ---------------------------------- | --------------- |
-| Console (logs, errors, object trees, eval REPL) — [guide](docs/guides/console.md) | Chrome DevTools Protocol via Metro | No              |
-| Network (requests, bodies, timing, cURL, HAR) — [guide](docs/guides/network.md)   | CDP (React Native 0.83+)           | No              |
-| App and device metadata, reload, screenshot                                       | CDP                                | No              |
-| Queries and Mutations (TanStack Query)                                            | `@rnlens/sdk`                      | One hook        |
-| Storage (AsyncStorage, MMKV, SecureStore) — [guide](docs/guides/storage.md)       | `@rnlens/sdk`                      | One hook        |
-| Performance traces (Perfetto export)                                              | CDP                                | No              |
+| Panel                                                                                                                     | Source                             | Needs app code? |
+| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | --------------- |
+| Console (logs, errors, object trees, eval REPL) — [guide](docs/guides/console.md)                                         | Chrome DevTools Protocol via Metro | No              |
+| Network (requests, bodies, timing, cURL, HAR) — [guide](docs/guides/network.md)                                           | CDP (React Native 0.83+)           | No              |
+| App and device metadata, reload — [guide](docs/guides/connect.md)                                                         | CDP                                | No              |
+| Queries and Mutations (TanStack Query)                                                                                    | `@rnlens/sdk`                      | One hook        |
+| Storage (AsyncStorage, MMKV, SecureStore) — [guide](docs/guides/storage.md)                                               | `@rnlens/sdk`                      | One hook        |
+| Performance: screenshot, trace (Perfetto), CPU profile, heap snapshot, Fast Refresh — [guide](docs/guides/performance.md) | CDP                                | No              |
 
 ## How it connects
 
