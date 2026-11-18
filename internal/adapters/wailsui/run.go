@@ -47,6 +47,8 @@ type RunOptions struct {
 	// Ignored by the desktop build.
 	Host string
 	Port int
+	// MCP is the running MCP endpoint, shown in the UI; empty when off.
+	MCP MCPInfo
 }
 
 // Run starts Lens and blocks until it ends: a native window in the desktop
@@ -83,6 +85,7 @@ func Run(core *app.App, assets fs.FS, opts RunOptions) error {
 			PromptForSingleSelection()
 	}
 	appService := NewAppService(core)
+	appService.mcp = opts.MCP
 	storageService := NewStorageService(core, saveJSON, openJSON)
 	lensRoutes := http.NotFoundHandler()
 	if browserMode {
