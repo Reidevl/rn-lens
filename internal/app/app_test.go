@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/Reidevl/rn-lens/internal/app"
 	"github.com/Reidevl/rn-lens/internal/perf"
 	"github.com/Reidevl/rn-lens/internal/platform/bus"
+	"github.com/Reidevl/rn-lens/internal/plugins"
 	"github.com/Reidevl/rn-lens/internal/protocol"
 	"github.com/Reidevl/rn-lens/internal/queries"
 	"github.com/Reidevl/rn-lens/internal/storage"
@@ -504,5 +506,77 @@ func TestDetachReleasesARecordingInProgress(t *testing.T) {
 	}
 	if a.Performance().Status().Tracing {
 		t.Fatal("still tracing after the detach")
+	}
+}
+
+func TestSDKServerFeedsThePluginsFeature(t *testing.T) {
+	t.Parallel()
+	a := app.New(app.Config{MetroEndpoints: []string{"http://127.0.0.1:1"}, PollInterval: time.Hour, SDKAddr: "127.0.0.1:0"})
+	pluginsCh, cancelP := a.Bus().Subscribe(app.TopicPluginsChanged, 16)
+	defer cancelP()
+	a.Start()
+	t.Cleanup(a.Stop)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, resp, err := websocket.Dial(ctx, "ws://"+a.SDKAddr()+sdkws.Path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	t.Cleanup(func() { _ = c.CloseNow() })
+	hello, _ := protocol.Encode(protocol.TypeHello, "", protocol.Hello{
+		SDKVersion: "0.1.0", ProtocolVersion: 1,
+		App: protocol.AppInfo{ID: "com.example.app", Platform: "ios"}, Device: protocol.DeviceInfo{ID: "d1"},
+		Features: []string{protocol.FeaturePlugins},
+	})
+	if err := c.Write(ctx, websocket.MessageText, hello); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Read(ctx); err != nil { // welcome
+		t.Fatal(err)
+	}
+	waitTopic(t, pluginsCh, "plugins:changed after connect")
+	for _, f := range []string{"plugin.register.json", "plugin.view.json"} {
+		raw, err := os.ReadFile("../../protocol/fixtures/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Write(ctx, websocket.MessageText, raw); err != nil {
+			t.Fatal(err)
+		}
+		waitTopic(t, pluginsCh, "plugins:changed after "+f)
+	}
+	key := plugins.DeviceKey("com.example.app", "d1")
+	list, err := a.Plugins().Plugins(key)
+	if err != nil || len(list) != 1 || list[0].ID != "feature-flags" || !strings.Contains(string(list[0].Blocks), `"rowActions"`) {
+		t.Fatalf("plugins = %+v err = %v", list, err)
+	}
+
+	// A click goes out as plugin.action and its plugin.result answers it.
+	done := make(chan error, 1)
+	go func() {
+		msg, err := a.Plugins().Action(ctx, key, "feature-flags", "flags", "toggle", "darkMode")
+		if err == nil && msg != "darkMode is on" {
+			err = fmt.Errorf("message = %q", msg)
+		}
+		done <- err
+	}()
+	_, raw, err := c.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := protocol.Decode(raw)
+	if err != nil || msg.Type != protocol.TypePluginAction {
+		t.Fatalf("frame = %s (%v)", raw, err)
+	}
+	reply, _ := protocol.Encode(protocol.TypePluginResult, msg.ID, protocol.PluginResult{ID: msg.ID, OK: true, Message: "darkMode is on"})
+	if err := c.Write(ctx, websocket.MessageText, reply); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

@@ -30,6 +30,7 @@ func init() {
 	application.RegisterEvent[ChangeNotice](app.TopicNetworkChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicStorageChanged)
 	application.RegisterEvent[ChangeNotice](app.TopicPerformanceChanged)
+	application.RegisterEvent[ChangeNotice](app.TopicPluginsChanged)
 }
 
 const (
@@ -113,6 +114,7 @@ func Run(core *app.App, assets fs.FS, opts RunOptions) error {
 			application.NewService(NewNetworkService(core, saveHAR)),
 			application.NewService(storageService),
 			application.NewService(NewPerformanceService(core, saveAs)),
+			application.NewService(NewPluginsService(core)),
 		},
 		Assets: application.AssetOptions{
 			Handler: withLensRoutes(lensRoutes, application.AssetFileServerFS(assets)),
@@ -141,7 +143,7 @@ func Run(core *app.App, assets fs.FS, opts RunOptions) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged, app.TopicStorageChanged, app.TopicPerformanceChanged}
+	topics := []string{app.TopicTargetsChanged, app.TopicSessionChanged, app.TopicConsoleChanged, app.TopicQueriesChanged, app.TopicNetworkChanged, app.TopicStorageChanged, app.TopicPerformanceChanged, app.TopicPluginsChanged}
 	coalescer := NewCoalescer(core.Bus(), topics, notifyTick,
 		func(topic string, notice ChangeNotice) { desktop.Event.Emit(topic, notice) })
 	go coalescer.Run(ctx)
