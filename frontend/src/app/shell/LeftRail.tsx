@@ -13,15 +13,23 @@ export function LeftRail() {
 
   return (
     <nav aria-label="Panels" className="flex h-full flex-col border-r border-border bg-card">
-      <div
-        data-titlebar={inset ? "inset" : undefined}
-        // In the macOS app this row is the title bar: it drags the window and
-        // leaves room for the close, minimize and zoom buttons on its left.
-        style={inset ? ({ "--wails-draggable": "drag" } as CSSProperties) : undefined}
-        className={cn("flex h-12 shrink-0 items-center pt-1", inset ? "pr-4 pl-20" : "px-4")}
-      >
-        <span className="font-mono text-sm font-semibold tracking-wide text-foreground">Lens</span>
-      </div>
+      {inset ? (
+        // macOS: like Finder or Mail, the top of the sidebar belongs to the
+        // window buttons. It stays empty and drags the window; the panels
+        // start below it.
+        <div
+          data-titlebar="inset"
+          aria-hidden="true"
+          style={{ "--wails-draggable": "drag" } as CSSProperties}
+          className="h-[52px] shrink-0"
+        />
+      ) : (
+        <div className="flex h-12 shrink-0 items-center px-4 pt-1">
+          <span className="font-mono text-sm font-semibold tracking-wide text-foreground">
+            Lens
+          </span>
+        </div>
+      )}
       <ul className="flex flex-col gap-0.5 px-2">
         {PANELS.map(({ id, label, icon: Icon }) => {
           const active = id === activePanel;

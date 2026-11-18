@@ -21,13 +21,16 @@ describe("LeftRail", () => {
     delete (window as { _wails?: unknown })._wails;
   });
 
-  it("moves the name clear of the window buttons in the macOS app and lets the row drag the window", () => {
+  it("leaves the macOS window buttons alone in a draggable title bar, like Finder", () => {
     (window as { _wails?: unknown })._wails = {};
     Object.defineProperty(navigator, "userAgent", { value: mac, configurable: true });
-    render(<LeftRail />);
-    const header = screen.getByText("Lens").parentElement!;
-    expect(header).toHaveAttribute("data-titlebar", "inset");
-    expect(header.style.getPropertyValue("--wails-draggable")).toBe("drag");
+    const { container } = render(<LeftRail />);
+    const bar = container.querySelector('[data-titlebar="inset"]') as HTMLElement;
+    expect(bar).not.toBeNull();
+    expect(bar.style.getPropertyValue("--wails-draggable")).toBe("drag");
+    expect(bar.textContent).toBe("");
+    expect(screen.queryByText("Lens")).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Panels" })).toBeInTheDocument();
   });
 
   it("keeps the plain header elsewhere", () => {
