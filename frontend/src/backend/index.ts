@@ -1,4 +1,5 @@
 import type { Backend } from "./Backend";
+import { detectMode } from "./browserFiles";
 import { createMockBackend, sampleTarget } from "./mock";
 
 export type {
@@ -71,8 +72,14 @@ export { useBackend } from "./useBackend";
  */
 export async function detectBackend(): Promise<Backend> {
   const runningInWails = typeof window !== "undefined" && "_wails" in window;
-  if (!runningInWails) return createMockBackend({ targets: [sampleTarget()] });
-
-  const { createWailsBackend } = await import("./wails");
-  return createWailsBackend();
+  if (runningInWails) {
+    const { createWailsBackend } = await import("./wails");
+    return createWailsBackend();
+  }
+  // The rnlens server build serves this page to a browser tab.
+  if ((await detectMode()) === "browser") {
+    const { createWailsBackend } = await import("./wails");
+    return createWailsBackend({ browser: true });
+  }
+  return createMockBackend({ targets: [sampleTarget()] });
 }

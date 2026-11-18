@@ -27,9 +27,10 @@ const maxImportBytes = 64 << 20
 // after each app.TopicStorageChanged notice (ADR-0003); values are read on
 // demand.
 type StorageService struct {
-	core     *app.App
-	savePath SavePathFunc
-	openPath SavePathFunc
+	core      *app.App
+	savePath  SavePathFunc
+	openPath  SavePathFunc
+	transfers *transfers // browser mode: imports arrive as uploads
 }
 
 // NewStorageService wraps core. savePath and openPath show the native save
@@ -143,6 +144,29 @@ func (s *StorageService) Import(deviceKey, storeID string) (ImportOutcome, error
 	if err != nil || path == "" {
 		return ImportOutcome{}, err
 	}
+	return s.importFile(deviceKey, storeID, path, path)
+}
+
+// ImportUpload writes the entries of a file the browser uploaded (browser
+// mode) into a store. name is the uploaded file's name, reported back.
+func (s *StorageService) ImportUpload(deviceKey, storeID, uploadToken, name string) (ImportOutcome, error) {
+	if s.transfers == nil {
+		return ImportOutcome{}, errors.New("storage: uploads are only available in browser mode")
+	}
+	defer s.transfers.forgetUpload(uploadToken)
+	if err := s.checkStore(deviceKey, storeID); err != nil {
+		return ImportOutcome{}, err
+	}
+	path, err := s.transfers.uploadPath(uploadToken)
+	if err != nil {
+		return ImportOutcome{}, err
+	}
+	return s.importFile(deviceKey, storeID, path, name)
+}
+
+// importFile reads an export file and writes it into the store; shown is the
+// path or name reported back to the user.
+func (s *StorageService) importFile(deviceKey, storeID, path, shown string) (ImportOutcome, error) {
 	raw, err := readLimited(path, maxImportBytes)
 	if err != nil {
 		return ImportOutcome{}, err
@@ -154,7 +178,7 @@ func (s *StorageService) Import(deviceKey, storeID string) (ImportOutcome, error
 	ctx, cancel := context.WithTimeout(context.Background(), storageTransferTimeout)
 	defer cancel()
 	res, err := storage.Import(ctx, s.core.Storage(), deviceKey, storeID, file)
-	return ImportOutcome{Path: path, ImportResult: res}, err
+	return ImportOutcome{Path: shown, ImportResult: res}, err
 }
 
 // checkStore fails before any dialog opens when the device or store is gone.

@@ -29,6 +29,10 @@ own when Metro or the app restarts. The Targets panel shows what Metro
 advertises, the app metadata React Native reports, and one-click reload or
 hand-off to React Native DevTools. Details: [docs/guides/connect.md](docs/guides/connect.md).
 
+Browser mode: the server build (`task build:server`) runs Lens in a browser
+tab instead of a window, on every OS. Details:
+[docs/guides/browser-mode.md](docs/guides/browser-mode.md).
+
 Headless helpers:
 
 ```bash

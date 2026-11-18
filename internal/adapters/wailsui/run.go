@@ -7,7 +7,10 @@ package wailsui
 
 import (
 	"context"
+	"errors"
 	"io/fs"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -37,10 +40,19 @@ const (
 	minHeight    = 600
 )
 
-// Run starts the desktop application and blocks until the window closes.
-// assets is the embedded production frontend; in dev mode Wails serves the
-// Vite dev server instead.
-func Run(core *app.App, assets fs.FS) error {
+// RunOptions configures Run.
+type RunOptions struct {
+	// Host and Port are where browser mode (the server build) listens.
+	// Ignored by the desktop build.
+	Host string
+	Port int
+}
+
+// Run starts Lens and blocks until it ends: a native window in the desktop
+// build, a local web server in the server build (browser mode). assets is
+// the embedded production frontend; in dev mode Wails serves the Vite dev
+// server instead.
+func Run(core *app.App, assets fs.FS, opts RunOptions) error {
 	var desktop *application.App
 	saveHAR := func(name string) (string, error) {
 		return desktop.Dialog.SaveFile().
@@ -69,21 +81,43 @@ func Run(core *app.App, assets fs.FS) error {
 			AddFilter("Lens storage export", "*.json").
 			PromptForSingleSelection()
 	}
+	appService := NewAppService(core)
+	storageService := NewStorageService(core, saveJSON, openJSON)
+	lensRoutes := http.NotFoundHandler()
+	if browserMode {
+		// No native dialogs in a browser: saves become downloads and
+		// imports arrive as uploads (see transfers).
+		tr, err := newTransfers()
+		if err != nil {
+			return err
+		}
+		defer tr.close()
+		saveHAR, saveJSON = tr.savePath, tr.savePath
+		saveAs = func(name, _, _ string) (string, error) { return tr.savePath(name) }
+		openJSON = func(string) (string, error) {
+			return "", errors.New("lens: in the browser, pick the file to upload instead")
+		}
+		appService.transfers = tr
+		storageService = NewStorageService(core, saveJSON, openJSON)
+		storageService.transfers = tr
+		lensRoutes = tr
+	}
 	desktop = application.New(application.Options{
 		Name:        windowTitle,
 		Description: "React Native DevTools written in Go",
 		Services: []application.Service{
-			application.NewService(NewAppService(core)),
+			application.NewService(appService),
 			application.NewService(NewTargetsService(core)),
 			application.NewService(NewConsoleService(core)),
 			application.NewService(NewQueriesService(core)),
 			application.NewService(NewNetworkService(core, saveHAR)),
-			application.NewService(NewStorageService(core, saveJSON, openJSON)),
+			application.NewService(storageService),
 			application.NewService(NewPerformanceService(core, saveAs)),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler: withLensRoutes(lensRoutes, application.AssetFileServerFS(assets)),
 		},
+		Server: application.ServerOptions{Host: opts.Host, Port: opts.Port},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
@@ -113,4 +147,26 @@ func Run(core *app.App, assets fs.FS) error {
 	go coalescer.Run(ctx)
 
 	return desktop.Run()
+}
+
+// withLensRoutes serves /lens/mode (which tells the frontend whether it runs
+// in a browser) and hands the rest of /lens/ to lens, everything else to
+// assets.
+func withLensRoutes(lens, assets http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/lens/mode":
+			mode := "desktop"
+			if browserMode {
+				mode = "browser"
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = w.Write([]byte(`{"mode":"` + mode + `"}`))
+		case strings.HasPrefix(r.URL.Path, "/lens/"):
+			lens.ServeHTTP(w, r)
+		default:
+			assets.ServeHTTP(w, r)
+		}
+	})
 }
