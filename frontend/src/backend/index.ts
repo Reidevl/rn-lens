@@ -13,6 +13,7 @@ export type {
   ConsoleProperty,
   ConsoleSource,
   ConsoleStats,
+  MCPInfo,
   FastRefreshPhase,
   FastRefreshState,
   HeapSnapshotResult,

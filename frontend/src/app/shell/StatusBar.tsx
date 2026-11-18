@@ -2,6 +2,7 @@ import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useBackend, type AppInfo } from "@/backend";
+import { McpStatus } from "@/features/mcp/McpStatus";
 import { FastRefreshIndicator } from "@/features/performance/FastRefreshIndicator";
 import { describeApp, presentSession, type Tone } from "@/features/targets/sessionPresentation";
 import { useTargetsStore } from "@/features/targets/targetsStore";
@@ -54,6 +55,7 @@ export function StatusBar() {
         <FastRefreshIndicator />
       </div>
       <div className="flex items-center gap-2">
+        <McpStatus />
         <span className="font-mono">{info ? `${info.name} v${info.version}` : "Lens"}</span>
         <Button
           size="icon"

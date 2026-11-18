@@ -1,6 +1,7 @@
 import {
   TOPICS,
   type AppInfo,
+  type MCPInfo,
   type Backend,
   type ConsoleEntry,
   type ConsoleProperty,
@@ -98,6 +99,8 @@ export interface MockBackend extends Backend {
 
 export interface MockBackendOptions {
   info?: Partial<AppInfo>;
+  /** What `app.mcp` reports; MCP is off when omitted. */
+  mcp?: MCPInfo;
   targets?: Target[];
   session?: SessionSnapshot;
   /** Console capacity before the oldest entries are dropped. */
@@ -256,6 +259,7 @@ export function createMockBackend(options: MockBackendOptions = {}): MockBackend
     calls,
     app: {
       info: () => Promise.resolve(info),
+      mcp: () => Promise.resolve(options.mcp ?? { url: "" }),
     },
     targets: {
       list: () => {

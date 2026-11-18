@@ -13,6 +13,13 @@ export interface AppInfo {
   version: string;
 }
 
+/** Where AI clients reach Lens over MCP; `url` is "" when MCP is off. */
+export interface MCPInfo {
+  url: string;
+  /** Bearer token clients must send, when Lens runs with --mcp-token. */
+  token?: string;
+}
+
 export interface Capabilities {
   nativePageReloads: boolean;
   nativeSourceCodeFetching: boolean;
@@ -493,6 +500,7 @@ export interface Backend {
 
   app: {
     info(): Promise<AppInfo>;
+    mcp(): Promise<MCPInfo>;
   };
 
   targets: {
