@@ -49,7 +49,10 @@ test("writes one package per binary and the launcher, all at the release version
   assert.deepEqual(mac.cpu, ["arm64"]);
   const bin = path.join(out, "cli-darwin-arm64", "bin", "rnlens");
   assert.equal(fs.readFileSync(bin, "utf8"), "binary darwin/arm64");
-  assert.equal(fs.statSync(bin).mode & 0o111, 0o111, "the binary is executable");
+  // Windows has no execute bits: stat reports 0 whatever chmod set.
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(bin).mode & 0o111, 0o111, "the binary is executable");
+  }
 
   const win = JSON.parse(
     fs.readFileSync(path.join(out, "cli-windows-amd64", "package.json"), "utf8"),
