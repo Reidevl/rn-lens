@@ -15,6 +15,7 @@ import (
 // regenerates some of these files (`wails3 update build-assets`) without the
 // markers, and then a release silently ships the old version. This test
 // fails as soon as a marker is missing or a marked version drifts.
+// It understands only the version markers, not the major/minor/patch/date ones.
 func TestReleaseFilesCarryTheReleaseVersion(t *testing.T) {
 	var config struct {
 		Packages map[string]struct {
@@ -55,7 +56,8 @@ func TestReleaseFilesCarryTheReleaseVersion(t *testing.T) {
 				case !inBlock && !strings.Contains(line, "x-release-please-version"):
 					continue
 				}
-				for _, got := range semver.FindAllString(line, -1) {
+				// Like release-please, only the first version on a line counts.
+				if got := semver.FindString(line); got != "" {
 					marked++
 					if got != want {
 						t.Errorf("line %d has version %s, want %s (the manifest version)", i+1, got, want)

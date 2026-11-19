@@ -217,7 +217,7 @@ jobs:
         run: |
           tag=latest
           case "$TAG" in *-*) tag=next ;; esac
-          spec="@rnlens/sdk@${TAG#v}"
+          spec=$(node -p 'const p = require("./packages/sdk/package.json"); p.name + "@" + p.version')
           if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
             echo "$spec is already published, skipping"
             exit 0
