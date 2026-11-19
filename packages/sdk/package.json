@@ -1,6 +1,6 @@
 {
   "name": "@rnlens/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React Native SDK for Lens: streams TanStack Query caches to the Lens desktop app and runs devtools actions on the device.",
   "license": "MIT",
   "repository": {
