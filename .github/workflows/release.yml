@@ -123,7 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm provenance
+      id-token: write # npm trusted publishing and provenance
     steps:
       - uses: actions/checkout@v7
         with:
@@ -148,18 +148,22 @@ jobs:
 
       # Versions are staged, not live: a maintainer approves each one on
       # npmjs.com (Staged Packages) or with `npm stage approve`, with 2FA.
+      # Trusted publishing (OIDC) authenticates; there is no npm token.
+      # A version already published is skipped, so a re-run after a partial
+      # failure stages only what is missing. npm refuses to stage a version
+      # that is already staged: approve or reject those before re-running.
       - name: Stage the platform packages, then the launcher
-        # Trusted publishing (OIDC) is used when the package has it set up;
-        # the token is the fallback until a release proves OIDC works.
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           tag=latest
           case "$TAG" in *-*) tag=next ;; esac
-          for dir in dist/npm/cli-*; do
+          for dir in dist/npm/cli-* dist/npm/rnlens; do
+            spec=$(node -p 'const p = require(process.argv[1]); p.name + "@" + p.version' "$PWD/$dir/package.json")
+            if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
+              echo "$spec is already published, skipping"
+              continue
+            fi
             npm stage publish "$dir" --access public --provenance --tag "$tag"
           done
-          npm stage publish dist/npm/rnlens --access public --provenance --tag "$tag"
 
   sdk:
     name: SDK package
@@ -167,7 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm provenance
+      id-token: write # npm trusted publishing and provenance
     steps:
       - uses: actions/checkout@v7
         with:
@@ -207,14 +211,17 @@ jobs:
         run: npm install -g npm@11
 
       # Staged, not live: a maintainer approves it with 2FA.
+      # Trusted publishing (OIDC); skipped when this version is already
+      # published, as in the npm job.
       - name: Stage
-        # Trusted publishing (OIDC) is used when the package has it set up;
-        # the token is the fallback until a release proves OIDC works.
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           tag=latest
           case "$TAG" in *-*) tag=next ;; esac
+          spec=$(node -p 'const p = require("./packages/sdk/package.json"); p.name + "@" + p.version')
+          if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
+            echo "$spec is already published, skipping"
+            exit 0
+          fi
           npm stage publish "$RUNNER_TEMP"/sdk/*.tgz --access public --provenance --tag "$tag"
 
   desktop:
