@@ -231,7 +231,7 @@ tasks:
       - bun run dev --port {{.VITE_PORT}} --strictPort
 
   update:build-assets:
-    summary: Updates the build assets
+    summary: Updates the build assets (then restore the x-release-please markers, see RELEASING.md)
     dir: build
     cmds:
       - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .

@@ -22,9 +22,18 @@ apps, the Homebrew cask, the Scoop manifest and the npm packages.
 4. Check `npx rnlens@X.Y.Z --version`. npm can take about ten minutes before
    a new version downloads.
 
-If a job fails, fix the workflow on `main` and run it again for the same tag
-with `gh workflow run release.yml -f tag=vX.Y.Z`. "Re-run failed jobs" reuses
-the old workflow file.
+If a job fails:
+
+- **The workflow is fine and the failure was transient** (a network error,
+  a timeout): re-run only the failed jobs with `gh run rerun <run-id> --failed`.
+  A full `gh workflow run` would also redo the GitHub release uploads.
+- **The workflow needs a fix:** fix it on `main`, then run it again for the
+  same tag with `gh workflow run release.yml -f tag=vX.Y.Z`. "Re-run failed
+  jobs" reuses the old workflow file.
+
+The npm jobs skip any version that is already published, so a re-run stages
+only what is missing. npm refuses to stage a version that is already staged,
+so approve (or reject) the staged ones before re-running.
 
 ## npm publishing setup
 
@@ -39,14 +48,9 @@ GitHub Actions on `Reidevl/rn-lens`:
 Leave "Allow npm publish" and "Allow npm dist-tag" unchecked on both. Staging
 is always allowed, so the publisher can stage versions but never put one live.
 
-The `NPM_TOKEN` secret is a fallback: npm 11 uses trusted publishing when it
-can and the token otherwise, and stays green either way, so a green run proves
-nothing. The test is a release without the token: delete the `NPM_TOKEN`
-secret before the next release. If the versions are staged, trusted
-publishing works; revoke the token and set each package's publishing access
-to "Require two-factor authentication and disallow bypass 2fa tokens". If the
-staging fails, nothing reached npm: fix the trusted publishers and run
-`gh workflow run release.yml -f tag=vX.Y.Z`.
+There is no npm token: every package's publishing access is "Require
+two-factor authentication and disallow bypass 2fa tokens", and the workflows
+authenticate through trusted publishing only.
 
 ## Secrets
 
@@ -55,4 +59,13 @@ staging fails, nothing reached npm: fix the trusted publishers and run
 | `RELEASE_PLEASE_TOKEN` | Opening the release pull request as the maintainer |
 | `HOMEBREW_TAP_TOKEN`   | Pushing the cask to `Reidevl/homebrew-tap`         |
 | `SCOOP_BUCKET_TOKEN`   | Pushing the manifest to `Reidevl/scoop-bucket`     |
-| `NPM_TOKEN`            | npm fallback, to be removed (see above)            |
+
+## Version files
+
+Release Please bumps the files listed in `release-please-config.json`. The
+`generic` ones carry `x-release-please-version` markers, and
+`build/release_files_test.go` fails when a marker is missing or a marked
+version differs from `.release-please-manifest.json`. `wails3 update
+build-assets` (`task common:update:build-assets`) regenerates
+`build/windows/nsis/wails_tools.nsh` and `build/windows/wails.exe.manifest`
+without their markers: put them back afterwards.
