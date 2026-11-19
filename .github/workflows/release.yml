@@ -142,16 +142,24 @@ jobs:
       - name: Build the packages
         run: node packages/rnlens/scripts/build-npm.js --root . --out dist/npm --version "$TAG"
 
-      - name: Publish the platform packages, then the launcher
+      # npm 11.15+ has `npm stage publish`; Node 22 ships npm 10.
+      - name: Install npm 11
+        run: npm install -g npm@11
+
+      # Versions are staged, not live: a maintainer approves each one on
+      # npmjs.com (Staged Packages) or with `npm stage approve`, with 2FA.
+      - name: Stage the platform packages, then the launcher
+        # Trusted publishing (OIDC) is used when the package has it set up;
+        # the token is the fallback until a release proves OIDC works.
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           tag=latest
           case "$TAG" in *-*) tag=next ;; esac
           for dir in dist/npm/cli-*; do
-            npm publish "$dir" --access public --provenance --tag "$tag"
+            npm stage publish "$dir" --access public --provenance --tag "$tag"
           done
-          npm publish dist/npm/rnlens --access public --provenance --tag "$tag"
+          npm stage publish dist/npm/rnlens --access public --provenance --tag "$tag"
 
   sdk:
     name: SDK package
@@ -194,13 +202,20 @@ jobs:
       - name: Pack
         run: pnpm --filter @rnlens/sdk pack --pack-destination "$RUNNER_TEMP/sdk"
 
-      - name: Publish
+      # npm 11.15+ has `npm stage publish`; Node 22 ships npm 10.
+      - name: Install npm 11
+        run: npm install -g npm@11
+
+      # Staged, not live: a maintainer approves it with 2FA.
+      - name: Stage
+        # Trusted publishing (OIDC) is used when the package has it set up;
+        # the token is the fallback until a release proves OIDC works.
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           tag=latest
           case "$TAG" in *-*) tag=next ;; esac
-          npm publish "$RUNNER_TEMP"/sdk/*.tgz --access public --provenance --tag "$tag"
+          npm stage publish "$RUNNER_TEMP"/sdk/*.tgz --access public --provenance --tag "$tag"
 
   desktop:
     name: desktop app (${{ matrix.os }})
