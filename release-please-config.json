@@ -21,6 +21,9 @@
       "component": "rnlens",
       "extra-files": [
         { "type": "generic", "path": "build/config.yml" },
+        { "type": "generic", "path": "build/windows/nsis/wails_tools.nsh" },
+        { "type": "generic", "path": "build/windows/wails.exe.manifest" },
+        { "type": "generic", "path": "packages/sdk/src/version.ts" },
         {
           "type": "xml",
           "path": "build/darwin/Info.plist",
