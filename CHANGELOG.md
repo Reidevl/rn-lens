@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.1](https://github.com/Reidevl/rn-lens/compare/v0.1.0...v0.1.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **release:** bump the SDK version constant and the Windows installer version ([6d74974](https://github.com/Reidevl/rn-lens/commit/6d7497428f078303c6f355d48530d7d1874f8746))
+* **release:** bump the SDK version constant and the Windows installer version ([6af1089](https://github.com/Reidevl/rn-lens/commit/6af10898016755139a41180dd0fa0cad5f5f6135))
+* **release:** bump the Windows manifest assembly version ([ca4c46a](https://github.com/Reidevl/rn-lens/commit/ca4c46a529ab6ac8129558b5ed055aa53c6cbe8a))
+* **release:** install the Linux webview headers and put NSIS on the PATH ([b91e176](https://github.com/Reidevl/rn-lens/commit/b91e17677dc51467f4226fbdda403c9557670cec))
+* **release:** install the Linux webview headers and put NSIS on the PATH ([21f6831](https://github.com/Reidevl/rn-lens/commit/21f6831d3c28f74f7b526ad7e8b626c4e4d3b800))
+
+
+### Documentation
+
+* **release:** trust both release workflows and test OIDC without the token ([384d7e7](https://github.com/Reidevl/rn-lens/commit/384d7e73ae6a189b3dc08b3edb34b81c85d7c9f3))
+
 ## 0.1.0 (2026-11-18)
 
 
