@@ -13,9 +13,11 @@
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "Lens"
 !endif
+; x-release-please-start-version
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "0.1.0"
 !endif
+; x-release-please-end
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "(c) 2026, Reiwil Lugo and Lens contributors"
 !endif
