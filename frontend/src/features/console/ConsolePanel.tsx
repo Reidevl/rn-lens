@@ -132,7 +132,7 @@ export function ConsolePanel() {
             : "No entries match the current filters."}
         </div>
       ) : (
-        <ConsoleList entries={visible} />
+        <ConsoleList entries={visible} onCopy={(text) => backend.clipboard.writeText(text)} />
       )}
       <EvalBar />
     </section>
