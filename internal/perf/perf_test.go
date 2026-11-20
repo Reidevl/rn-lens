@@ -313,7 +313,9 @@ func TestANewSessionReleasesAWaitingStop(t *testing.T) {
 // timed-out recording must not join the next one.
 func TestLateChunksOfATimedOutTraceStayOut(t *testing.T) {
 	t.Parallel()
-	svc, srv, flush := newServiceWithFlush(t, perf.Options{TraceTimeout: 50 * time.Millisecond})
+	// The first trace must time out; the second must not, although its chunks
+	// come 20ms after Tracing.end. 50ms was too tight for loaded CI runners.
+	svc, srv, flush := newServiceWithFlush(t, perf.Options{TraceTimeout: 500 * time.Millisecond})
 	srv.Handle("Tracing.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
 	srv.Handle("Tracing.end", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
 	ctx := context.Background()
