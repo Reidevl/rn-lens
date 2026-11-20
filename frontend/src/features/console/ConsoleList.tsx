@@ -47,7 +47,7 @@ export function ConsoleList({ entries }: { entries: ConsoleEntry[] }) {
         role="log"
         aria-label="Console output"
         onScroll={onScroll}
-        className="h-full overflow-auto"
+        className="h-full overflow-auto select-text"
       >
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((item) => (

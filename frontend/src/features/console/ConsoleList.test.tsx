@@ -50,6 +50,12 @@ describe("ConsoleList", () => {
     useConsoleStore.getState().reset();
   });
 
+  it("lets the user select console text to copy it", () => {
+    // The app body is user-select: none; the log opts back in.
+    render(<ConsoleList entries={[entry(1)]} />);
+    expect(screen.getByRole("log")).toHaveClass("select-text");
+  });
+
   it("follows the tail while new entries arrive", () => {
     const { rerender } = render(<ConsoleList entries={[entry(1), entry(2)]} />);
     expect(scrollToIndex).toHaveBeenLastCalledWith(1, { align: "end" });

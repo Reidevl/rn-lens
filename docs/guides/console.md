@@ -25,6 +25,7 @@ expand objects, and evaluates JavaScript inside the app.
 - **Filter box** matches the row text, case-insensitive. ⌘F focuses it, Esc clears it.
 - **Clear** (⌘L) empties the log on both sides.
 - **Preserve log** keeps rows from before a reload. When it is off, a reload clears everything before the divider.
+- **Copy** by selecting text in the log with the mouse, then ⌘C (Ctrl+C on Windows and Linux).
 - Lens keeps the last 10,000 rows. When older rows are dropped, a notice says how many.
 
 ## Objects
