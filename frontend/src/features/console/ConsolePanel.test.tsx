@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -64,6 +64,42 @@ describe("ConsolePanel", () => {
     await user.type(screen.getByRole("searchbox", { name: /filter console/i }), "boom");
     expect(within(log).queryByText("careful")).not.toBeInTheDocument();
     expect(within(log).getByText("boom")).toBeInTheDocument();
+  });
+
+  it("copies the selection or the message from the right-click menu", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    backend.log({ text: "first line" }, { text: "second line" });
+    render(<App backend={backend} />);
+    const log = await screen.findByRole("log");
+    const second = within(log).getByText("second line");
+
+    // Nothing selected: Copy is off, Copy message copies the row under the pointer.
+    await user.pointer({ keys: "[MouseRight]", target: second });
+    let menu = screen.getByRole("menu", { name: "Console actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Copy" })).toBeDisabled();
+    await user.click(within(menu).getByRole("menuitem", { name: "Copy message" }));
+    expect(backend.clipboardText).toBe("second line");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    // A selection: Copy copies exactly the selected text.
+    const range = document.createRange();
+    range.setStart(within(log).getByText("first line").firstChild!, 0);
+    range.setEnd(within(log).getByText("first line").firstChild!, 5);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    // A real right-click on selected text keeps the selection; user-event's
+    // pointer would collapse it, so dispatch the contextmenu event alone.
+    fireEvent.contextMenu(within(log).getByText("first line"));
+    menu = screen.getByRole("menu", { name: "Console actions" });
+    await user.click(within(menu).getByRole("menuitem", { name: "Copy" }));
+    expect(backend.clipboardText).toBe("first");
+
+    // Escape closes the menu without copying.
+    await user.pointer({ keys: "[MouseRight]", target: second });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(backend.clipboardText).toBe("first");
   });
 
   it("clears through the backend", async () => {

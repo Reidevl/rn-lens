@@ -1,18 +1,40 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 
 import type { ConsoleEntry } from "@/backend";
 import { Button } from "@/shared/ui/atoms/Button";
+import { ContextMenu } from "@/shared/ui/molecules/ContextMenu";
 
 import { ConsoleRow } from "./ConsoleRow";
 import { useConsoleStore } from "./consoleStore";
 
 const FOLLOW_THRESHOLD_PX = 8;
 
-/** Virtualized log that follows the tail until the user scrolls up. */
-export function ConsoleList({ entries }: { entries: ConsoleEntry[] }) {
+interface MenuState {
+  x: number;
+  y: number;
+  /** Text selected when the menu opened. */
+  selection: string;
+  /** The row under the pointer. */
+  entry?: ConsoleEntry;
+}
+
+/**
+ * Virtualized log that follows the tail until the user scrolls up. Text is
+ * selectable; a right-click offers Copy (the selection) and Copy message.
+ */
+export function ConsoleList({
+  entries,
+  onCopy,
+}: {
+  entries: ConsoleEntry[];
+  /** Puts text on the clipboard; without it there is no right-click menu. */
+  onCopy?: (text: string) => Promise<void>;
+}) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const follow = useConsoleStore((s) => s.follow);
   const setFollow = useConsoleStore((s) => s.setFollow);
 
@@ -40,6 +62,23 @@ export function ConsoleList({ entries }: { entries: ConsoleEntry[] }) {
     if (atBottom !== follow) setFollow(atBottom);
   };
 
+  const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
+    if (!onCopy) return;
+    e.preventDefault();
+    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
+    const index = row ? Number(row.dataset.index) : -1;
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      selection: window.getSelection()?.toString() ?? "",
+      entry: index >= 0 ? entries[index] : undefined,
+    });
+  };
+
+  const copy = (text: string) => {
+    void onCopy?.(text).catch(() => {});
+  };
+
   return (
     <div className="relative min-h-0 flex-1">
       <div
@@ -47,6 +86,7 @@ export function ConsoleList({ entries }: { entries: ConsoleEntry[] }) {
         role="log"
         aria-label="Console output"
         onScroll={onScroll}
+        onContextMenu={onContextMenu}
         className="h-full overflow-auto select-text"
       >
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -81,6 +121,26 @@ export function ConsoleList({ entries }: { entries: ConsoleEntry[] }) {
           <ArrowDown aria-hidden="true" className="size-3.5" />
           Jump to latest
         </Button>
+      ) : null}
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label="Console actions"
+          onClose={closeMenu}
+          items={[
+            {
+              label: "Copy",
+              disabled: menu.selection === "",
+              onSelect: () => copy(menu.selection),
+            },
+            {
+              label: "Copy message",
+              disabled: !menu.entry,
+              onSelect: () => menu.entry && copy(menu.entry.text),
+            },
+          ]}
+        />
       ) : null}
     </div>
   );
