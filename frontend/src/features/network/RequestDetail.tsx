@@ -1,12 +1,14 @@
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useBackend, type NetworkBody, type NetworkRequest, type NetworkSummary } from "@/backend";
 import { errorMessage } from "@/shared/lib/errorMessage";
 import { cn } from "@/shared/lib/cn";
+import { decodeJwt } from "@/shared/lib/jwt";
 import { Button } from "@/shared/ui/atoms/Button";
 import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
+import { JwtView } from "@/shared/ui/molecules/JwtView";
 
 import { useNetworkStore } from "./networkStore";
 import {
@@ -231,10 +233,42 @@ function Pairs({ pairs }: { pairs: Array<[string, string]> }) {
       {pairs.map(([k, v], i) => (
         <div key={`${k}-${i}`} className="contents">
           <dt className="text-muted-foreground">{k}</dt>
-          <dd className="break-all select-text">{v}</dd>
+          <dd className="break-all select-text">
+            {v}
+            <JwtToggle name={k} value={v} />
+          </dd>
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A "Decode JWT" toggle under a header value that holds a token. */
+function JwtToggle({ name, value }: { name: string; value: string }) {
+  const [open, setOpen] = useState(false);
+  const jwt = decodeJwt(value);
+  if (!jwt) return null;
+  return (
+    <div className="mt-0.5 font-sans">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`Decode JWT in ${name}`}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex cursor-pointer items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
+      >
+        <ChevronRight
+          aria-hidden="true"
+          className={cn("size-3 transition-transform duration-150", open && "rotate-90")}
+        />
+        Decode JWT
+      </button>
+      {open ? (
+        <div className="mt-1 rounded-md border border-border p-2">
+          <JwtView jwt={jwt} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

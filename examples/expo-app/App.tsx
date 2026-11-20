@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { flagsPanel } from "./panels";
-import { seedStorage, storage } from "./storage";
+import { sampleJwt, seedStorage, storage } from "./storage";
 
 /**
  * Lens example app.
@@ -76,7 +76,10 @@ function Demo() {
   const fetchJson = async () => {
     setStatus("fetching");
     try {
-      const res = await fetch("https://httpbin.org/json");
+      // A sample JWT, so Lens can show "Decode JWT" on the request headers.
+      const res = await fetch("https://httpbin.org/json", {
+        headers: { Authorization: `Bearer ${sampleJwt()}` },
+      });
       const body = await res.json();
       console.info("fetched", body.slideshow?.title);
       setStatus(`ok ${res.status}`);

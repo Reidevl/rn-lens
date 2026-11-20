@@ -54,11 +54,18 @@ Values are read when you open a key, never in bulk. The views:
 | ------ | -------------------------------------------------------- |
 | Text   | the value as stored                                      |
 | JSON   | a tree, when a string value holds a JSON object or array |
+| JWT    | the decoded token, when the value is a JWT (see below)   |
 | Hex    | offset, bytes in hex and printable ASCII                 |
 | Base64 | the bytes as base64                                      |
 
 MMKV does not record a value's type, so the SDK infers it from what the
 getters return: string, number, boolean or bytes (bytes show in Hex first).
+A value that is a JWT (`header.payload.signature`, also when saved with
+`JSON.stringify` or prefixed with `Bearer `) opens on the JWT view: whether it
+is valid, expired or not valid yet, its issued, not-before and expiry times,
+and its header and payload as trees. Lens decodes the token; it does not
+verify the signature.
+
 A string holding control characters is shown as bytes. AsyncStorage and SecureStore store strings. Values above 1 MiB are
 not sent; the panel shows their size.
 

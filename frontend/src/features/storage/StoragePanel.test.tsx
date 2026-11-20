@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "@/app/App";
 import { useShellStore } from "@/app/shell/shellStore";
 import { createMockBackend, type MockBackend, type StorageDevice } from "@/backend";
+import { makeJwt } from "@/test/jwt";
 
 import { useStorageStore } from "./storageStore";
 
@@ -117,6 +118,53 @@ describe("StoragePanel", () => {
     expect(within(value).getByText(/^00000000 7b 22 6e 61/)).toBeInTheDocument();
     await user.click(within(value).getByRole("tab", { name: "Base64" }));
     expect(within(value).getByText(/^eyJuYW1lIjoiQWRhIiwicGxhbiI6InBybyJ9$/)).toBeInTheDocument();
+  });
+
+  it("opens a stored JWT decoded, with its raw text one tab away", async () => {
+    const user = userEvent.setup();
+    const token = makeJwt({ alg: "HS256", typ: "JWT" }, { sub: "ada", exp: 4_102_444_800 });
+    const backend = createMockBackend();
+    backend.connectStorage(
+      device,
+      [
+        {
+          id: "async-storage",
+          kind: "async-storage",
+          name: "AsyncStorage",
+          keys: [
+            { key: "session", size: token.length },
+            { key: "saved", size: token.length + 2 },
+            { key: "theme", size: 4 },
+          ],
+        },
+      ],
+      {
+        "async-storage/session": { type: "string", value: token },
+        "async-storage/saved": { type: "string", value: JSON.stringify(token) },
+        "async-storage/theme": { type: "string", value: "dark" },
+      },
+    );
+    render(<App backend={backend} />);
+
+    let value = await openKey(user, "session");
+    expect(await within(value).findByRole("tab", { name: "JWT" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(within(value).getByTestId("jwt-status")).toHaveTextContent(/^Valid · expires in/);
+    expect(within(value).getByRole("tree", { name: "JWT payload" })).toHaveTextContent('"ada"');
+    await user.click(within(value).getByRole("tab", { name: "Text" }));
+    expect(within(value).getByText(token)).toBeInTheDocument();
+
+    // Saved with JSON.stringify: still recognised. The Text tab chosen above
+    // stays selected, as for any key.
+    value = await openKey(user, "saved");
+    await user.click(await within(value).findByRole("tab", { name: "JWT" }));
+    expect(within(value).getByRole("tree", { name: "JWT header" })).toHaveTextContent('"HS256"');
+
+    value = await openKey(user, "theme");
+    await within(value).findByText("dark");
+    expect(within(value).queryByRole("tab", { name: "JWT" })).not.toBeInTheDocument();
   });
 
   it("edits a value and writes it to the app", async () => {

@@ -77,6 +77,10 @@ React Native on iOS sends every body base64-encoded; Lens decodes text bodies
 (JSON, XML, `text/*`, form data) so Preview and Response show them as text,
 and keeps images and other binary bodies as they are.
 
+A header holding a JWT, such as `Authorization: Bearer …`, gets a **Decode
+JWT** toggle under its value: it shows whether the token is valid or expired,
+its times, and its header and payload. The signature is not verified.
+
 **Copy response** puts the response body on the clipboard from any tab (text
 as received; base64 for binary bodies).
 
