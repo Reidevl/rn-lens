@@ -19,7 +19,9 @@ import (
 
 // Caller sends CDP commands to the attached app. Barrier queues a
 // cdp.EventLensBarrier carrying token behind every event already received,
-// so HandleEvent sees it after all of them.
+// so HandleEvent sees it after all of them. Call returns an error wrapping
+// cdp.ErrConnectionClosed when the connection is gone; Barrier fails only
+// when there is no live connection.
 type Caller interface {
 	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
 	Barrier(token string) error
@@ -159,6 +161,17 @@ func (s *Service) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return Status{Tracing: s.trace != nil, Profiling: s.profiling, Snapshotting: s.heap != nil}
+}
+
+// callErr wraps a failed call of a waiting operation. A connection that
+// closed under it means the session ended (detach, reload, crash): the same
+// ErrSessionEnded the operation returns when the end arrives while it waits,
+// whichever of the two Lens sees first.
+func callErr(op string, err error) error {
+	if errors.Is(err, cdp.ErrConnectionClosed) {
+		return ErrSessionEnded
+	}
+	return fmt.Errorf("perf: %s: %w", op, err)
 }
 
 // BeginSession forgets every recording: a new debugger session cannot stop
@@ -302,7 +315,7 @@ func (s *Service) StopTrace(ctx context.Context) (Trace, error) {
 	defer s.dropTrace(rec)
 
 	if _, err := s.caller.Call(ctx, "Tracing.end", nil); err != nil {
-		return Trace{}, fmt.Errorf("perf: stop trace: %w", err)
+		return Trace{}, callErr("stop trace", err)
 	}
 	timer := time.NewTimer(s.timeout)
 	defer timer.Stop()
@@ -368,7 +381,7 @@ func (s *Service) StopProfile(ctx context.Context) (json.RawMessage, error) {
 	defer s.endProfile(gen)
 	raw, err := s.caller.Call(ctx, "Profiler.stop", nil)
 	if err != nil {
-		return nil, fmt.Errorf("perf: stop profile: %w", err)
+		return nil, callErr("stop profile", err)
 	}
 	var res struct {
 		Profile json.RawMessage `json:"profile"`
@@ -423,11 +436,13 @@ func (s *Service) HeapSnapshot(ctx context.Context, w io.Writer) (int64, error) 
 	}()
 
 	if _, err := s.caller.Call(ctx, "HeapProfiler.takeHeapSnapshot", map[string]any{"reportProgress": false}); err != nil {
-		return 0, fmt.Errorf("perf: heap snapshot: %w", err)
+		return 0, callErr("heap snapshot", err)
 	}
 	// Chunks sent before the reply can still be queued behind it.
+	// The call just succeeded, so a failing barrier means the connection went
+	// away since: the session ended, whatever error the caller reports.
 	if err := s.caller.Barrier(token); err != nil {
-		return 0, fmt.Errorf("perf: heap snapshot: %w", err)
+		return 0, ErrSessionEnded
 	}
 	select {
 	case <-arrived:

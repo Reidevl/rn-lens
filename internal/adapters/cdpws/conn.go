@@ -58,7 +58,7 @@ type Options struct {
 // ErrClosed is returned by Call once the connection is gone, whoever ended
 // it. Err wraps it together with the cause when the peer or the transport
 // ended the connection.
-var ErrClosed = errors.New("cdpws: connection closed")
+var ErrClosed = fmt.Errorf("cdpws: %w", cdp.ErrConnectionClosed)
 
 // ErrKeepAlive is wrapped by Err when the keepalive ended the connection
 // because the peer did not answer a ping within PingTimeout.

@@ -24,7 +24,7 @@ type conn struct{ *cdpws.Conn }
 
 func (c conn) Barrier(token string) error {
 	if !c.Conn.Barrier(token) {
-		return errors.New("closed")
+		return cdpws.ErrClosed
 	}
 	return nil
 }
@@ -306,6 +306,75 @@ func TestANewSessionReleasesAWaitingStop(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("StopTrace still waiting after a new session")
+	}
+}
+
+func TestHeapSnapshotAndStopProfileReportTheSessionEndingWhenTheConnectionDrops(t *testing.T) {
+	t.Parallel()
+	svc, srv := newService(t, perf.Options{})
+	srv.Handle("HeapProfiler.takeHeapSnapshot", func(cdptest.Request) (any, *cdptest.Error) {
+		srv.DropAll()
+		return map[string]any{}, nil
+	})
+	var buf bytes.Buffer
+	if _, err := svc.HeapSnapshot(context.Background(), &buf); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("HeapSnapshot = %v, want ErrSessionEnded", err)
+	}
+
+	svc2, srv2 := newService(t, perf.Options{})
+	srv2.Handle("Profiler.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	srv2.Handle("Profiler.stop", func(cdptest.Request) (any, *cdptest.Error) {
+		srv2.DropAll()
+		return map[string]any{}, nil
+	})
+	if err := svc2.StartProfile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc2.StopProfile(context.Background()); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("StopProfile = %v, want ErrSessionEnded", err)
+	}
+}
+
+// replyThenGone answers every call, then reports the connection gone at the
+// barrier: the reply arrived just before the app went away.
+type replyThenGone struct{}
+
+func (replyThenGone) Call(context.Context, string, any) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+
+// Barrier fails the way targets.Session does once it dropped the connection:
+// a plain "no attached session", with no closed-connection marker.
+func (replyThenGone) Barrier(string) error {
+	return errors.New("targets: no attached session")
+}
+
+func TestHeapSnapshotReportsTheSessionEndingWhenTheConnectionDropsAfterTheReply(t *testing.T) {
+	t.Parallel()
+	svc := perf.NewService(replyThenGone{}, perf.Options{})
+	var buf bytes.Buffer
+	if _, err := svc.HeapSnapshot(context.Background(), &buf); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("HeapSnapshot = %v, want ErrSessionEnded", err)
+	}
+}
+
+func TestStopTraceReportsTheSessionEndingWhenTheConnectionDrops(t *testing.T) {
+	t.Parallel()
+	svc, srv := newService(t, perf.Options{})
+	srv.Handle("Tracing.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	srv.Handle("Tracing.end", func(cdptest.Request) (any, *cdptest.Error) {
+		srv.DropAll() // the app goes away before answering, as on a detach
+		return map[string]any{}, nil
+	})
+	ctx := context.Background()
+	if err := svc.StartTrace(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.StopTrace(ctx); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("StopTrace = %v, want ErrSessionEnded", err)
+	}
+	if svc.Status().Tracing {
+		t.Fatal("still tracing after the connection dropped")
 	}
 }
 
