@@ -48,6 +48,8 @@ interface StoreDriver {
   checkKey?(key: string): string | undefined;
   /** Live stores report their own changes; returns the unsubscribe function. */
   subscribe?(): () => void;
+  /** Forgets cached state before a REFRESH snapshot. */
+  refresh?(): void;
 }
 
 const utf8 = jsonByteLength;
@@ -280,9 +282,9 @@ function mmkvDriver(
 function secureStoreDriver(store: SecureStoreLike, declared: readonly string[]): StoreDriver {
   const declaredSet = new Set(declared);
   // SecureStore cannot list its keys, so the snapshot shows the declared
-  // ones. Keys deleted from Lens stay out of it until Lens sets them again;
-  // checking every key instead would read values, which can prompt for
-  // authentication.
+  // ones. Keys deleted from Lens stay out of it until Lens sets them again or
+  // the user refreshes (the app may have written them meanwhile); checking
+  // every key instead would read values, which can prompt for authentication.
   const removed = new Set<string>();
   return {
     info: {
@@ -318,6 +320,7 @@ function secureStoreDriver(store: SecureStoreLike, declared: readonly string[]):
     },
     checkKey: (key) =>
       declaredSet.has(key) ? undefined : `key "${key}" is not declared in storage.secureStore.keys`,
+    refresh: () => removed.clear(),
   };
 }
 
@@ -393,6 +396,7 @@ export function createStorageAdapter(
     const driver = byId.get(action.storeId);
     if (!driver) return { ok: false, error: `unknown store "${action.storeId}"` };
     if (action.type === "REFRESH") {
+      driver.refresh?.();
       await snapshot(driver);
       return { ok: true };
     }

@@ -330,6 +330,21 @@ describe("writes on AsyncStorage and SecureStore", () => {
 
     expect((await act({ type: "CLEAR", storeId: "secure-store" })).ok).toBe(true);
     expect(keysOf(await lens.next("storage.snapshot"))).toEqual([]);
+
+    // The app writes a key itself: Refresh lists the declared keys again.
+    secure.data.set("a", "from the app");
+    expect((await act({ type: "REFRESH", storeId: "secure-store" })).ok).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual(["a", "b"]);
+  });
+
+  it("keeps a SecureStore key listed when deleting it fails", async () => {
+    const secure = new FakeSecureStore({ a: "1" });
+    secure.deleteItemAsync = () => Promise.reject(new Error("keychain locked"));
+    await connect({ secureStore: { module: secure, keys: ["a"] } });
+    const result = await act({ type: "REMOVE", storeId: "secure-store", key: "a" });
+    expect(result).toMatchObject({ ok: false, error: "keychain locked" });
+    expect((await act({ type: "REFRESH", storeId: "secure-store" })).ok).toBe(true);
+    expect((await lens.next("storage.snapshot")).payload.stores[0].keys).toEqual([{ key: "a" }]);
   });
 
   it("answers ok:false when SET has no key or value", async () => {

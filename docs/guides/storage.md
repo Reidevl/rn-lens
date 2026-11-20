@@ -43,7 +43,7 @@ needs a development build (`npx expo run:ios`), not Expo Go.
 
 SecureStore cannot list its keys, so Lens shows the declared ones; a declared
 key the app has not set reads as "not set". A key you delete from Lens leaves
-the list until you add it again or the app reloads. Lens lists at most 10,000
+the list until you add it again, press **Refresh** or the app reloads. Lens lists at most 10,000
 keys per store and says so when a store has more.
 
 ## Values
