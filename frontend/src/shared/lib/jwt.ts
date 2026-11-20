@@ -27,8 +27,15 @@ function base64UrlJson(part: string): Record<string, unknown> | undefined {
   }
 }
 
-const seconds = (v: unknown): number | undefined =>
-  typeof v === "number" && Number.isFinite(v) ? v * 1000 : undefined;
+/** The latest time a Date can hold, in milliseconds either side of 1970. */
+const MAX_DATE_MS = 8.64e15;
+
+/** A NumericDate (seconds) as milliseconds, when a Date can hold it. */
+function seconds(v: unknown): number | undefined {
+  if (typeof v !== "number") return undefined;
+  const ms = v * 1000;
+  return Number.isFinite(ms) && Math.abs(ms) <= MAX_DATE_MS ? ms : undefined;
+}
 
 /**
  * Decodes `text` when it is a JWS compact token (header.payload.signature),
@@ -57,7 +64,9 @@ export function decodeJwt(text: string): DecodedJwt | undefined {
 
 /** "in 5m", "3h ago": a short distance between `ms` and `now`. */
 export function distance(ms: number, now: number): string {
-  const s = Math.round(Math.abs(ms - now) / 1000);
+  // Round toward "now" never: a future time shows at least "in 1s", so a
+  // token that is still valid never reads "expires in 0s".
+  const s = ms > now ? Math.ceil((ms - now) / 1000) : Math.floor((now - ms) / 1000);
   const amount =
     s < 60
       ? `${s}s`
@@ -66,7 +75,7 @@ export function distance(ms: number, now: number): string {
         : s < 86_400
           ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
           : `${Math.floor(s / 86_400)}d ${Math.floor((s % 86_400) / 3600)}h`;
-  return ms >= now ? `in ${amount}` : `${amount} ago`;
+  return ms > now ? `in ${amount}` : `${amount} ago`;
 }
 
 export type JwtStatus = "valid" | "expired" | "not-yet-valid" | "no-expiry";

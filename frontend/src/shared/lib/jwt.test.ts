@@ -46,6 +46,15 @@ describe("decodeJwt", () => {
     expect(decodeJwt(`${h}.${btoa("[1]").replace(/=+$/, "")}.x`)).toBeUndefined();
   });
 
+  it("leaves out time claims no date can hold", () => {
+    const jwt = decodeJwt(
+      makeJwt({ alg: "HS256" }, { exp: 1e306, iat: -1e300, nbf: 1_700_000_000 }),
+    );
+    expect(jwt?.expiresAt).toBeUndefined();
+    expect(jwt?.issuedAt).toBeUndefined();
+    expect(jwt?.notBefore).toBe(1_700_000_000_000);
+  });
+
   it("leaves time claims out when they are missing or not numbers", () => {
     const jwt = decodeJwt(makeJwt({ alg: "none" }, { exp: "soon" }, ""));
     expect(jwt?.expiresAt).toBeUndefined();
@@ -66,6 +75,9 @@ describe("jwtStatus and distance", () => {
 
   it("formats future and past distances", () => {
     expect(distance(30_000, 0)).toBe("in 30s");
+    // Never "in 0s" while still valid, nor "in" once expired.
+    expect(distance(1_000, 600)).toBe("in 1s");
+    expect(distance(1_000, 1_000)).toBe("0s ago");
     expect(distance(0, 5 * 60_000)).toBe("5m ago");
     expect(distance(2 * 3600_000 + 15 * 60_000, 0)).toBe("in 2h 15m");
     expect(distance(0, 3 * 86_400_000 + 4 * 3600_000)).toBe("3d 4h ago");

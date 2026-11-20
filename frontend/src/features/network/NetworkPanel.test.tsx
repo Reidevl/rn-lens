@@ -152,6 +152,40 @@ describe("NetworkPanel", () => {
     expect(within(detail).getByText(/Signature not verified/)).toBeInTheDocument();
   });
 
+  it("opens another request with its JWT collapsed", async () => {
+    const user = userEvent.setup();
+    const backend = createMockBackend();
+    for (const [path, sub] of [
+      ["alpha", "a"],
+      ["beta", "b"],
+    ]) {
+      backend.addRequest({
+        url: `https://api.example.com/${path}`,
+        state: "complete",
+        status: 200,
+        startTime: path === "alpha" ? 1 : 2,
+        endTime: path === "alpha" ? 1.1 : 2.1,
+        requestHeaders: { Authorization: `Bearer ${makeJwt({ alg: "HS256" }, { sub })}` },
+      });
+    }
+    const table = await openPanel(backend);
+    await user.click(await within(table).findByRole("row", { name: /alpha/ }));
+    let detail = await screen.findByRole("region", { name: "Request details" });
+    await user.click(
+      await within(detail).findByRole("button", { name: "Decode JWT in Authorization" }),
+    );
+    expect(within(detail).getByRole("tree", { name: "JWT payload" })).toHaveTextContent('"a"');
+
+    await user.click(within(table).getByRole("row", { name: /beta/ }));
+    detail = await screen.findByRole("region", { name: "Request details" });
+    await waitFor(() =>
+      expect(
+        within(detail).getByRole("button", { name: "Decode JWT in Authorization" }),
+      ).toHaveAttribute("aria-expanded", "false"),
+    );
+    expect(within(detail).queryByRole("tree", { name: "JWT payload" })).not.toBeInTheDocument();
+  });
+
   it("copies the selected request as cURL", async () => {
     const user = userEvent.setup();
     const backend = withRequests();
