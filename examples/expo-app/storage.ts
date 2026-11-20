@@ -34,6 +34,21 @@ export const storage: LensStorageOptions = {
   exclude: [/^internal:/],
 };
 
+/**
+ * A sample, unsigned JWT for the Lens decoder: it expires an hour after it is
+ * made. Not a secret and not accepted by any server.
+ */
+export function sampleJwt(): string {
+  const now = Math.floor(Date.now() / 1000);
+  const part = (o: object) =>
+    btoa(JSON.stringify(o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return [
+    part({ alg: "HS256", typ: "JWT" }),
+    part({ sub: "ada", name: "Ada Lovelace", scope: "read write", iat: now, exp: now + 3600 }),
+    "bGVucy1leGFtcGxlLXNpZ25hdHVyZQ",
+  ].join(".");
+}
+
 /** Seeds the stores once and counts launches, so every store has content. */
 export async function seedStorage(): Promise<void> {
   if ((await AsyncStorage.getItem("theme")) === null) {
@@ -43,8 +58,9 @@ export async function seedStorage(): Promise<void> {
       ["internal:cache-version", "3"],
     ]);
   }
-  if ((await SecureStore.getItemAsync("token")) === null) {
-    await SecureStore.setItemAsync("token", "example-token-not-a-secret");
+  // Also replaces the plain token older versions of this example stored.
+  if (!(await SecureStore.getItemAsync("token"))?.includes(".")) {
+    await SecureStore.setItemAsync("token", sampleJwt());
   }
   if (mmkv) {
     mmkv.set("launches", (mmkv.getNumber("launches") ?? 0) + 1);

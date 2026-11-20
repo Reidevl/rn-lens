@@ -3,14 +3,16 @@ import { useState } from "react";
 import { useBackend, type StorageValue, type StorageValueType } from "@/backend";
 import { cn } from "@/shared/lib/cn";
 import { formatBytes } from "@/shared/lib/formatBytes";
+import { decodeJwt } from "@/shared/lib/jwt";
 import { Button } from "@/shared/ui/atoms/Button";
 import { CopyButton } from "@/shared/ui/molecules/CopyButton";
 import { JsonTree } from "@/shared/ui/molecules/JsonTree";
+import { JwtView } from "@/shared/ui/molecules/JwtView";
 
 import { hexDump, jsonOf, toBase64, valueSize } from "./presentation";
 import { loadValue, runStorageAction, useStorageStore, valueId } from "./storageStore";
 
-type View = "Text" | "JSON" | "Hex" | "Base64";
+type View = "Text" | "JSON" | "JWT" | "Hex" | "Base64";
 
 /** The opened value: views, copy, edit and delete. */
 export function ValueView({
@@ -126,6 +128,18 @@ export function ValueView({
   );
 }
 
+/** `"text"` (a JSON string literal) becomes text; anything else is returned as is. */
+function unquote(text: string): string {
+  const t = text.trim();
+  if (!t.startsWith('"')) return text;
+  try {
+    const parsed: unknown = JSON.parse(t);
+    return typeof parsed === "string" ? parsed : text;
+  } catch {
+    return text;
+  }
+}
+
 function Views({
   value,
   view,
@@ -136,9 +150,18 @@ function Views({
   onView: (v: View) => void;
 }) {
   const json = jsonOf(value);
-  const views: View[] = json.ok ? ["Text", "JSON", "Hex", "Base64"] : ["Text", "Hex", "Base64"];
+  // The token as is, or saved with JSON.stringify (a quoted string).
+  const jwt = value.type === "string" ? decodeJwt(unquote(value.value)) : undefined;
+  const views: View[] = [
+    "Text",
+    ...(json.ok ? (["JSON"] as const) : []),
+    ...(jwt ? (["JWT"] as const) : []),
+    "Hex",
+    "Base64",
+  ];
+  // A token opens decoded; pick another tab to see the raw text.
   const current: View =
-    view && views.includes(view) ? view : value.type === "bytes" ? "Hex" : "Text";
+    view && views.includes(view) ? view : jwt ? "JWT" : value.type === "bytes" ? "Hex" : "Text";
   return (
     <>
       <div className="mb-2 flex items-center gap-2">
@@ -188,6 +211,8 @@ function Views({
       <div id="storage-view-panel" role="tabpanel" aria-labelledby={`storage-view-${current}`}>
         {current === "JSON" && json.ok ? (
           <JsonTree value={json.value} label="Stored JSON" />
+        ) : current === "JWT" && jwt ? (
+          <JwtView jwt={jwt} />
         ) : (
           <pre className="font-mono break-all whitespace-pre-wrap select-text">
             {current === "Hex"
