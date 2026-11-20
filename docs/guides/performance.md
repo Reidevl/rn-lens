@@ -18,6 +18,10 @@ the app is needed.
 JPEG. **Save…** writes the image where you choose; **Copy image** puts a PNG
 on the clipboard.
 
+Some React Native runtimes have no screenshot support in their debugger. Lens
+then says "this app does not support screenshots"; use the simulator's or
+device's own screenshot instead.
+
 ## Trace
 
 1. Pick the categories to record. The defaults match what React Native
