@@ -338,12 +338,16 @@ describe("writes on AsyncStorage and SecureStore", () => {
   });
 
   it("keeps a SecureStore key listed when deleting it fails", async () => {
-    const secure = new FakeSecureStore({ a: "1" });
-    secure.deleteItemAsync = () => Promise.reject(new Error("keychain locked"));
-    await connect({ secureStore: { module: secure, keys: ["a"] } });
+    const secure = new FakeSecureStore({ a: "1", b: "2" });
+    const remove = secure.deleteItemAsync.bind(secure);
+    secure.deleteItemAsync = (key) =>
+      key === "a" ? Promise.reject(new Error("keychain locked")) : remove(key);
+    await connect({ secureStore: { module: secure, keys: ["a", "b"] } });
+
     const result = await act({ type: "REMOVE", storeId: "secure-store", key: "a" });
     expect(result).toMatchObject({ ok: false, error: "keychain locked" });
-    expect((await act({ type: "REFRESH", storeId: "secure-store" })).ok).toBe(true);
+    // A later successful delete re-sends the store without a Refresh: "a" is still there.
+    expect((await act({ type: "REMOVE", storeId: "secure-store", key: "b" })).ok).toBe(true);
     expect((await lens.next("storage.snapshot")).payload.stores[0].keys).toEqual([{ key: "a" }]);
   });
 
