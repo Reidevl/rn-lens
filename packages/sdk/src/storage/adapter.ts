@@ -313,7 +313,9 @@ function secureStoreDriver(store: SecureStoreLike, declared: readonly string[]):
       removed.add(key);
     },
     async clear(visibleKeys) {
-      for (const key of visibleKeys) {
+      // Hidden keys too: the app may have written them again since Lens
+      // deleted them. They already passed `exclude` when they were removed.
+      for (const key of new Set([...visibleKeys, ...removed])) {
         await store.deleteItemAsync(key);
         removed.add(key);
       }

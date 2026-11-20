@@ -111,7 +111,9 @@ useLens({
   on them is answered `ok: false` with `"key is excluded by the app"`, and
   `CLEAR` leaves them in place.
 - SecureStore cannot enumerate keys: only `secureStore.keys` are listed, and
-  actions on other keys are refused. `CLEAR` deletes the declared keys.
+  actions on other keys are refused. A key deleted from Lens leaves the list
+  until Lens sets it again, a `REFRESH`, or an app reload. `CLEAR` deletes the
+  declared keys that are not excluded.
 - Values: AsyncStorage and SecureStore store strings and refuse other types.
   MMKV stores strings, numbers, booleans and bytes (base64 on the wire). MMKV
   does not expose an entry's type, so `GET` tries `getString`, `getNumber`,

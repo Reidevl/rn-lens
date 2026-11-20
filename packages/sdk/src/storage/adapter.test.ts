@@ -337,6 +337,17 @@ describe("writes on AsyncStorage and SecureStore", () => {
     expect(keysOf(await lens.next("storage.snapshot"))).toEqual(["a", "b"]);
   });
 
+  it("CLEAR also deletes a hidden SecureStore key the app wrote again", async () => {
+    const secure = new FakeSecureStore({ token: "old", pin: "1" });
+    await connect({ secureStore: { module: secure, keys: ["token", "pin"] } });
+    expect((await act({ type: "REMOVE", storeId: "secure-store", key: "token" })).ok).toBe(true);
+    await lens.next("storage.snapshot");
+
+    secure.data.set("token", "new login"); // the app logs in again; Lens still hides it
+    expect((await act({ type: "CLEAR", storeId: "secure-store" })).ok).toBe(true);
+    expect([...secure.data.keys()]).toEqual([]);
+  });
+
   it("keeps a SecureStore key listed when deleting it fails", async () => {
     const secure = new FakeSecureStore({ a: "1", b: "2" });
     const remove = secure.deleteItemAsync.bind(secure);
