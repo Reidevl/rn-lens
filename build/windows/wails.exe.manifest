@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
     <!-- x-release-please-start-version -->
-    <assemblyIdentity type="win32" name="io.github.reidevl.rnlens" version="0.1.1" processorArchitecture="*"/>
+    <assemblyIdentity type="win32" name="io.github.reidevl.rnlens" version="0.1.2" processorArchitecture="*"/>
     <!-- x-release-please-end -->
     <dependency>
         <dependentAssembly>
