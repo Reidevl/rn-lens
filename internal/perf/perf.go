@@ -25,6 +25,9 @@ type Caller interface {
 	Barrier(token string) error
 }
 
+// methodNotFound is the JSON-RPC code for a method the target lacks.
+const methodNotFound = -32601
+
 // Errors returned by the recording methods.
 var (
 	// ErrBusy means the same kind of recording is already running.
@@ -35,6 +38,9 @@ var (
 	ErrTraceIncomplete = errors.New("perf: the app did not finish sending the trace")
 	// ErrSessionEnded means the debugger session changed during the operation.
 	ErrSessionEnded = errors.New("perf: the app was detached or reloaded")
+	// ErrScreenshotUnsupported means the app's debugger does not implement
+	// Page.captureScreenshot (JSON-RPC "method not found").
+	ErrScreenshotUnsupported = errors.New("this app does not support screenshots: its React Native debugger has no Page.captureScreenshot")
 )
 
 // DefaultTraceCategories are the categories React Native DevTools records.
@@ -235,6 +241,10 @@ func (s *Service) Screenshot(ctx context.Context, format string, quality int) (I
 		params["quality"] = quality
 	}
 	raw, err := s.caller.Call(ctx, "Page.captureScreenshot", params)
+	var protoErr *cdp.Error
+	if errors.As(err, &protoErr) && protoErr.Code == methodNotFound {
+		return Image{}, ErrScreenshotUnsupported
+	}
 	if err != nil {
 		return Image{}, fmt.Errorf("perf: screenshot: %w", err)
 	}

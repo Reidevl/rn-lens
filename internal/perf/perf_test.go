@@ -110,6 +110,21 @@ func TestScreenshotDecodesTheImage(t *testing.T) {
 	}
 }
 
+func TestScreenshotReportsAnAppWithoutScreenshotSupport(t *testing.T) {
+	t.Parallel()
+	svc, srv := newService(t, perf.Options{})
+	srv.Handle("Page.captureScreenshot", func(cdptest.Request) (any, *cdptest.Error) {
+		return nil, &cdptest.Error{Code: -32601, Message: "Unsupported method 'Page.captureScreenshot'"}
+	})
+	_, err := svc.Screenshot(context.Background(), "png", 0)
+	if !errors.Is(err, perf.ErrScreenshotUnsupported) {
+		t.Fatalf("err = %v, want ErrScreenshotUnsupported", err)
+	}
+	if strings.Contains(err.Error(), "-32601") {
+		t.Fatalf("err = %q leaks the protocol code", err)
+	}
+}
+
 // traceTarget answers Tracing.start/end and, after Tracing.end, streams
 // chunks then tracingComplete, as React Native does.
 func traceTarget(t *testing.T, srv *cdptest.Server, chunks [][]map[string]any, dataLoss bool) *[]map[string]any {
