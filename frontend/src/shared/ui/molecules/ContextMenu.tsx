@@ -43,7 +43,9 @@ export function ContextMenu({
       left: Math.max(EDGE_PX, Math.min(x, window.innerWidth - width - EDGE_PX)),
       top: Math.max(EDGE_PX, Math.min(y, window.innerHeight - height - EDGE_PX)),
     });
-    el.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    // With every item disabled the menu itself takes focus, so keys stay
+    // in the menu instead of reaching the control that had focus.
+    (el.querySelector<HTMLButtonElement>("button:not(:disabled)") ?? el).focus();
   }, [x, y]);
 
   // Give focus back to whatever had it before the menu opened. Read during
@@ -100,10 +102,11 @@ export function ContextMenu({
       ref={ref}
       role="menu"
       aria-label={label}
+      tabIndex={-1}
       onKeyDown={onKeyDown}
       onContextMenu={(e) => e.preventDefault()}
       style={{ left: pos.left, top: pos.top }}
-      className="fixed z-50 min-w-40 rounded-md border border-border bg-card p-1 text-sm shadow-lg"
+      className="fixed z-50 min-w-40 rounded-md border border-border bg-card p-1 text-sm shadow-lg outline-none"
     >
       {items.map((item) => (
         <button

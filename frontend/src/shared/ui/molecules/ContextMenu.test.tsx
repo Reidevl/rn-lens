@@ -51,6 +51,7 @@ describe("ContextMenu", () => {
         items={[{ label: "Off", onSelect: () => {}, disabled: true }]}
       />,
     );
+    expect(screen.getByRole("menu")).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
     unmount();
