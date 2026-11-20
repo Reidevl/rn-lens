@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -344,8 +343,10 @@ func (replyThenGone) Call(context.Context, string, any) (json.RawMessage, error)
 	return json.RawMessage(`{}`), nil
 }
 
+// Barrier fails the way targets.Session does once it dropped the connection:
+// a plain "no attached session", with no closed-connection marker.
 func (replyThenGone) Barrier(string) error {
-	return fmt.Errorf("targets: no attached session: %w", cdp.ErrConnectionClosed)
+	return errors.New("targets: no attached session")
 }
 
 func TestHeapSnapshotReportsTheSessionEndingWhenTheConnectionDropsAfterTheReply(t *testing.T) {
