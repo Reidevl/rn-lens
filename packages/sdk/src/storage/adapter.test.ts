@@ -307,6 +307,61 @@ describe("writes on AsyncStorage and SecureStore", () => {
     expect([...secure.data.keys()]).toEqual(["other"]);
   });
 
+  it("drops a removed SecureStore key from the snapshot until it is set again", async () => {
+    const secure = new FakeSecureStore({ a: "1", b: "2" });
+    await connect({ secureStore: { module: secure, keys: ["a", "b"] } });
+    const keysOf = (frame: { payload: { stores: { keys: { key: string }[] }[] } }) =>
+      frame.payload.stores[0].keys.map((k) => k.key);
+
+    expect((await act({ type: "REMOVE", storeId: "secure-store", key: "b" })).ok).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual(["a"]);
+
+    expect(
+      (
+        await act({
+          type: "SET",
+          storeId: "secure-store",
+          key: "b",
+          value: { type: "string", value: "back" },
+        })
+      ).ok,
+    ).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual(["a", "b"]);
+
+    expect((await act({ type: "CLEAR", storeId: "secure-store" })).ok).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual([]);
+
+    // The app writes a key itself: Refresh lists the declared keys again.
+    secure.data.set("a", "from the app");
+    expect((await act({ type: "REFRESH", storeId: "secure-store" })).ok).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual(["a", "b"]);
+  });
+
+  it("CLEAR also deletes a hidden SecureStore key the app wrote again", async () => {
+    const secure = new FakeSecureStore({ token: "old", pin: "1" });
+    await connect({ secureStore: { module: secure, keys: ["token", "pin"] } });
+    expect((await act({ type: "REMOVE", storeId: "secure-store", key: "token" })).ok).toBe(true);
+    await lens.next("storage.snapshot");
+
+    secure.data.set("token", "new login"); // the app logs in again; Lens still hides it
+    expect((await act({ type: "CLEAR", storeId: "secure-store" })).ok).toBe(true);
+    expect([...secure.data.keys()]).toEqual([]);
+  });
+
+  it("keeps a SecureStore key listed when deleting it fails", async () => {
+    const secure = new FakeSecureStore({ a: "1", b: "2" });
+    const remove = secure.deleteItemAsync.bind(secure);
+    secure.deleteItemAsync = (key) =>
+      key === "a" ? Promise.reject(new Error("keychain locked")) : remove(key);
+    await connect({ secureStore: { module: secure, keys: ["a", "b"] } });
+
+    const result = await act({ type: "REMOVE", storeId: "secure-store", key: "a" });
+    expect(result).toMatchObject({ ok: false, error: "keychain locked" });
+    // A later successful delete re-sends the store without a Refresh: "a" is still there.
+    expect((await act({ type: "REMOVE", storeId: "secure-store", key: "b" })).ok).toBe(true);
+    expect((await lens.next("storage.snapshot")).payload.stores[0].keys).toEqual([{ key: "a" }]);
+  });
+
   it("answers ok:false when SET has no key or value", async () => {
     await connect({ asyncStorage: new FakeAsyncStorage() });
     expect(
