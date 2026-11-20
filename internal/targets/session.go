@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -206,7 +207,8 @@ func (s *Session) Barrier(token string) error {
 		return errors.New("targets: the connection does not support barriers")
 	}
 	if !b.Barrier(token) {
-		return ErrNotAttached
+		// The connection ended under the caller.
+		return fmt.Errorf("%w: %w", ErrNotAttached, cdp.ErrConnectionClosed)
 	}
 	return nil
 }

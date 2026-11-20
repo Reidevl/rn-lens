@@ -19,7 +19,8 @@ import (
 
 // Caller sends CDP commands to the attached app. Barrier queues a
 // cdp.EventLensBarrier carrying token behind every event already received,
-// so HandleEvent sees it after all of them.
+// so HandleEvent sees it after all of them. Both return an error wrapping
+// cdp.ErrConnectionClosed when the connection is gone.
 type Caller interface {
 	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
 	Barrier(token string) error
@@ -161,7 +162,7 @@ func (s *Service) Status() Status {
 	return Status{Tracing: s.trace != nil, Profiling: s.profiling, Snapshotting: s.heap != nil}
 }
 
-// callErr wraps a failed call of a waiting operation. A connection that
+// callErr wraps a failed call or barrier of a waiting operation. A connection that
 // closed under it means the session ended (detach, reload, crash): the same
 // ErrSessionEnded the operation returns when the end arrives while it waits,
 // whichever of the two Lens sees first.
@@ -379,7 +380,7 @@ func (s *Service) StopProfile(ctx context.Context) (json.RawMessage, error) {
 	defer s.endProfile(gen)
 	raw, err := s.caller.Call(ctx, "Profiler.stop", nil)
 	if err != nil {
-		return nil, fmt.Errorf("perf: stop profile: %w", err)
+		return nil, callErr("stop profile", err)
 	}
 	var res struct {
 		Profile json.RawMessage `json:"profile"`
@@ -438,7 +439,7 @@ func (s *Service) HeapSnapshot(ctx context.Context, w io.Writer) (int64, error) 
 	}
 	// Chunks sent before the reply can still be queued behind it.
 	if err := s.caller.Barrier(token); err != nil {
-		return 0, fmt.Errorf("perf: heap snapshot: %w", err)
+		return 0, callErr("heap snapshot", err)
 	}
 	select {
 	case <-arrived:

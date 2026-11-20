@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -24,7 +25,7 @@ type conn struct{ *cdpws.Conn }
 
 func (c conn) Barrier(token string) error {
 	if !c.Conn.Barrier(token) {
-		return errors.New("closed")
+		return cdpws.ErrClosed
 	}
 	return nil
 }
@@ -309,8 +310,53 @@ func TestANewSessionReleasesAWaitingStop(t *testing.T) {
 	}
 }
 
-// React Native sends trace chunks only after Tracing.end; late chunks of a
-// timed-out recording must not join the next one.
+func TestHeapSnapshotAndStopProfileReportTheSessionEndingWhenTheConnectionDrops(t *testing.T) {
+	t.Parallel()
+	svc, srv := newService(t, perf.Options{})
+	srv.Handle("HeapProfiler.takeHeapSnapshot", func(cdptest.Request) (any, *cdptest.Error) {
+		srv.DropAll()
+		return map[string]any{}, nil
+	})
+	var buf bytes.Buffer
+	if _, err := svc.HeapSnapshot(context.Background(), &buf); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("HeapSnapshot = %v, want ErrSessionEnded", err)
+	}
+
+	svc2, srv2 := newService(t, perf.Options{})
+	srv2.Handle("Profiler.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	srv2.Handle("Profiler.stop", func(cdptest.Request) (any, *cdptest.Error) {
+		srv2.DropAll()
+		return map[string]any{}, nil
+	})
+	if err := svc2.StartProfile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc2.StopProfile(context.Background()); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("StopProfile = %v, want ErrSessionEnded", err)
+	}
+}
+
+// replyThenGone answers every call, then reports the connection gone at the
+// barrier: the reply arrived just before the app went away.
+type replyThenGone struct{}
+
+func (replyThenGone) Call(context.Context, string, any) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+
+func (replyThenGone) Barrier(string) error {
+	return fmt.Errorf("targets: no attached session: %w", cdp.ErrConnectionClosed)
+}
+
+func TestHeapSnapshotReportsTheSessionEndingWhenTheConnectionDropsAfterTheReply(t *testing.T) {
+	t.Parallel()
+	svc := perf.NewService(replyThenGone{}, perf.Options{})
+	var buf bytes.Buffer
+	if _, err := svc.HeapSnapshot(context.Background(), &buf); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("HeapSnapshot = %v, want ErrSessionEnded", err)
+	}
+}
+
 func TestStopTraceReportsTheSessionEndingWhenTheConnectionDrops(t *testing.T) {
 	t.Parallel()
 	svc, srv := newService(t, perf.Options{})
@@ -331,6 +377,8 @@ func TestStopTraceReportsTheSessionEndingWhenTheConnectionDrops(t *testing.T) {
 	}
 }
 
+// React Native sends trace chunks only after Tracing.end; late chunks of a
+// timed-out recording must not join the next one.
 func TestLateChunksOfATimedOutTraceStayOut(t *testing.T) {
 	t.Parallel()
 	// The first trace must time out; the second must not, although its chunks
