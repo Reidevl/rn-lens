@@ -28,7 +28,7 @@ type Caller interface {
 // methodNotFound is the JSON-RPC code for a method the target lacks.
 const methodNotFound = -32601
 
-// Errors returned by the recording methods.
+// Errors returned by the Service methods.
 var (
 	// ErrBusy means the same kind of recording is already running.
 	ErrBusy = errors.New("perf: a recording of this kind is already running")
