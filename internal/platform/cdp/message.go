@@ -9,6 +9,7 @@ package cdp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -49,6 +50,11 @@ const (
 	// Its params are the JSON string token the barrier was created with.
 	EventLensBarrier = "Lens.barrier"
 )
+
+// ErrConnectionClosed is wrapped by every error a transport returns because
+// its connection is gone (detach, reload, crash), so features can tell "the
+// session ended" from a protocol error without importing the transport.
+var ErrConnectionClosed = errors.New("connection closed")
 
 // Error is a protocol-level error returned for a request.
 type Error struct {

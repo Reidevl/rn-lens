@@ -311,6 +311,26 @@ func TestANewSessionReleasesAWaitingStop(t *testing.T) {
 
 // React Native sends trace chunks only after Tracing.end; late chunks of a
 // timed-out recording must not join the next one.
+func TestStopTraceReportsTheSessionEndingWhenTheConnectionDrops(t *testing.T) {
+	t.Parallel()
+	svc, srv := newService(t, perf.Options{})
+	srv.Handle("Tracing.start", func(cdptest.Request) (any, *cdptest.Error) { return map[string]any{}, nil })
+	srv.Handle("Tracing.end", func(cdptest.Request) (any, *cdptest.Error) {
+		srv.DropAll() // the app goes away before answering, as on a detach
+		return map[string]any{}, nil
+	})
+	ctx := context.Background()
+	if err := svc.StartTrace(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.StopTrace(ctx); !errors.Is(err, perf.ErrSessionEnded) {
+		t.Fatalf("StopTrace = %v, want ErrSessionEnded", err)
+	}
+	if svc.Status().Tracing {
+		t.Fatal("still tracing after the connection dropped")
+	}
+}
+
 func TestLateChunksOfATimedOutTraceStayOut(t *testing.T) {
 	t.Parallel()
 	// The first trace must time out; the second must not, although its chunks

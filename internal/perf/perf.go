@@ -161,6 +161,17 @@ func (s *Service) Status() Status {
 	return Status{Tracing: s.trace != nil, Profiling: s.profiling, Snapshotting: s.heap != nil}
 }
 
+// callErr wraps a failed call of a waiting operation. A connection that
+// closed under it means the session ended (detach, reload, crash): the same
+// ErrSessionEnded the operation returns when the end arrives while it waits,
+// whichever of the two Lens sees first.
+func callErr(op string, err error) error {
+	if errors.Is(err, cdp.ErrConnectionClosed) {
+		return ErrSessionEnded
+	}
+	return fmt.Errorf("perf: %s: %w", op, err)
+}
+
 // BeginSession forgets every recording: a new debugger session cannot stop
 // what the previous one started. Waiting operations return ErrSessionEnded.
 // Call it on attach and on detach.
@@ -302,7 +313,7 @@ func (s *Service) StopTrace(ctx context.Context) (Trace, error) {
 	defer s.dropTrace(rec)
 
 	if _, err := s.caller.Call(ctx, "Tracing.end", nil); err != nil {
-		return Trace{}, fmt.Errorf("perf: stop trace: %w", err)
+		return Trace{}, callErr("stop trace", err)
 	}
 	timer := time.NewTimer(s.timeout)
 	defer timer.Stop()
@@ -423,7 +434,7 @@ func (s *Service) HeapSnapshot(ctx context.Context, w io.Writer) (int64, error) 
 	}()
 
 	if _, err := s.caller.Call(ctx, "HeapProfiler.takeHeapSnapshot", map[string]any{"reportProgress": false}); err != nil {
-		return 0, fmt.Errorf("perf: heap snapshot: %w", err)
+		return 0, callErr("heap snapshot", err)
 	}
 	// Chunks sent before the reply can still be queued behind it.
 	if err := s.caller.Barrier(token); err != nil {
