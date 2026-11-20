@@ -307,6 +307,31 @@ describe("writes on AsyncStorage and SecureStore", () => {
     expect([...secure.data.keys()]).toEqual(["other"]);
   });
 
+  it("drops a removed SecureStore key from the snapshot until it is set again", async () => {
+    const secure = new FakeSecureStore({ a: "1", b: "2" });
+    await connect({ secureStore: { module: secure, keys: ["a", "b"] } });
+    const keysOf = (frame: { payload: { stores: { keys: { key: string }[] }[] } }) =>
+      frame.payload.stores[0].keys.map((k) => k.key);
+
+    expect((await act({ type: "REMOVE", storeId: "secure-store", key: "b" })).ok).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual(["a"]);
+
+    expect(
+      (
+        await act({
+          type: "SET",
+          storeId: "secure-store",
+          key: "b",
+          value: { type: "string", value: "back" },
+        })
+      ).ok,
+    ).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual(["a", "b"]);
+
+    expect((await act({ type: "CLEAR", storeId: "secure-store" })).ok).toBe(true);
+    expect(keysOf(await lens.next("storage.snapshot"))).toEqual([]);
+  });
+
   it("answers ok:false when SET has no key or value", async () => {
     await connect({ asyncStorage: new FakeAsyncStorage() });
     expect(

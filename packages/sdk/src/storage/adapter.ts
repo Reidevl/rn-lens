@@ -279,6 +279,11 @@ function mmkvDriver(
 
 function secureStoreDriver(store: SecureStoreLike, declared: readonly string[]): StoreDriver {
   const declaredSet = new Set(declared);
+  // SecureStore cannot list its keys, so the snapshot shows the declared
+  // ones. Keys deleted from Lens stay out of it until Lens sets them again;
+  // checking every key instead would read values, which can prompt for
+  // authentication.
+  const removed = new Set<string>();
   return {
     info: {
       id: "secure-store",
@@ -287,7 +292,7 @@ function secureStoreDriver(store: SecureStoreLike, declared: readonly string[]):
       live: false,
       declaredKeys: true,
     },
-    keys: async () => [...declaredSet],
+    keys: async () => [...declaredSet].filter((key) => !removed.has(key)),
     // Reading a SecureStore value can prompt for authentication: no sizes.
     describe: async (keys) => keys.map((key) => ({ key })),
     async get(key) {
@@ -298,11 +303,18 @@ function secureStoreDriver(store: SecureStoreLike, declared: readonly string[]):
       const refused = stringOnly("SecureStore", value);
       if (refused) return refused;
       await store.setItemAsync(key, value.value);
+      removed.delete(key);
       return undefined;
     },
-    remove: (key) => store.deleteItemAsync(key),
+    async remove(key) {
+      await store.deleteItemAsync(key);
+      removed.add(key);
+    },
     async clear(visibleKeys) {
-      for (const key of visibleKeys) await store.deleteItemAsync(key);
+      for (const key of visibleKeys) {
+        await store.deleteItemAsync(key);
+        removed.add(key);
+      }
     },
     checkKey: (key) =>
       declaredSet.has(key) ? undefined : `key "${key}" is not declared in storage.secureStore.keys`,
