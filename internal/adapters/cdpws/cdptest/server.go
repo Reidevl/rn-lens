@@ -225,9 +225,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	// A cancelled Read does not always close the socket: when it sees the
-	// context first, coder/websocket stops its close callback. Close it here
-	// so cleanup always hangs up on clients the test left open.
+	// A Read on an already cancelled context can return before it arms
+	// coder/websocket's close-on-cancel: its read lock selects on ctx.Done
+	// first. Close here so cleanup always hangs up on clients left open.
 	defer func() { _ = c.CloseNow() }()
 	s.mu.Lock()
 	s.conns = append(s.conns, c)
