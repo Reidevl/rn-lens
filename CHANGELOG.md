@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.1.2](https://github.com/Reidevl/rn-lens/compare/v0.1.1...v0.1.2) (2026-11-20)
+
+
+### Features
+
+* **console:** right-click menu to copy the selection or a message ([ba2ca3b](https://github.com/Reidevl/rn-lens/commit/ba2ca3b784d4407c7308482b8d2a4ff9ca041059))
+
+
+### Bug Fixes
+
+* **cdp:** count queue waiters so a resumed Barrier does not hide a stalled reader ([e76da06](https://github.com/Reidevl/rn-lens/commit/e76da0655d25511947cbc65fea3cc70a8be30dfe))
+* **cdp:** do not end the connection when the reader stalls during a ping ([7da546b](https://github.com/Reidevl/rn-lens/commit/7da546b557d235559551394bb16dd04be818b0b5))
+* **cdp:** do not end the connection when the reader stalls during a ping ([441c1b2](https://github.com/Reidevl/rn-lens/commit/441c1b2d2b14cc9c09cfc70d86cdc1eb237a54d8))
+* **console:** allow selecting and copying console text ([7a65050](https://github.com/Reidevl/rn-lens/commit/7a65050d2bddd121dec482c640c43b511669462d))
+* **console:** focus the copy menu even when every item is disabled ([1c2c5cc](https://github.com/Reidevl/rn-lens/commit/1c2c5cc959e6184a4f65b6975cbc86585f581df0))
+* **console:** keep the copy menu open while logs stream; restore focus on close ([983031c](https://github.com/Reidevl/rn-lens/commit/983031c019c537aaa690884ae3c6916b075f2e29))
+* **console:** select and copy console text, with a right-click Copy menu ([4a90829](https://github.com/Reidevl/rn-lens/commit/4a9082950a9f98d047aaf8ae72e9db1bb114e6b6))
+* **perf:** explain when the app does not support screenshots ([77020a1](https://github.com/Reidevl/rn-lens/commit/77020a1a76de12231ce2cff6c2a124f47918a333))
+* **perf:** explain when the app does not support screenshots ([929d435](https://github.com/Reidevl/rn-lens/commit/929d4359cff06065206352e17d2eced3061013bc))
+* **sdk:** CLEAR also deletes SecureStore keys hidden after a delete ([4c2d914](https://github.com/Reidevl/rn-lens/commit/4c2d914869410fdeb09d84cf8cd01a7782fcd793))
+* **sdk:** keep deleted SecureStore keys out of the snapshot ([f2b874d](https://github.com/Reidevl/rn-lens/commit/f2b874d2f572637533b2676944ebf84d17c5baa6))
+* **sdk:** keep deleted SecureStore keys out of the snapshot ([dfb00bc](https://github.com/Reidevl/rn-lens/commit/dfb00bc8312b6de2d5198022bcd440a44aac11c7))
+* **sdk:** show SecureStore keys again on Refresh ([cd359b5](https://github.com/Reidevl/rn-lens/commit/cd359b56157d1bb161874ee84379c9e991f62e45))
+
+
+### Documentation
+
+* **perf:** describe the perf errors as Service errors ([f7a6425](https://github.com/Reidevl/rn-lens/commit/f7a6425087a00885df5f2d521266464e8e88bf89))
+* **storage:** rewrap the SecureStore paragraph ([a3bd051](https://github.com/Reidevl/rn-lens/commit/a3bd051675eacc12b8eacdfb530bcbc49bf4e864))
+
 ## [0.1.1](https://github.com/Reidevl/rn-lens/compare/v0.1.0...v0.1.1) (2026-11-19)
 
 
