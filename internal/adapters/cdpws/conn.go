@@ -81,13 +81,13 @@ type Conn struct {
 	queueBytes  int64
 	queueNotify chan struct{} // readLoop -> pumpEvents: something was queued
 	queueSpace  chan struct{} // pumpEvents -> readLoop: something was dequeued
-	// paused is set while readLoop waits for queue space: pongs are consumed
-	// by readLoop, so the keepalive must not blame the peer for a stalled
-	// consumer.
-	paused atomic.Bool
-	// pauses counts readLoop's waits for queue space, so the keepalive can
-	// tell that a pause began while its ping was waiting for the pong.
-	pauses atomic.Uint64
+	// waiting counts the goroutines blocked on queue space (readLoop and
+	// Barrier callers); pauses counts every such wait that began. Pongs are
+	// consumed by readLoop, so the keepalive must not blame the peer while a
+	// wait may be holding readLoop. A counter, not a flag: one waiter
+	// resuming must not hide another that is still blocked.
+	waiting atomic.Int32
+	pauses  atomic.Uint64
 
 	done chan struct{}
 
@@ -352,12 +352,12 @@ func (c *Conn) enqueueEvent(ev cdp.Event) bool {
 		}
 		c.queueMu.Unlock()
 		c.pauses.Add(1)
-		c.paused.Store(true)
+		c.waiting.Add(1)
 		select {
 		case <-c.queueSpace:
-			c.paused.Store(false)
+			c.waiting.Add(-1)
 		case <-c.done:
-			c.paused.Store(false)
+			c.waiting.Add(-1)
 			return false
 		}
 	}
@@ -441,7 +441,7 @@ func (c *Conn) keepAlive() {
 			return
 		case <-ticker.C:
 		}
-		if c.paused.Load() {
+		if c.waiting.Load() > 0 {
 			// readLoop is parked on backpressure and cannot read the pong.
 			continue
 		}
@@ -452,7 +452,7 @@ func (c *Conn) keepAlive() {
 		if err == nil {
 			continue
 		}
-		if c.paused.Load() || c.pauses.Load() != pausesBefore {
+		if stalledDuringPing(c.waiting.Load(), pausesBefore, c.pauses.Load()) {
 			// readLoop stalled while the pong was due, so it may never have
 			// read it: not the peer's fault. Try again on the next tick.
 			continue
@@ -470,6 +470,14 @@ func (c *Conn) keepAlive() {
 		})
 		return
 	}
+}
+
+// stalledDuringPing reports whether a failed ping may be the consumer's
+// fault rather than the peer's: a queue wait is still in progress, or one
+// began after the ping was sent (pausesBefore), so readLoop may not have
+// read the pong.
+func stalledDuringPing(waitingNow int32, pausesBefore, pausesAfter uint64) bool {
+	return waitingNow > 0 || pausesAfter != pausesBefore
 }
 
 // finish records the terminal state and wakes every waiter. Callers hold closeOnce.
