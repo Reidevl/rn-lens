@@ -29,13 +29,18 @@ func TestCoalescerEmitsAtMostOncePerTopicPerTick(t *testing.T) {
 	defer cancel()
 	go c.Run(ctx)
 
-	// Give the subscriptions a moment to register, then burst.
-	time.Sleep(10 * time.Millisecond)
+	// Run subscribes in its goroutine: wait for it, then burst.
+	waitFor(t, func() bool { return b.Subscribers("a") > 0 && b.Subscribers("b") > 0 })
 	for range 100 {
 		b.Publish("a", nil)
 	}
 	b.Publish("b", nil)
-	time.Sleep(30 * time.Millisecond)
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return emitted["a"] > 0 && emitted["b"] > 0
+	})
+	time.Sleep(4 * 5 * time.Millisecond) // a few more ticks: no further emits
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -44,5 +49,17 @@ func TestCoalescerEmitsAtMostOncePerTopicPerTick(t *testing.T) {
 	}
 	if emitted["b"] != 1 {
 		t.Fatalf("topic b emitted %d times, want 1", emitted["b"])
+	}
+}
+
+// waitFor polls cond until it holds, failing the test after 2 seconds.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not met within 2s")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

@@ -85,6 +85,9 @@ type Conn struct {
 	// by readLoop, so the keepalive must not blame the peer for a stalled
 	// consumer.
 	paused atomic.Bool
+	// pauses counts readLoop's waits for queue space, so the keepalive can
+	// tell that a pause began while its ping was waiting for the pong.
+	pauses atomic.Uint64
 
 	done chan struct{}
 
@@ -348,6 +351,7 @@ func (c *Conn) enqueueEvent(ev cdp.Event) bool {
 			return true
 		}
 		c.queueMu.Unlock()
+		c.pauses.Add(1)
 		c.paused.Store(true)
 		select {
 		case <-c.queueSpace:
@@ -441,10 +445,16 @@ func (c *Conn) keepAlive() {
 			// readLoop is parked on backpressure and cannot read the pong.
 			continue
 		}
+		pausesBefore := c.pauses.Load()
 		ctx, cancel := context.WithTimeout(context.Background(), c.opts.PingTimeout)
 		err := c.ws.Ping(ctx)
 		cancel()
 		if err == nil {
+			continue
+		}
+		if c.paused.Load() || c.pauses.Load() != pausesBefore {
+			// readLoop stalled while the pong was due, so it may never have
+			// read it: not the peer's fault. Try again on the next tick.
 			continue
 		}
 		if errors.Is(err, net.ErrClosed) {
