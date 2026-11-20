@@ -12,8 +12,10 @@ const EDGE_PX = 4;
 
 /**
  * A right-click menu at viewport point (x, y). It takes focus, moves with
- * the arrow keys, and closes on Escape, an outside press, scroll, resize or
- * after an item runs.
+ * the arrow keys, and closes on Escape, Tab, an outside press, the mouse
+ * wheel, resize, window blur or after an item runs; focus then returns to
+ * where it was. Programmatic scrolling (a log following its tail) keeps it
+ * open.
  */
 export function ContextMenu({
   x,
@@ -44,25 +46,41 @@ export function ContextMenu({
     el.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [x, y]);
 
+  // Give focus back to whatever had it before the menu opened. Read during
+  // the first render: the layout effect below moves focus into the menu.
+  const [previous] = useState(() => document.activeElement);
   useEffect(() => {
-    const onPointerDown = (e: PointerEvent) => {
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [previous]);
+
+  useEffect(() => {
+    const outside = (e: Event) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
-    window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("scroll", onClose, true);
+    // Escape works even when no item can take focus (every item disabled).
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", outside, true);
+    window.addEventListener("wheel", outside, true);
+    window.addEventListener("keydown", onKey);
     window.addEventListener("resize", onClose);
     window.addEventListener("blur", onClose);
     return () => {
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener("wheel", outside, true);
+      window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onClose);
       window.removeEventListener("blur", onClose);
     };
   }, [onClose]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" || e.key === "Tab") {
       e.preventDefault();
+      e.stopPropagation();
       onClose();
       return;
     }

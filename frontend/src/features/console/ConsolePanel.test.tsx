@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -94,6 +94,27 @@ describe("ConsolePanel", () => {
     menu = screen.getByRole("menu", { name: "Console actions" });
     await user.click(within(menu).getByRole("menuitem", { name: "Copy" }));
     expect(backend.clipboardText).toBe("first");
+
+    // New lines arriving (the log follows its tail) keep the menu open.
+    await user.pointer({ keys: "[MouseRight]", target: second });
+    act(() => backend.log({ text: "third line" }));
+    expect(await within(log).findByText("third line")).toBeInTheDocument();
+    fireEvent.scroll(log);
+    expect(screen.getByRole("menu", { name: "Console actions" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    // A selection outside the log is not offered as Copy.
+    const outside = document.createElement("p");
+    outside.textContent = "elsewhere";
+    document.body.append(outside);
+    const away = document.createRange();
+    away.selectNodeContents(outside);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(away);
+    fireEvent.contextMenu(second);
+    expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Copy" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    outside.remove();
 
     // Escape closes the menu without copying.
     await user.pointer({ keys: "[MouseRight]", target: second });

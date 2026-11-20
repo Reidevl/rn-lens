@@ -11,6 +11,13 @@ import { useConsoleStore } from "./consoleStore";
 
 const FOLLOW_THRESHOLD_PX = 8;
 
+/** The selected text when the selection lies inside `root`, else "". */
+function selectionWithin(root: HTMLElement | null): string {
+  const sel = window.getSelection();
+  if (!root || !sel || sel.rangeCount === 0) return "";
+  return root.contains(sel.getRangeAt(0).commonAncestorContainer) ? sel.toString() : "";
+}
+
 interface MenuState {
   x: number;
   y: number;
@@ -70,7 +77,7 @@ export function ConsoleList({
     setMenu({
       x: e.clientX,
       y: e.clientY,
-      selection: window.getSelection()?.toString() ?? "",
+      selection: selectionWithin(parentRef.current),
       entry: index >= 0 ? entries[index] : undefined,
     });
   };
