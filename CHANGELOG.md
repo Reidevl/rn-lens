@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.3](https://github.com/Reidevl/rn-lens/compare/v0.1.2...v0.1.3) (2026-11-20)
+
+
+### Features
+
+* decode JWTs in storage values and network headers ([6484279](https://github.com/Reidevl/rn-lens/commit/6484279bd5c890cae8357c6c77ecf9beac1f1245))
+
+
+### Bug Fixes
+
+* **jwt:** ignore time claims no date can hold; never show "expires in 0s" ([e61fa15](https://github.com/Reidevl/rn-lens/commit/e61fa1549d11d07a8b42b9bf5c5c3075308cdc81))
+* **perf:** end the session cleanly when a heap snapshot barrier or profile stop loses the connection ([5afc8c7](https://github.com/Reidevl/rn-lens/commit/5afc8c75fc8861ca04a5bbc226f030d153b484c0))
+* **perf:** report a dropped connection during a recording as the session ending ([330c4d1](https://github.com/Reidevl/rn-lens/commit/330c4d17f75fec80ac59c75701f224e706ae48a0))
+* **perf:** report a dropped connection during a recording as the session ending ([e0338d6](https://github.com/Reidevl/rn-lens/commit/e0338d60b0ed5239540c8d22b2a60f592fa68b2f))
+* **perf:** treat any heap snapshot barrier failure as the session ending ([190c88a](https://github.com/Reidevl/rn-lens/commit/190c88a4a28f2515d8b551619fd5f552c3bb8f2f))
+
 ## [0.1.2](https://github.com/Reidevl/rn-lens/compare/v0.1.1...v0.1.2) (2026-11-20)
 
 
