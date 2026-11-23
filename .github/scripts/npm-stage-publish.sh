@@ -12,10 +12,18 @@
 #
 # NPM_STAGE_ATTEMPTS (default 3) and NPM_STAGE_RETRY_DELAY seconds (default 15)
 # tune the retry. Errors that are not transient fail on the first attempt.
+# A network error during the registry POST itself may leave the version
+# staged; the retry then meets npm's "already staged" refusal and fails,
+# which is the right outcome: approve or reject it before re-running.
 set -euo pipefail
 
 attempts=${NPM_STAGE_ATTEMPTS:-3}
 delay=${NPM_STAGE_RETRY_DELAY:-15}
+case "$attempts$delay" in *[!0-9]*)
+  echo "::error::NPM_STAGE_ATTEMPTS and NPM_STAGE_RETRY_DELAY must be whole numbers"
+  exit 2
+  ;;
+esac
 transient='TLOG_CREATE_ENTRY_ERROR|TLOG_FETCH_ENTRY_ERROR|ECONNRESET|ETIMEDOUT|EAI_AGAIN|npm error code E50[0-9]'
 
 log=$(mktemp)
