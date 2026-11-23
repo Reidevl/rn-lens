@@ -10,8 +10,9 @@ import (
 
 // ansiEscape matches terminal escape sequences: CSI sequences such as the
 // colors React Native puts in its DevTools banner ("\x1b[30m"), OSC
-// sequences ending in BEL or ST, and two-byte escapes.
-var ansiEscape = regexp.MustCompile(`\x1b(?:\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[\x40-\x5f])`)
+// sequences ending in BEL or ST, character-set selections such as "\x1b(B"
+// (printed by tput sgr0), and two-byte escapes.
+var ansiEscape = regexp.MustCompile(`\x1b(?:\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[\x20-\x2f]+[\x30-\x7e]|[\x40-\x5f])`)
 
 // stripANSI removes terminal escape sequences, which the console cannot
 // render and would otherwise show as raw text.

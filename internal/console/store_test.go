@@ -73,9 +73,26 @@ func TestIngestStripsANSIEscapeCodes(t *testing.T) {
 		t.Fatalf("number arg changed: %s", e.Args[1].Value)
 	}
 
-	logged, _ := s.Ingest(event(t, cdp.EventLogEntryAdded, cdp.LogEntryAdded{Entry: cdp.LogEntry{Source: "javascript", Level: "info", Text: "\x1b[32mready\x1b[0m"}}))
+	logged, _ := s.Ingest(event(t, cdp.EventLogEntryAdded, cdp.LogEntryAdded{Entry: cdp.LogEntry{Source: "javascript", Level: "info", Text: "\x1b[32mready\x1b(B\x1b[m"}}))
 	if logged.Text != "ready" {
 		t.Fatalf("log entry text = %q", logged.Text)
+	}
+}
+
+func TestIngestStripsANSIFromExceptions(t *testing.T) {
+	t.Parallel()
+	s := console.NewStore(10, nil)
+	e, ok := s.Ingest(event(t, cdp.EventRuntimeExceptionThrown, cdp.ExceptionThrown{
+		ExceptionDetails: cdp.ExceptionDetails{
+			Text:      "Uncaught",
+			Exception: &cdp.RemoteObject{Type: "object", Subtype: "error", Description: "Error: \x1b[31mboom\x1b[0m\n    at f"},
+		},
+	}))
+	if !ok {
+		t.Fatal("not ingested")
+	}
+	if e.Text != "Error: boom" {
+		t.Fatalf("text = %q", e.Text)
 	}
 }
 

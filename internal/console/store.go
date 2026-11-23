@@ -159,6 +159,7 @@ func (s *Store) Ingest(ev cdp.Event) (Entry, bool) {
 				text = desc
 			}
 		}
+		text = stripANSI(text)
 		if text == "" {
 			text = "Uncaught exception"
 		}
