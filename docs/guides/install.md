@@ -1,8 +1,5 @@
 # Install
 
-> Lens has not published a release yet. The channels below are ready and
-> start working with the first release.
-
 Lens comes in two builds of the same program:
 
 - **`rnlens`** runs Lens in your browser ([browser mode](browser-mode.md)). It

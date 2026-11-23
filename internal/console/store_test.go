@@ -50,6 +50,52 @@ func TestIngestConsoleAPICalled(t *testing.T) {
 	}
 }
 
+func TestIngestStripsANSIEscapeCodes(t *testing.T) {
+	t.Parallel()
+	s := console.NewStore(10, nil)
+	// React Native's DevTools banner, colored for a terminal.
+	banner := "\x1b[48;2;253;247;231m\x1b[30mWelcome to \x1b[1mReact Native DevTools\x1b[22m\x1b[0m"
+	e, ok := s.Ingest(event(t, cdp.EventRuntimeConsoleAPICalled, cdp.ConsoleAPICalled{
+		Type: "log",
+		Args: []cdp.RemoteObject{str(banner), num(7)},
+	}))
+	if !ok {
+		t.Fatal("event was not ingested")
+	}
+	if e.Text != "Welcome to React Native DevTools 7" {
+		t.Fatalf("text = %q", e.Text)
+	}
+	var first string
+	if err := json.Unmarshal(e.Args[0].Value, &first); err != nil || first != "Welcome to React Native DevTools" {
+		t.Fatalf("first arg = %q (%v)", first, err)
+	}
+	if string(e.Args[1].Value) != "7" {
+		t.Fatalf("number arg changed: %s", e.Args[1].Value)
+	}
+
+	logged, _ := s.Ingest(event(t, cdp.EventLogEntryAdded, cdp.LogEntryAdded{Entry: cdp.LogEntry{Source: "javascript", Level: "info", Text: "\x1b[32mready\x1b(B\x1b[m"}}))
+	if logged.Text != "ready" {
+		t.Fatalf("log entry text = %q", logged.Text)
+	}
+}
+
+func TestIngestStripsANSIFromExceptions(t *testing.T) {
+	t.Parallel()
+	s := console.NewStore(10, nil)
+	e, ok := s.Ingest(event(t, cdp.EventRuntimeExceptionThrown, cdp.ExceptionThrown{
+		ExceptionDetails: cdp.ExceptionDetails{
+			Text:      "Uncaught",
+			Exception: &cdp.RemoteObject{Type: "object", Subtype: "error", Description: "Error: \x1b[31mboom\x1b[0m\n    at f"},
+		},
+	}))
+	if !ok {
+		t.Fatal("not ingested")
+	}
+	if e.Text != "Error: boom" {
+		t.Fatalf("text = %q", e.Text)
+	}
+}
+
 func TestIngestUsesCDPTimestampWhenPresent(t *testing.T) {
 	t.Parallel()
 	s := console.NewStore(10, clock.NewFake(time.Unix(0, 0)))
