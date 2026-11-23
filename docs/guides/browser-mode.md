@@ -21,9 +21,13 @@ Ctrl+C.
 | `--port N`    | `7430`                        | Port of the Lens UI                                |
 | `--host H`    | `localhost`                   | Address to listen on (see Security)                |
 | `--no-open`   | off                           | Print the URL without opening a browser            |
-| `--metro`     | `localhost:8081, 8082, 19000` | Comma-separated Metro base URLs to poll            |
+| `--metro`     | `localhost:8081, 8082, 19000` | Comma-separated Metro addresses to poll            |
 | `--sdk-port`  | `7420`                        | Port of the `@rnlens/sdk` server (`0` disables it) |
 | `--sdk-token` | none                          | Pairing token the SDK must present                 |
+
+`--metro` takes a full URL (`http://192.168.1.5:8081`), a host and port
+(`localhost:8090`) or a bare port (`8090`, meaning localhost). For example,
+`rnlens --metro 8090` finds an app whose Metro runs on port 8090.
 
 `--metro` and the SDK flags work the same in the desktop app.
 

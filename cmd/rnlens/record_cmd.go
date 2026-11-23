@@ -31,7 +31,7 @@ type frameRecord struct {
 // until the duration elapses or Ctrl-C.
 func runRecord(args []string) int {
 	fs := flag.NewFlagSet("rnlens record", flag.ContinueOnError)
-	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro base URLs to poll")
+	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro addresses to poll: URL, host:port or port")
 	targetID := fs.String("target", "", "target id from `rnlens targets` (default: first reloadable target)")
 	out := fs.String("out", "", "output file (JSONL); required")
 	duration := fs.Duration("duration", 30*time.Second, "how long to record (0 = until Ctrl-C)")
@@ -60,7 +60,7 @@ func runRecord(args []string) int {
 		frames++
 	}
 
-	core := app.New(app.Config{Version: version, MetroEndpoints: splitList(*endpoints), FrameObserver: observer})
+	core := app.New(app.Config{Version: version, MetroEndpoints: metroEndpoints(*endpoints), FrameObserver: observer})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	core.RefreshTargets(ctx)
 	cancel()

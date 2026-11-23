@@ -62,7 +62,7 @@ func run(args []string) int {
 	fs.Usage = func() {}
 	sdkPort := fs.Int("sdk-port", 7420, "port the @rnlens/sdk WebSocket server listens on (0 disables it)")
 	sdkToken := fs.String("sdk-token", "", "pairing token the SDK must present (optional)")
-	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro base URLs to poll")
+	endpoints := fs.String("metro", strings.Join(metro.DefaultEndpoints, ","), "comma-separated Metro addresses to poll: URL, host:port or port")
 	mcpPort := fs.Int("mcp-port", mcpserver.DefaultPort, "port of the MCP endpoint for AI clients (0 disables it)")
 	mcpTokenFlag := fs.String("mcp-token", "", "bearer token AI clients must send to the MCP endpoint (prefer "+mcpTokenEnv+")")
 	mcpReadOnly := fs.Bool("mcp-read-only", false, "refuse the MCP tools that change the app (switch it in the MCP panel)")
@@ -87,7 +87,7 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "rnlens: %v\n", err)
 		return 1
 	}
-	core := app.New(app.Config{Version: buildVersion(), SDKAddr: sdkAddr, SDKToken: *sdkToken, MetroEndpoints: splitList(*endpoints)})
+	core := app.New(app.Config{Version: buildVersion(), SDKAddr: sdkAddr, SDKToken: *sdkToken, MetroEndpoints: metroEndpoints(*endpoints)})
 	core.Start()
 	defer core.Stop()
 
@@ -117,8 +117,9 @@ func printUsage() {
 	fmt.Print(`Lens - React Native DevTools
 
 Usage:
-` + runUsage + `    --metro URLS         Comma-separated Metro base URLs to poll (default
-                         localhost:8081, 8082 and 19000)
+` + runUsage + `    --metro URLS         Comma-separated Metro addresses to poll: a URL, host:port
+                         or a port, such as 8090 (default localhost:8081, 8082
+                         and 19000)
     --sdk-port N         Port for the @rnlens/sdk server (default 7420; 0 disables it)
     --sdk-token T        Pairing token the SDK must present (optional)
     --mcp-port N         Port of the MCP endpoint for AI clients (default 7431;

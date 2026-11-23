@@ -175,6 +175,30 @@ func TestSplitList(t *testing.T) {
 	}
 }
 
+func TestMetroEndpoints(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"full URLs are kept", "http://localhost:8081,https://metro.test", []string{"http://localhost:8081", "https://metro.test"}},
+		{"host and port get http", "localhost:8090", []string{"http://localhost:8090"}},
+		{"LAN address gets http", "192.168.1.5:8081", []string{"http://192.168.1.5:8081"}},
+		{"bare port means localhost", "8090", []string{"http://localhost:8090"}},
+		{"mixed, trimmed, trailing slash dropped", " 8082 , http://a:1/ ,", []string{"http://localhost:8082", "http://a:1"}},
+		{"empty", "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := metroEndpoints(tt.in); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("metroEndpoints(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRecordRequiresOut(t *testing.T) {
 	metro := fakeMetro(t, nil)
 	if code := run([]string{"record", "-metro", metro.URL}); code != 2 {
