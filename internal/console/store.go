@@ -129,12 +129,13 @@ func (s *Store) Ingest(ev cdp.Event) (Entry, bool) {
 			return Entry{}, false
 		}
 		kind := kindFromConsoleType(p.Type)
+		args := stripANSIArgs(p.Args)
 		e := Entry{
 			Timestamp: msToTime(p.Timestamp),
 			Kind:      kind,
 			Source:    SourceConsole,
-			Text:      FormatArgs(p.Args),
-			Args:      p.Args,
+			Text:      FormatArgs(args),
+			Args:      args,
 			Stack:     p.StackTrace,
 			ContextID: p.ExecutionContextID,
 		}
@@ -187,7 +188,7 @@ func (s *Store) Ingest(ev cdp.Event) (Entry, bool) {
 			return Entry{}, false
 		}
 		le := p.Entry
-		text := le.Text
+		text := stripANSI(le.Text)
 		if le.Source != "" && le.Source != "javascript" && le.Source != "other" {
 			text = "[" + le.Source + "] " + text
 		}
