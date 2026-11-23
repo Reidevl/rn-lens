@@ -1,12 +1,12 @@
 {
 	"fixed": {
-		"file_version": "0.1.3",
-		"product_version": "0.1.3"
+		"file_version": "0.1.4",
+		"product_version": "0.1.4"
 	},
 	"info": {
 		"0409": {
-			"FileVersion": "0.1.3",
-			"ProductVersion": "0.1.3",
+			"FileVersion": "0.1.4",
+			"ProductVersion": "0.1.4",
 			"CompanyName": "Lens",
 			"FileDescription": "React Native DevTools written in Go",
 			"LegalCopyright": "(c) 2026, Reiwil Lugo and Lens contributors",

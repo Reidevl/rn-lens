@@ -15,7 +15,7 @@
 !endif
 ; x-release-please-start-version
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.1.3"
+    !define INFO_PRODUCTVERSION "0.1.4"
 !endif
 ; x-release-please-end
 !ifndef INFO_COPYRIGHT

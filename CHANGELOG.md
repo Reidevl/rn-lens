@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.4](https://github.com/Reidevl/rn-lens/compare/v0.1.3...v0.1.4) (2026-11-23)
+
+
+### Bug Fixes
+
+* accept --metro ports, strip console escape codes, update install docs ([0f2fa16](https://github.com/Reidevl/rn-lens/commit/0f2fa16fcb860bc03a1ec9fe1797458236bb0b03))
+* **cli:** accept --metro host:port and bare ports ([980c020](https://github.com/Reidevl/rn-lens/commit/980c020dca331d89630c8e90056efea23b452071))
+* **console:** strip charset escapes and exception text ([885374c](https://github.com/Reidevl/rn-lens/commit/885374c4df701a0f2417b4a7de84c8cb07b76efa))
+* **console:** strip terminal escape codes from console text ([372e601](https://github.com/Reidevl/rn-lens/commit/372e601954a186865f1ba02b72d71d83a241b3d4))
+
+
+### Documentation
+
+* describe the published release in README and install guide ([eba1092](https://github.com/Reidevl/rn-lens/commit/eba10920d3bac907e33ce3ada2dc4d94a4c7ec88))
+
 ## [0.1.3](https://github.com/Reidevl/rn-lens/compare/v0.1.2...v0.1.3) (2026-11-20)
 
 
