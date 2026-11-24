@@ -152,6 +152,7 @@ jobs:
       # A version already published is skipped, so a re-run after a partial
       # failure stages only what is missing. npm refuses to stage a version
       # that is already staged: approve or reject those before re-running.
+      # The helper retries the transient Sigstore failures (see the script).
       - name: Stage the platform packages, then the launcher
         run: |
           tag=latest
@@ -162,7 +163,7 @@ jobs:
               echo "$spec is already published, skipping"
               continue
             fi
-            npm stage publish "$dir" --access public --provenance --tag "$tag"
+            .github/scripts/npm-stage-publish.sh "$dir" --access public --provenance --tag "$tag"
           done
 
   sdk:
@@ -222,7 +223,7 @@ jobs:
             echo "$spec is already published, skipping"
             exit 0
           fi
-          npm stage publish "$RUNNER_TEMP"/sdk/*.tgz --access public --provenance --tag "$tag"
+          .github/scripts/npm-stage-publish.sh "$RUNNER_TEMP"/sdk/*.tgz --access public --provenance --tag "$tag"
 
   desktop:
     name: desktop app (${{ matrix.os }})
